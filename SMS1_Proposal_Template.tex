@@ -1,0 +1,131 @@
+
+\documentclass[12pt,a4paper]{report}
+
+\usepackage[a4paper,left=1in,right=1in,top=1in,bottom=1in,bindingoffset=0.5in]{geometry}
+\usepackage{newtxtext,newtxmath}
+\usepackage{setspace}
+\onehalfspacing
+\usepackage{parskip}
+\setlength{\parskip}{6pt}
+\setlength{\parindent}{0pt}
+\usepackage{graphicx}
+\usepackage{booktabs,longtable,array}
+\usepackage{amsmath}
+\usepackage{caption}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[C]{Smart Academic Management System with AI-Based Attendance and Performance Analytics}
+\fancyfoot[C]{[\thepage/\pageref{LastPage}]}
+\setlength{\headheight}{15pt}
+
+\begin{document}
+
+\begin{titlepage}
+\centering
+{\Huge\bfseries Smart Academic Management System with AI-Based Attendance and Performance Analytics\par}
+\vfill
+Project Proposal
+\vfill
+\end{titlepage}
+
+\pagenumbering{roman}
+\chapter*{ABSTRACT}
+Educational institutions increasingly require digital solutions to efficiently manage academic activities, monitor student performance, and maintain accurate records. This proposal presents a Smart Academic Management System with AI-Based Attendance and Performance Analytics.
+
+\tableofcontents
+\newpage
+
+\pagenumbering{arabic}
+
+\chapter{INTRODUCTION}
+\section{Project Overview}
+Educational institutions manage a large volume of academic information, including student records, course allocations, attendance, assignments, notices, and performance evaluations.
+
+\section{Problem Statement}
+Educational institutions often face challenges in managing academic operations efficiently due to fragmented systems and manual attendance processes.
+
+\section{Project Objectives}
+\begin{enumerate}
+\item Implement secure RBAC.
+\item Manage departments, semesters, courses, teachers and students.
+\item Develop AI-powered attendance using YOLOv8.
+\item Provide assignment management.
+\item Generate performance analytics and GPA prediction.
+\end{enumerate}
+
+\section{Significance of the Study}
+The proposed system improves efficiency and effectiveness of academic management processes.
+
+\section{Scope and Limitations}
+Role-based access control, attendance tracking, analytics, and GPA prediction are included.
+
+\clearpage
+\chapter{LITERATURE REVIEW}
+
+\section{Overview of Academic Management Systems}
+Review of student management and attendance systems.
+
+\section{Traditional Attendance Management Approaches}
+Manual attendance systems and their limitations.
+
+\section{Computer Vision-Based Attendance Systems}
+Traditional and deep learning approaches including YOLOv8 and FaceNet.
+
+\section{Research Gap and Proposed Contribution}
+Existing systems rarely combine management, attendance automation, and analytics.
+
+\clearpage
+\chapter{PROPOSED METHODOLOGY}
+
+\section{System Architecture}
+React.js, FastAPI, PostgreSQL, YOLOv8, and WebSockets.
+
+\section{Authentication and Authorization}
+JWT-based authentication and RBAC.
+
+\section{Functional Modules}
+Admin, Department Admin, Teacher, and Student modules.
+
+\section{AI-Based Attendance Workflow}
+YOLOv8 detection, face recognition, attendance generation.
+
+\section{Database Design}
+PostgreSQL schema for academic records.
+
+\section{Real-Time Communication}
+WebSocket notifications.
+
+\section{Deployment Strategy}
+Docker and Nginx deployment.
+
+\clearpage
+\chapter{PROPOSED PERFORMANCE ANALYSIS METHODOLOGY AND VALIDATION SCHEME}
+
+\section{Performance Analysis Methodology}
+System and AI attendance metrics.
+
+\section{Validation Scheme}
+Functional, integration, and user acceptance testing.
+
+\clearpage
+\chapter{PROPOSED DELIVERABLES/OUTPUT}
+Software deliverables, technical deliverables, APIs, Docker configuration, and source code.
+
+\clearpage
+\chapter{PROJECT TASK AND TIME SCHEDULE}
+16-week project schedule and milestones.
+
+\clearpage
+\chapter{TEAM MEMBERS AND DIVIDED ROLES}
+Project Lead, Frontend Developer, Database Developer, AI/Deployment Engineer.
+
+\clearpage
+\chapter*{BIBLIOGRAPHY / REFERENCES}
+\addcontentsline{toc}{chapter}{BIBLIOGRAPHY / REFERENCES}
+References from journals, conference papers, and official documentation.
+
+\end{document}

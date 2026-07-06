@@ -1,0 +1,28 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-paper text-ink font-body antialiased;
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(30,36,48,0.035) 1px, transparent 0);
+    background-size: 20px 20px;
+  }
+  h1, h2, h3, h4 {
+    @apply font-display text-ink;
+  }
+  :focus-visible {
+    outline: 2px solid theme('colors.indigo.DEFAULT');
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  .label-tab {
+    @apply font-mono text-[10px] uppercase tracking-[0.12em] text-ink-faint;
+  }
+}

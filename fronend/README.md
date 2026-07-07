@@ -20,28 +20,35 @@ npm run dev
 
 Then visit `http://localhost:5173` — it redirects to `/admin`.
 
-## What's built (Module 1 — Super Admin)
+## What's built (Module 1 — Super Admin, complete)
 
 - **Project scaffold**: Vite + React + Tailwind, fonts wired in `index.html`.
 - **UI primitives** (`src/components/ui/`): `AttributeCard`, `RecordStrip`, `RecordList`,
-  `FloatingModal`, `Pill`, `Button`, `SearchInput` — all data-agnostic, reused by every role.
+  `FloatingModal`, `Pill`, `Button`, `SearchInput`, `Tabs` — all data-agnostic, reused by
+  every role and every page below.
 - **Shared layout** (`src/components/layout/`): `DashboardShell`, `Sidebar`, `Topbar` —
   driven entirely by `src/config/roleConfig.js`, so no role-specific branching lives in
   the shell itself.
-- **Super Admin pages**:
+- **Super Admin pages** (all under `/admin`):
   - `/admin` — Overview: headline metrics as floating cards + department summary grid.
-  - `/admin/departments` — full CRUD: search, add/edit via `FloatingModal`, delete,
-    rendered as a `RecordList` of `RecordStrip`s.
+  - `/admin/departments` — CRUD: search, add/edit via `FloatingModal`, delete.
+  - `/admin/users` — Users & Roles: search, role-filter chips, add/edit/remove, role +
+    status assignment.
+  - `/admin/courses` — Semesters & Courses: tabbed (`Tabs` primitive) master data for
+    both SEMESTER and COURSE entities, each with its own add/edit modal and delete.
+  - `/admin/enrollments` — Enrollment Approvals: pending/approved/rejected tabs,
+    inline Approve/Reject actions per row.
+  - `/admin/results` — Results Publishing: one row per semester's result batch, with a
+    confirm-before-publish modal (publishing is a one-way, student-visible action).
 
 ## Not yet built (next steps)
 
-- Super Admin: Users & Roles, Semesters & Courses, Enrollment Approvals, Results Publishing
-  (routes are commented in `App.jsx`, ready to slot in).
 - HOD, Teacher, Student modules — `roleConfig.js` already defines their nav; only their
   `features/<role>/pages/*` need building, reusing the same primitives and `DashboardShell`.
 - `src/lib/api/` — currently empty; mock data in `src/data/mock/` is shaped to match
   future FastAPI response payloads, so swapping is a matter of replacing the import with
   a fetch call.
+- Auth/login screen and route guarding by role (currently all `/admin/*` routes are open).
 
 ## Note on environment
 

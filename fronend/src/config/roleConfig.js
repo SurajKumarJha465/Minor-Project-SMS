@@ -1,6 +1,6 @@
 import {
-  LayoutGrid, Building2, Users, GraduationCap, BookOpen,
-  ClipboardCheck, CalendarCheck, FileBarChart2, UserCog, Layers
+  LayoutGrid, Building2, GraduationCap, BookOpen,
+  ClipboardCheck, CalendarCheck, FileBarChart2, UserCog, Layers, Search, Megaphone
 } from 'lucide-react'
 
 /**
@@ -16,7 +16,8 @@ const roleConfig = {
     nav: [
       { label: 'Overview', icon: LayoutGrid, to: '/admin' },
       { label: 'Departments', icon: Building2, to: '/admin/departments' },
-      { label: 'Users & Roles', icon: UserCog, to: '/admin/users' },
+      { label: 'Teachers & HODs', icon: UserCog, to: '/admin/users' },
+      { label: 'Students', icon: Search, to: '/admin/students' },
       { label: 'Semesters & Courses', icon: Layers, to: '/admin/courses' },
       { label: 'Enrollment Approvals', icon: ClipboardCheck, to: '/admin/enrollments' },
       { label: 'Results Publishing', icon: FileBarChart2, to: '/admin/results' }
@@ -28,9 +29,8 @@ const roleConfig = {
     tone: 'indigo',
     nav: [
       { label: 'Overview', icon: LayoutGrid, to: '/hod' },
-      { label: 'Teachers', icon: Users, to: '/hod/teachers' },
-      { label: 'Courses', icon: BookOpen, to: '/hod/courses' },
-      { label: 'Approvals', icon: ClipboardCheck, to: '/hod/approvals' }
+      { label: 'Semester Workspace', icon: Layers, to: '/hod/semester' },
+      { label: 'Notices', icon: Megaphone, to: '/hod/notices' }
     ]
   },
   teacher: {

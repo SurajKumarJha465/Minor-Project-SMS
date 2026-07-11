@@ -24,13 +24,13 @@ import {
   UserCheck,
 } from "lucide-react";
 
-import AttributeCard from "@/components/ui/AttributeCard";
-import ChartCard from "@/components/ui/ChartCard";
-import SectionCard from "@/components/ui/SectionCard";
-import Button from "@/components/ui/Button";
-import Pill from "@/components/ui/Pill";
-import FloatingModal from "@/components/ui/FloatingModal";
-import { CHART, tooltipStyle } from "@/lib/chart-colors";
+import AttributeCard from "@/features/Student/ui/AttributeCard";
+import ChartCard from "@/features/Student/ui/ChartCard";
+import SectionCard from "@/features/Student/ui/SectionCard";
+import Button from "@/features/Student/ui/Button";
+import Pill from "@/features/Student/ui/Pill";
+import FloatingModal from "@/features/Student/ui/FloatingModal";
+import { CHART, tooltipStyle } from "@/features/Student/lib/chart-colors";
 import {
   attendanceTrend,
   coursePerformance,
@@ -38,7 +38,7 @@ import {
   quickStats,
   semesterGpaTrend,
   studentProfile,
-} from "@/data/mock/student";
+} from "@/features/Student/data/mock/student";
 
 const CAT_TONE = { Important: "danger", Academic: "info", Department: "primary", Exam: "warning" };
 

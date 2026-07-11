@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { GraduationCap, LogOut, X } from "lucide-react";
 import { toast } from "sonner";
-import NavPill from "@/components/ui/NavPill";
-import FloatingModal from "@/components/ui/FloatingModal";
-import Button from "@/components/ui/Button";
+import NavPill from "@/features/Student/ui/NavPill";
+import FloatingModal from "@/features/Student/ui/FloatingModal";
+import Button from "@/features/Student/ui/Button";
 import { cn } from "@/lib/utils";
 
 /**

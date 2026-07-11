@@ -1,5 +1,5 @@
 import { ResponsiveContainer } from "recharts";
-import SectionCard from "@/components/ui/SectionCard";
+import SectionCard from "@/features/Student/ui/SectionCard";
 
 /**
  * ChartCard — SectionCard wrapper that sizes a recharts chart responsively.

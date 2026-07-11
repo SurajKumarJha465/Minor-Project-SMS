@@ -1,13 +1,13 @@
 import { toast } from "sonner";
 import { CalendarCheck, CalendarDays, CircleUserRound, Clock, Download, LogOut, UserCheck, UserX } from "lucide-react";
 
-import AttributeCard from "@/components/ui/AttributeCard";
-import SectionCard from "@/components/ui/SectionCard";
-import ProgressBar from "@/components/ui/ProgressBar";
-import Pill, { statusTone } from "@/components/ui/Pill";
-import Button from "@/components/ui/Button";
+import AttributeCard from "@/features/Student/ui/AttributeCard";
+import SectionCard from "@/features/Student/ui/SectionCard";
+import ProgressBar from "@/features/Student/ui/ProgressBar";
+import Pill, { statusTone } from "@/features/Student/ui/Pill";
+import Button from "@/features/Student/ui/Button";
 import { downloadMockPdf } from "@/lib/utils";
-import { attendanceCalendar, attendanceSummary, courseWiseAttendance } from "@/data/mock/student";
+import { attendanceCalendar, attendanceSummary, courseWiseAttendance } from "@/features/Student/data/mock/student";
 
 const STATUS_STYLE = {
   present: "bg-success/15 text-success",

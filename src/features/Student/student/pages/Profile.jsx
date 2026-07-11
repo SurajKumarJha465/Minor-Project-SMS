@@ -18,11 +18,11 @@ import {
   Users,
 } from "lucide-react";
 
-import SectionCard from "@/components/ui/SectionCard";
-import Button from "@/components/ui/Button";
-import Pill from "@/components/ui/Pill";
-import FloatingModal from "@/components/ui/FloatingModal";
-import { studentProfile } from "@/data/mock/student";
+import SectionCard from "@/features/Student/ui/SectionCard";
+import Button from "@/features/Student/ui/Button";
+import Pill from "@/features/Student/ui/Pill";
+import FloatingModal from "@/features/Student/ui/FloatingModal";
+import { studentProfile } from "@/features/Student/data/mock/student";
 
 function Field({ icon: Icon, label, value }) {
   return (

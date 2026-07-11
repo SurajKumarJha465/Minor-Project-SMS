@@ -1,8 +1,8 @@
 import { BookMarked, CalendarDays, FileText, PartyPopper, Sparkles } from "lucide-react";
 
-import SectionCard from "@/components/ui/SectionCard";
-import Pill from "@/components/ui/Pill";
-import { calendarEvents } from "@/data/mock/student";
+import SectionCard from "@/features/Student/ui/SectionCard";
+import Pill from "@/features/Student/ui/Pill";
+import { calendarEvents } from "@/features/Student/data/mock/student";
 
 const TYPE = {
   exam: { tone: "danger", icon: FileText, label: "Exam" },

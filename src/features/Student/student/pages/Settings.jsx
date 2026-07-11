@@ -2,11 +2,11 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Bell, Globe, KeyRound, Moon, ShieldCheck, Sun, UserRound } from "lucide-react";
 
-import SectionCard from "@/components/ui/SectionCard";
-import Button from "@/components/ui/Button";
-import { Switch } from "@/components/ui/switch";
-import { useTheme } from "@/lib/theme";
-import { studentProfile } from "@/data/mock/student";
+import SectionCard from "@/features/Student/ui/SectionCard";
+import Button from "@/features/Student/ui/Button";
+import { Switch } from "@/features/Student/ui/switch";
+import { useTheme } from "@/features/Student/lib/theme";
+import { studentProfile } from "@/features/Student/data/mock/student";
 
 function Row({ title, description, children }) {
   return (

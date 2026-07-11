@@ -16,11 +16,11 @@ import {
 } from "recharts";
 import { Award, Lightbulb, Sparkles, Target, TrendingUp } from "lucide-react";
 
-import AttributeCard from "@/components/ui/AttributeCard";
-import ChartCard from "@/components/ui/ChartCard";
-import SectionCard from "@/components/ui/SectionCard";
-import ProgressBar from "@/components/ui/ProgressBar";
-import { CHART, tooltipStyle } from "@/lib/chart-colors";
+import AttributeCard from "@/features/Student/ui/AttributeCard";
+import ChartCard from "@/features/Student/ui/ChartCard";
+import SectionCard from "@/features/Student/ui/SectionCard";
+import ProgressBar from "@/features/Student/ui/ProgressBar";
+import { CHART, tooltipStyle } from "@/features/Student/lib/chart-colors";
 import {
   attendanceTrend,
   coursePerformance,
@@ -28,7 +28,7 @@ import {
   performanceRadar,
   performanceScore,
   semesterGpaTrend,
-} from "@/data/mock/student";
+} from "@/features/Student/data/mock/student";
 
 // attendance vs gpa composite series
 const attVsGpa = semesterGpaTrend.map((s, i) => ({

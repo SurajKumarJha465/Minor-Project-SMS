@@ -2,12 +2,12 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { CalendarClock, CheckCircle2, FileText, MessageSquare, Upload, UserRound } from "lucide-react";
 
-import SectionCard from "@/components/ui/SectionCard";
-import ProgressBar from "@/components/ui/ProgressBar";
-import Pill from "@/components/ui/Pill";
-import Button from "@/components/ui/Button";
-import FloatingModal from "@/components/ui/FloatingModal";
-import { pendingAssignments, submittedAssignments } from "@/data/mock/student";
+import SectionCard from "@/features/Student/ui/SectionCard";
+import ProgressBar from "@/features/Student/ui/ProgressBar";
+import Pill from "@/features/Student/ui/Pill";
+import Button from "@/features/Student/ui/Button";
+import FloatingModal from "@/features/Student/ui/FloatingModal";
+import { pendingAssignments, submittedAssignments } from "@/features/Student/data/mock/student";
 
 const PRIORITY_TONE = { High: "danger", Medium: "warning", Low: "info" };
 const STATUS_TONE = { Pending: "warning", "In Progress": "primary" };

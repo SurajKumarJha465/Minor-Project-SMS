@@ -2,10 +2,10 @@ import { useState } from "react";
 import { ChevronRight, LogOut, Menu, PanelLeftClose, PanelLeft, Search } from "lucide-react";
 import { Moon, Sun } from "lucide-react";
 import { toast } from "sonner";
-import { useTheme } from "@/lib/theme";
+import { useTheme } from "@/features/Student/lib/theme";
 import { cn } from "@/lib/utils";
-import FloatingModal from "@/components/ui/FloatingModal";
-import Button from "@/components/ui/Button";
+import FloatingModal from "@/features/Student/ui/FloatingModal";
+import Button from "@/features/Student/ui/Button";
 
 /**
  * Topbar — breadcrumb, global search, theme toggle, profile and logout.

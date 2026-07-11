@@ -12,15 +12,15 @@ import {
 } from "recharts";
 import { Award, Download, Eye, GraduationCap, TrendingUp } from "lucide-react";
 
-import AttributeCard from "@/components/ui/AttributeCard";
-import ChartCard from "@/components/ui/ChartCard";
-import SectionCard from "@/components/ui/SectionCard";
-import Pill, { statusTone } from "@/components/ui/Pill";
-import Button from "@/components/ui/Button";
-import FloatingModal from "@/components/ui/FloatingModal";
-import { CHART, tooltipStyle } from "@/lib/chart-colors";
+import AttributeCard from "@/features/Student/ui/AttributeCard";
+import ChartCard from "@/features/Student/ui/ChartCard";
+import SectionCard from "@/features/Student/ui/SectionCard";
+import Pill, { statusTone } from "@/features/Student/ui/Pill";
+import Button from "@/features/Student/ui/Button";
+import FloatingModal from "@/features/Student/ui/FloatingModal";
+import { CHART, tooltipStyle } from "@/features/Student/lib/chart-colors";
 import { downloadMockPdf } from "@/lib/utils";
-import { semesterCourseGrades, semesterGpaTrend, semesterResults, studentProfile } from "@/data/mock/student";
+import { semesterCourseGrades, semesterGpaTrend, semesterResults, studentProfile } from "@/features/Student/data/mock/student";
 
 export default function SemesterResults() {
   const totalCredits = semesterResults.reduce((a, s) => a + s.credits, 0);

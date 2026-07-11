@@ -2,11 +2,11 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Bell, Filter, Paperclip, Search } from "lucide-react";
 
-import SectionCard from "@/components/ui/SectionCard";
-import Pill from "@/components/ui/Pill";
-import Button from "@/components/ui/Button";
-import FloatingModal from "@/components/ui/FloatingModal";
-import { noticeCategories, notices } from "@/data/mock/student";
+import SectionCard from "@/features/Student/ui/SectionCard";
+import Pill from "@/features/Student/ui/Pill";
+import Button from "@/features/Student/ui/Button";
+import FloatingModal from "@/features/Student/ui/FloatingModal";
+import { noticeCategories, notices } from "@/features/Student/data/mock/student";
 
 const CAT_TONE = { Important: "danger", Academic: "info", Department: "primary", Exam: "warning" };
 

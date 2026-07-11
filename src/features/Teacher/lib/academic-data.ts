@@ -1,4 +1,4 @@
-import { courses as baseCourses, students as baseStudents } from "@/lib/mock-data";
+import { courses as baseCourses, students as baseStudents } from "@/features/Teacher/lib/mock-data";
 
 export const departments = [
   { id: "ce", name: "Computer Engineering", code: "CE" },

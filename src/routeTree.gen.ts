@@ -9,38 +9,553 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TeacherRouteImport } from './routes/teacher'
+import { Route as StudentRouteImport } from './routes/student'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as HodRouteImport } from './routes/hod'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as TeacherIndexRouteImport } from './routes/teacher.index'
+import { Route as HodIndexRouteImport } from './routes/hod.index'
+import { Route as AdminIndexRouteImport } from './routes/admin.index'
+import { Route as TeacherReportsRouteImport } from './routes/teacher.reports'
+import { Route as TeacherProfileRouteImport } from './routes/teacher.profile'
+import { Route as TeacherPerformanceRouteImport } from './routes/teacher.performance'
+import { Route as TeacherNoticesRouteImport } from './routes/teacher.notices'
+import { Route as TeacherMarksRouteImport } from './routes/teacher.marks'
+import { Route as TeacherDashboardRouteImport } from './routes/teacher.dashboard'
+import { Route as TeacherCoursesRouteImport } from './routes/teacher.courses'
+import { Route as HodTeachersRouteImport } from './routes/hod.teachers'
+import { Route as HodStudentsRouteImport } from './routes/hod.students'
+import { Route as HodSettingsRouteImport } from './routes/hod.settings'
+import { Route as HodSemestersRouteImport } from './routes/hod.semesters'
+import { Route as HodResultsRouteImport } from './routes/hod.results'
+import { Route as HodReportsRouteImport } from './routes/hod.reports'
+import { Route as HodProfileRouteImport } from './routes/hod.profile'
+import { Route as HodOverviewRouteImport } from './routes/hod.overview'
+import { Route as HodNoticesRouteImport } from './routes/hod.notices'
+import { Route as HodMarksRouteImport } from './routes/hod.marks'
+import { Route as HodEnrollmentsRouteImport } from './routes/hod.enrollments'
+import { Route as HodDashboardRouteImport } from './routes/hod.dashboard'
+import { Route as HodCoursesRouteImport } from './routes/hod.courses'
+import { Route as HodCalendarRouteImport } from './routes/hod.calendar'
+import { Route as HodAttendanceRouteImport } from './routes/hod.attendance'
+import { Route as AdminTeachersRouteImport } from './routes/admin.teachers'
+import { Route as AdminStudentsRouteImport } from './routes/admin.students'
+import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
+import { Route as AdminProfileRouteImport } from './routes/admin.profile'
+import { Route as AdminHodsRouteImport } from './routes/admin.hods'
+import { Route as AdminDashboardRouteImport } from './routes/admin.dashboard'
+import { Route as TeacherAttendanceIndexRouteImport } from './routes/teacher.attendance.index'
+import { Route as TeacherAttendanceCourseIdRouteImport } from './routes/teacher.attendance.$courseId'
 
+const TeacherRoute = TeacherRouteImport.update({
+  id: '/teacher',
+  path: '/teacher',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StudentRoute = StudentRouteImport.update({
+  id: '/student',
+  path: '/student',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HodRoute = HodRouteImport.update({
+  id: '/hod',
+  path: '/hod',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TeacherIndexRoute = TeacherIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => TeacherRoute,
+} as any)
+const HodIndexRoute = HodIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => HodRoute,
+} as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const TeacherReportsRoute = TeacherReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => TeacherRoute,
+} as any)
+const TeacherProfileRoute = TeacherProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => TeacherRoute,
+} as any)
+const TeacherPerformanceRoute = TeacherPerformanceRouteImport.update({
+  id: '/performance',
+  path: '/performance',
+  getParentRoute: () => TeacherRoute,
+} as any)
+const TeacherNoticesRoute = TeacherNoticesRouteImport.update({
+  id: '/notices',
+  path: '/notices',
+  getParentRoute: () => TeacherRoute,
+} as any)
+const TeacherMarksRoute = TeacherMarksRouteImport.update({
+  id: '/marks',
+  path: '/marks',
+  getParentRoute: () => TeacherRoute,
+} as any)
+const TeacherDashboardRoute = TeacherDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => TeacherRoute,
+} as any)
+const TeacherCoursesRoute = TeacherCoursesRouteImport.update({
+  id: '/courses',
+  path: '/courses',
+  getParentRoute: () => TeacherRoute,
+} as any)
+const HodTeachersRoute = HodTeachersRouteImport.update({
+  id: '/teachers',
+  path: '/teachers',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodStudentsRoute = HodStudentsRouteImport.update({
+  id: '/students',
+  path: '/students',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodSettingsRoute = HodSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodSemestersRoute = HodSemestersRouteImport.update({
+  id: '/semesters',
+  path: '/semesters',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodResultsRoute = HodResultsRouteImport.update({
+  id: '/results',
+  path: '/results',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodReportsRoute = HodReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodProfileRoute = HodProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodOverviewRoute = HodOverviewRouteImport.update({
+  id: '/overview',
+  path: '/overview',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodNoticesRoute = HodNoticesRouteImport.update({
+  id: '/notices',
+  path: '/notices',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodMarksRoute = HodMarksRouteImport.update({
+  id: '/marks',
+  path: '/marks',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodEnrollmentsRoute = HodEnrollmentsRouteImport.update({
+  id: '/enrollments',
+  path: '/enrollments',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodDashboardRoute = HodDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodCoursesRoute = HodCoursesRouteImport.update({
+  id: '/courses',
+  path: '/courses',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodCalendarRoute = HodCalendarRouteImport.update({
+  id: '/calendar',
+  path: '/calendar',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodAttendanceRoute = HodAttendanceRouteImport.update({
+  id: '/attendance',
+  path: '/attendance',
+  getParentRoute: () => HodRoute,
+} as any)
+const AdminTeachersRoute = AdminTeachersRouteImport.update({
+  id: '/teachers',
+  path: '/teachers',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminStudentsRoute = AdminStudentsRouteImport.update({
+  id: '/students',
+  path: '/students',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminSettingsRoute = AdminSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminProfileRoute = AdminProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminHodsRoute = AdminHodsRouteImport.update({
+  id: '/hods',
+  path: '/hods',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminDashboardRoute = AdminDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AdminRoute,
+} as any)
+const TeacherAttendanceIndexRoute = TeacherAttendanceIndexRouteImport.update({
+  id: '/attendance/',
+  path: '/attendance/',
+  getParentRoute: () => TeacherRoute,
+} as any)
+const TeacherAttendanceCourseIdRoute =
+  TeacherAttendanceCourseIdRouteImport.update({
+    id: '/attendance/$courseId',
+    path: '/attendance/$courseId',
+    getParentRoute: () => TeacherRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
+  '/hod': typeof HodRouteWithChildren
+  '/login': typeof LoginRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/student': typeof StudentRoute
+  '/teacher': typeof TeacherRouteWithChildren
+  '/admin/dashboard': typeof AdminDashboardRoute
+  '/admin/hods': typeof AdminHodsRoute
+  '/admin/profile': typeof AdminProfileRoute
+  '/admin/settings': typeof AdminSettingsRoute
+  '/admin/students': typeof AdminStudentsRoute
+  '/admin/teachers': typeof AdminTeachersRoute
+  '/hod/attendance': typeof HodAttendanceRoute
+  '/hod/calendar': typeof HodCalendarRoute
+  '/hod/courses': typeof HodCoursesRoute
+  '/hod/dashboard': typeof HodDashboardRoute
+  '/hod/enrollments': typeof HodEnrollmentsRoute
+  '/hod/marks': typeof HodMarksRoute
+  '/hod/notices': typeof HodNoticesRoute
+  '/hod/overview': typeof HodOverviewRoute
+  '/hod/profile': typeof HodProfileRoute
+  '/hod/reports': typeof HodReportsRoute
+  '/hod/results': typeof HodResultsRoute
+  '/hod/semesters': typeof HodSemestersRoute
+  '/hod/settings': typeof HodSettingsRoute
+  '/hod/students': typeof HodStudentsRoute
+  '/hod/teachers': typeof HodTeachersRoute
+  '/teacher/courses': typeof TeacherCoursesRoute
+  '/teacher/dashboard': typeof TeacherDashboardRoute
+  '/teacher/marks': typeof TeacherMarksRoute
+  '/teacher/notices': typeof TeacherNoticesRoute
+  '/teacher/performance': typeof TeacherPerformanceRoute
+  '/teacher/profile': typeof TeacherProfileRoute
+  '/teacher/reports': typeof TeacherReportsRoute
+  '/admin/': typeof AdminIndexRoute
+  '/hod/': typeof HodIndexRoute
+  '/teacher/': typeof TeacherIndexRoute
+  '/teacher/attendance/$courseId': typeof TeacherAttendanceCourseIdRoute
+  '/teacher/attendance/': typeof TeacherAttendanceIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/login': typeof LoginRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/student': typeof StudentRoute
+  '/admin/dashboard': typeof AdminDashboardRoute
+  '/admin/hods': typeof AdminHodsRoute
+  '/admin/profile': typeof AdminProfileRoute
+  '/admin/settings': typeof AdminSettingsRoute
+  '/admin/students': typeof AdminStudentsRoute
+  '/admin/teachers': typeof AdminTeachersRoute
+  '/hod/attendance': typeof HodAttendanceRoute
+  '/hod/calendar': typeof HodCalendarRoute
+  '/hod/courses': typeof HodCoursesRoute
+  '/hod/dashboard': typeof HodDashboardRoute
+  '/hod/enrollments': typeof HodEnrollmentsRoute
+  '/hod/marks': typeof HodMarksRoute
+  '/hod/notices': typeof HodNoticesRoute
+  '/hod/overview': typeof HodOverviewRoute
+  '/hod/profile': typeof HodProfileRoute
+  '/hod/reports': typeof HodReportsRoute
+  '/hod/results': typeof HodResultsRoute
+  '/hod/semesters': typeof HodSemestersRoute
+  '/hod/settings': typeof HodSettingsRoute
+  '/hod/students': typeof HodStudentsRoute
+  '/hod/teachers': typeof HodTeachersRoute
+  '/teacher/courses': typeof TeacherCoursesRoute
+  '/teacher/dashboard': typeof TeacherDashboardRoute
+  '/teacher/marks': typeof TeacherMarksRoute
+  '/teacher/notices': typeof TeacherNoticesRoute
+  '/teacher/performance': typeof TeacherPerformanceRoute
+  '/teacher/profile': typeof TeacherProfileRoute
+  '/teacher/reports': typeof TeacherReportsRoute
+  '/admin': typeof AdminIndexRoute
+  '/hod': typeof HodIndexRoute
+  '/teacher': typeof TeacherIndexRoute
+  '/teacher/attendance/$courseId': typeof TeacherAttendanceCourseIdRoute
+  '/teacher/attendance': typeof TeacherAttendanceIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
+  '/hod': typeof HodRouteWithChildren
+  '/login': typeof LoginRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
+  '/student': typeof StudentRoute
+  '/teacher': typeof TeacherRouteWithChildren
+  '/admin/dashboard': typeof AdminDashboardRoute
+  '/admin/hods': typeof AdminHodsRoute
+  '/admin/profile': typeof AdminProfileRoute
+  '/admin/settings': typeof AdminSettingsRoute
+  '/admin/students': typeof AdminStudentsRoute
+  '/admin/teachers': typeof AdminTeachersRoute
+  '/hod/attendance': typeof HodAttendanceRoute
+  '/hod/calendar': typeof HodCalendarRoute
+  '/hod/courses': typeof HodCoursesRoute
+  '/hod/dashboard': typeof HodDashboardRoute
+  '/hod/enrollments': typeof HodEnrollmentsRoute
+  '/hod/marks': typeof HodMarksRoute
+  '/hod/notices': typeof HodNoticesRoute
+  '/hod/overview': typeof HodOverviewRoute
+  '/hod/profile': typeof HodProfileRoute
+  '/hod/reports': typeof HodReportsRoute
+  '/hod/results': typeof HodResultsRoute
+  '/hod/semesters': typeof HodSemestersRoute
+  '/hod/settings': typeof HodSettingsRoute
+  '/hod/students': typeof HodStudentsRoute
+  '/hod/teachers': typeof HodTeachersRoute
+  '/teacher/courses': typeof TeacherCoursesRoute
+  '/teacher/dashboard': typeof TeacherDashboardRoute
+  '/teacher/marks': typeof TeacherMarksRoute
+  '/teacher/notices': typeof TeacherNoticesRoute
+  '/teacher/performance': typeof TeacherPerformanceRoute
+  '/teacher/profile': typeof TeacherProfileRoute
+  '/teacher/reports': typeof TeacherReportsRoute
+  '/admin/': typeof AdminIndexRoute
+  '/hod/': typeof HodIndexRoute
+  '/teacher/': typeof TeacherIndexRoute
+  '/teacher/attendance/$courseId': typeof TeacherAttendanceCourseIdRoute
+  '/teacher/attendance/': typeof TeacherAttendanceIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/admin'
+    | '/hod'
+    | '/login'
+    | '/sitemap.xml'
+    | '/student'
+    | '/teacher'
+    | '/admin/dashboard'
+    | '/admin/hods'
+    | '/admin/profile'
+    | '/admin/settings'
+    | '/admin/students'
+    | '/admin/teachers'
+    | '/hod/attendance'
+    | '/hod/calendar'
+    | '/hod/courses'
+    | '/hod/dashboard'
+    | '/hod/enrollments'
+    | '/hod/marks'
+    | '/hod/notices'
+    | '/hod/overview'
+    | '/hod/profile'
+    | '/hod/reports'
+    | '/hod/results'
+    | '/hod/semesters'
+    | '/hod/settings'
+    | '/hod/students'
+    | '/hod/teachers'
+    | '/teacher/courses'
+    | '/teacher/dashboard'
+    | '/teacher/marks'
+    | '/teacher/notices'
+    | '/teacher/performance'
+    | '/teacher/profile'
+    | '/teacher/reports'
+    | '/admin/'
+    | '/hod/'
+    | '/teacher/'
+    | '/teacher/attendance/$courseId'
+    | '/teacher/attendance/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/login'
+    | '/sitemap.xml'
+    | '/student'
+    | '/admin/dashboard'
+    | '/admin/hods'
+    | '/admin/profile'
+    | '/admin/settings'
+    | '/admin/students'
+    | '/admin/teachers'
+    | '/hod/attendance'
+    | '/hod/calendar'
+    | '/hod/courses'
+    | '/hod/dashboard'
+    | '/hod/enrollments'
+    | '/hod/marks'
+    | '/hod/notices'
+    | '/hod/overview'
+    | '/hod/profile'
+    | '/hod/reports'
+    | '/hod/results'
+    | '/hod/semesters'
+    | '/hod/settings'
+    | '/hod/students'
+    | '/hod/teachers'
+    | '/teacher/courses'
+    | '/teacher/dashboard'
+    | '/teacher/marks'
+    | '/teacher/notices'
+    | '/teacher/performance'
+    | '/teacher/profile'
+    | '/teacher/reports'
+    | '/admin'
+    | '/hod'
+    | '/teacher'
+    | '/teacher/attendance/$courseId'
+    | '/teacher/attendance'
+  id:
+    | '__root__'
+    | '/'
+    | '/admin'
+    | '/hod'
+    | '/login'
+    | '/sitemap.xml'
+    | '/student'
+    | '/teacher'
+    | '/admin/dashboard'
+    | '/admin/hods'
+    | '/admin/profile'
+    | '/admin/settings'
+    | '/admin/students'
+    | '/admin/teachers'
+    | '/hod/attendance'
+    | '/hod/calendar'
+    | '/hod/courses'
+    | '/hod/dashboard'
+    | '/hod/enrollments'
+    | '/hod/marks'
+    | '/hod/notices'
+    | '/hod/overview'
+    | '/hod/profile'
+    | '/hod/reports'
+    | '/hod/results'
+    | '/hod/semesters'
+    | '/hod/settings'
+    | '/hod/students'
+    | '/hod/teachers'
+    | '/teacher/courses'
+    | '/teacher/dashboard'
+    | '/teacher/marks'
+    | '/teacher/notices'
+    | '/teacher/performance'
+    | '/teacher/profile'
+    | '/teacher/reports'
+    | '/admin/'
+    | '/hod/'
+    | '/teacher/'
+    | '/teacher/attendance/$courseId'
+    | '/teacher/attendance/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRouteWithChildren
+  HodRoute: typeof HodRouteWithChildren
+  LoginRoute: typeof LoginRoute
+  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  StudentRoute: typeof StudentRoute
+  TeacherRoute: typeof TeacherRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/teacher': {
+      id: '/teacher'
+      path: '/teacher'
+      fullPath: '/teacher'
+      preLoaderRoute: typeof TeacherRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/student': {
+      id: '/student'
+      path: '/student'
+      fullPath: '/student'
+      preLoaderRoute: typeof StudentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/hod': {
+      id: '/hod'
+      path: '/hod'
+      fullPath: '/hod'
+      preLoaderRoute: typeof HodRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -48,22 +563,340 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/teacher/': {
+      id: '/teacher/'
+      path: '/'
+      fullPath: '/teacher/'
+      preLoaderRoute: typeof TeacherIndexRouteImport
+      parentRoute: typeof TeacherRoute
+    }
+    '/hod/': {
+      id: '/hod/'
+      path: '/'
+      fullPath: '/hod/'
+      preLoaderRoute: typeof HodIndexRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/admin/': {
+      id: '/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/teacher/reports': {
+      id: '/teacher/reports'
+      path: '/reports'
+      fullPath: '/teacher/reports'
+      preLoaderRoute: typeof TeacherReportsRouteImport
+      parentRoute: typeof TeacherRoute
+    }
+    '/teacher/profile': {
+      id: '/teacher/profile'
+      path: '/profile'
+      fullPath: '/teacher/profile'
+      preLoaderRoute: typeof TeacherProfileRouteImport
+      parentRoute: typeof TeacherRoute
+    }
+    '/teacher/performance': {
+      id: '/teacher/performance'
+      path: '/performance'
+      fullPath: '/teacher/performance'
+      preLoaderRoute: typeof TeacherPerformanceRouteImport
+      parentRoute: typeof TeacherRoute
+    }
+    '/teacher/notices': {
+      id: '/teacher/notices'
+      path: '/notices'
+      fullPath: '/teacher/notices'
+      preLoaderRoute: typeof TeacherNoticesRouteImport
+      parentRoute: typeof TeacherRoute
+    }
+    '/teacher/marks': {
+      id: '/teacher/marks'
+      path: '/marks'
+      fullPath: '/teacher/marks'
+      preLoaderRoute: typeof TeacherMarksRouteImport
+      parentRoute: typeof TeacherRoute
+    }
+    '/teacher/dashboard': {
+      id: '/teacher/dashboard'
+      path: '/dashboard'
+      fullPath: '/teacher/dashboard'
+      preLoaderRoute: typeof TeacherDashboardRouteImport
+      parentRoute: typeof TeacherRoute
+    }
+    '/teacher/courses': {
+      id: '/teacher/courses'
+      path: '/courses'
+      fullPath: '/teacher/courses'
+      preLoaderRoute: typeof TeacherCoursesRouteImport
+      parentRoute: typeof TeacherRoute
+    }
+    '/hod/teachers': {
+      id: '/hod/teachers'
+      path: '/teachers'
+      fullPath: '/hod/teachers'
+      preLoaderRoute: typeof HodTeachersRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/students': {
+      id: '/hod/students'
+      path: '/students'
+      fullPath: '/hod/students'
+      preLoaderRoute: typeof HodStudentsRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/settings': {
+      id: '/hod/settings'
+      path: '/settings'
+      fullPath: '/hod/settings'
+      preLoaderRoute: typeof HodSettingsRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/semesters': {
+      id: '/hod/semesters'
+      path: '/semesters'
+      fullPath: '/hod/semesters'
+      preLoaderRoute: typeof HodSemestersRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/results': {
+      id: '/hod/results'
+      path: '/results'
+      fullPath: '/hod/results'
+      preLoaderRoute: typeof HodResultsRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/reports': {
+      id: '/hod/reports'
+      path: '/reports'
+      fullPath: '/hod/reports'
+      preLoaderRoute: typeof HodReportsRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/profile': {
+      id: '/hod/profile'
+      path: '/profile'
+      fullPath: '/hod/profile'
+      preLoaderRoute: typeof HodProfileRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/overview': {
+      id: '/hod/overview'
+      path: '/overview'
+      fullPath: '/hod/overview'
+      preLoaderRoute: typeof HodOverviewRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/notices': {
+      id: '/hod/notices'
+      path: '/notices'
+      fullPath: '/hod/notices'
+      preLoaderRoute: typeof HodNoticesRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/marks': {
+      id: '/hod/marks'
+      path: '/marks'
+      fullPath: '/hod/marks'
+      preLoaderRoute: typeof HodMarksRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/enrollments': {
+      id: '/hod/enrollments'
+      path: '/enrollments'
+      fullPath: '/hod/enrollments'
+      preLoaderRoute: typeof HodEnrollmentsRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/dashboard': {
+      id: '/hod/dashboard'
+      path: '/dashboard'
+      fullPath: '/hod/dashboard'
+      preLoaderRoute: typeof HodDashboardRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/courses': {
+      id: '/hod/courses'
+      path: '/courses'
+      fullPath: '/hod/courses'
+      preLoaderRoute: typeof HodCoursesRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/calendar': {
+      id: '/hod/calendar'
+      path: '/calendar'
+      fullPath: '/hod/calendar'
+      preLoaderRoute: typeof HodCalendarRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/attendance': {
+      id: '/hod/attendance'
+      path: '/attendance'
+      fullPath: '/hod/attendance'
+      preLoaderRoute: typeof HodAttendanceRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/admin/teachers': {
+      id: '/admin/teachers'
+      path: '/teachers'
+      fullPath: '/admin/teachers'
+      preLoaderRoute: typeof AdminTeachersRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/students': {
+      id: '/admin/students'
+      path: '/students'
+      fullPath: '/admin/students'
+      preLoaderRoute: typeof AdminStudentsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/settings': {
+      id: '/admin/settings'
+      path: '/settings'
+      fullPath: '/admin/settings'
+      preLoaderRoute: typeof AdminSettingsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/profile': {
+      id: '/admin/profile'
+      path: '/profile'
+      fullPath: '/admin/profile'
+      preLoaderRoute: typeof AdminProfileRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/hods': {
+      id: '/admin/hods'
+      path: '/hods'
+      fullPath: '/admin/hods'
+      preLoaderRoute: typeof AdminHodsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/dashboard': {
+      id: '/admin/dashboard'
+      path: '/dashboard'
+      fullPath: '/admin/dashboard'
+      preLoaderRoute: typeof AdminDashboardRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/teacher/attendance/': {
+      id: '/teacher/attendance/'
+      path: '/attendance'
+      fullPath: '/teacher/attendance/'
+      preLoaderRoute: typeof TeacherAttendanceIndexRouteImport
+      parentRoute: typeof TeacherRoute
+    }
+    '/teacher/attendance/$courseId': {
+      id: '/teacher/attendance/$courseId'
+      path: '/attendance/$courseId'
+      fullPath: '/teacher/attendance/$courseId'
+      preLoaderRoute: typeof TeacherAttendanceCourseIdRouteImport
+      parentRoute: typeof TeacherRoute
+    }
   }
 }
 
+interface AdminRouteChildren {
+  AdminDashboardRoute: typeof AdminDashboardRoute
+  AdminHodsRoute: typeof AdminHodsRoute
+  AdminProfileRoute: typeof AdminProfileRoute
+  AdminSettingsRoute: typeof AdminSettingsRoute
+  AdminStudentsRoute: typeof AdminStudentsRoute
+  AdminTeachersRoute: typeof AdminTeachersRoute
+  AdminIndexRoute: typeof AdminIndexRoute
+}
+
+const AdminRouteChildren: AdminRouteChildren = {
+  AdminDashboardRoute: AdminDashboardRoute,
+  AdminHodsRoute: AdminHodsRoute,
+  AdminProfileRoute: AdminProfileRoute,
+  AdminSettingsRoute: AdminSettingsRoute,
+  AdminStudentsRoute: AdminStudentsRoute,
+  AdminTeachersRoute: AdminTeachersRoute,
+  AdminIndexRoute: AdminIndexRoute,
+}
+
+const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
+
+interface HodRouteChildren {
+  HodAttendanceRoute: typeof HodAttendanceRoute
+  HodCalendarRoute: typeof HodCalendarRoute
+  HodCoursesRoute: typeof HodCoursesRoute
+  HodDashboardRoute: typeof HodDashboardRoute
+  HodEnrollmentsRoute: typeof HodEnrollmentsRoute
+  HodMarksRoute: typeof HodMarksRoute
+  HodNoticesRoute: typeof HodNoticesRoute
+  HodOverviewRoute: typeof HodOverviewRoute
+  HodProfileRoute: typeof HodProfileRoute
+  HodReportsRoute: typeof HodReportsRoute
+  HodResultsRoute: typeof HodResultsRoute
+  HodSemestersRoute: typeof HodSemestersRoute
+  HodSettingsRoute: typeof HodSettingsRoute
+  HodStudentsRoute: typeof HodStudentsRoute
+  HodTeachersRoute: typeof HodTeachersRoute
+  HodIndexRoute: typeof HodIndexRoute
+}
+
+const HodRouteChildren: HodRouteChildren = {
+  HodAttendanceRoute: HodAttendanceRoute,
+  HodCalendarRoute: HodCalendarRoute,
+  HodCoursesRoute: HodCoursesRoute,
+  HodDashboardRoute: HodDashboardRoute,
+  HodEnrollmentsRoute: HodEnrollmentsRoute,
+  HodMarksRoute: HodMarksRoute,
+  HodNoticesRoute: HodNoticesRoute,
+  HodOverviewRoute: HodOverviewRoute,
+  HodProfileRoute: HodProfileRoute,
+  HodReportsRoute: HodReportsRoute,
+  HodResultsRoute: HodResultsRoute,
+  HodSemestersRoute: HodSemestersRoute,
+  HodSettingsRoute: HodSettingsRoute,
+  HodStudentsRoute: HodStudentsRoute,
+  HodTeachersRoute: HodTeachersRoute,
+  HodIndexRoute: HodIndexRoute,
+}
+
+const HodRouteWithChildren = HodRoute._addFileChildren(HodRouteChildren)
+
+interface TeacherRouteChildren {
+  TeacherCoursesRoute: typeof TeacherCoursesRoute
+  TeacherDashboardRoute: typeof TeacherDashboardRoute
+  TeacherMarksRoute: typeof TeacherMarksRoute
+  TeacherNoticesRoute: typeof TeacherNoticesRoute
+  TeacherPerformanceRoute: typeof TeacherPerformanceRoute
+  TeacherProfileRoute: typeof TeacherProfileRoute
+  TeacherReportsRoute: typeof TeacherReportsRoute
+  TeacherIndexRoute: typeof TeacherIndexRoute
+  TeacherAttendanceCourseIdRoute: typeof TeacherAttendanceCourseIdRoute
+  TeacherAttendanceIndexRoute: typeof TeacherAttendanceIndexRoute
+}
+
+const TeacherRouteChildren: TeacherRouteChildren = {
+  TeacherCoursesRoute: TeacherCoursesRoute,
+  TeacherDashboardRoute: TeacherDashboardRoute,
+  TeacherMarksRoute: TeacherMarksRoute,
+  TeacherNoticesRoute: TeacherNoticesRoute,
+  TeacherPerformanceRoute: TeacherPerformanceRoute,
+  TeacherProfileRoute: TeacherProfileRoute,
+  TeacherReportsRoute: TeacherReportsRoute,
+  TeacherIndexRoute: TeacherIndexRoute,
+  TeacherAttendanceCourseIdRoute: TeacherAttendanceCourseIdRoute,
+  TeacherAttendanceIndexRoute: TeacherAttendanceIndexRoute,
+}
+
+const TeacherRouteWithChildren =
+  TeacherRoute._addFileChildren(TeacherRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRouteWithChildren,
+  HodRoute: HodRouteWithChildren,
+  LoginRoute: LoginRoute,
+  SitemapDotxmlRoute: SitemapDotxmlRoute,
+  StudentRoute: StudentRoute,
+  TeacherRoute: TeacherRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

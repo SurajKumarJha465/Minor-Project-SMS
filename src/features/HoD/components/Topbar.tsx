@@ -1,4 +1,5 @@
 import { Search, Sun, Moon, Menu, LogOut, User, Pencil, KeyRound } from "lucide-react";
+import { logout } from "@/lib/auth";
 import { useTheme } from "@/components/theme-provider";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -59,7 +60,7 @@ export function HodTopbar({ onMenu }: { onMenu: () => void }) {
                 <KeyRound className="mr-2 h-4 w-4" /> Change Password
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive"><LogOut className="mr-2 h-4 w-4" /> Logout</DropdownMenuItem>
+              <DropdownMenuItem className="text-destructive" onClick={logout}><LogOut className="mr-2 h-4 w-4" /> Logout</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

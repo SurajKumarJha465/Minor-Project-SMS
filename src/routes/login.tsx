@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
+import { setSession, type Role } from "@/lib/auth";
 
 export const Route = createFileRoute("/login")({
   head: () => ({

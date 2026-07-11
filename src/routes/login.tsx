@@ -49,6 +49,7 @@ function LoginPage() {
     }
     setErr({});
     setLoading(true);
+    setSession({ role: acc.role, email: email.trim().toLowerCase() });
     setTimeout(() => {
       toast.success(`Login Successful — opening ${acc.role.toUpperCase()} dashboard`);
       navigate({ to: acc.to });

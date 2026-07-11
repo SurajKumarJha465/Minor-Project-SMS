@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TeacherRouteImport } from './routes/teacher'
 import { Route as StudentRouteImport } from './routes/student'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as HodRouteImport } from './routes/hod'
 import { Route as AdminRouteImport } from './routes/admin'
@@ -57,6 +58,11 @@ const TeacherRoute = TeacherRouteImport.update({
 const StudentRoute = StudentRouteImport.update({
   id: '/student',
   path: '/student',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -251,6 +257,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRouteWithChildren
   '/hod': typeof HodRouteWithChildren
   '/login': typeof LoginRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/student': typeof StudentRoute
   '/teacher': typeof TeacherRouteWithChildren
   '/admin/dashboard': typeof AdminDashboardRoute
@@ -290,6 +297,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/student': typeof StudentRoute
   '/admin/dashboard': typeof AdminDashboardRoute
   '/admin/hods': typeof AdminHodsRoute
@@ -331,6 +339,7 @@ export interface FileRoutesById {
   '/admin': typeof AdminRouteWithChildren
   '/hod': typeof HodRouteWithChildren
   '/login': typeof LoginRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/student': typeof StudentRoute
   '/teacher': typeof TeacherRouteWithChildren
   '/admin/dashboard': typeof AdminDashboardRoute
@@ -374,6 +383,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/hod'
     | '/login'
+    | '/sitemap.xml'
     | '/student'
     | '/teacher'
     | '/admin/dashboard'
@@ -413,6 +423,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/login'
+    | '/sitemap.xml'
     | '/student'
     | '/admin/dashboard'
     | '/admin/hods'
@@ -453,6 +464,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/hod'
     | '/login'
+    | '/sitemap.xml'
     | '/student'
     | '/teacher'
     | '/admin/dashboard'
@@ -495,6 +507,7 @@ export interface RootRouteChildren {
   AdminRoute: typeof AdminRouteWithChildren
   HodRoute: typeof HodRouteWithChildren
   LoginRoute: typeof LoginRoute
+  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   StudentRoute: typeof StudentRoute
   TeacherRoute: typeof TeacherRouteWithChildren
 }
@@ -513,6 +526,13 @@ declare module '@tanstack/react-router' {
       path: '/student'
       fullPath: '/student'
       preLoaderRoute: typeof StudentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -873,6 +893,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRoute: AdminRouteWithChildren,
   HodRoute: HodRouteWithChildren,
   LoginRoute: LoginRoute,
+  SitemapDotxmlRoute: SitemapDotxmlRoute,
   StudentRoute: StudentRoute,
   TeacherRoute: TeacherRouteWithChildren,
 }

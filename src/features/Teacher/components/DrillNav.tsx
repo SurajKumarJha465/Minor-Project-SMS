@@ -1,7 +1,7 @@
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Building2, Layers, Users2, ChevronRight, ArrowLeft } from "lucide-react";
-import { departments, semesters, sections, deptName, sectionLabel } from "@/lib/academic-data";
+import { departments, semesters, sections, deptName, sectionLabel } from "@/features/Teacher/lib/academic-data";
 import { cn } from "@/lib/utils";
 
 export type DrillState = { dept?: string; sem?: number; section?: string };

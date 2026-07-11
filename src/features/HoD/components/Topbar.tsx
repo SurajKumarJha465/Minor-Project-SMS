@@ -6,7 +6,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { hod } from "@/lib/hod-mock-data";
+import { hod } from "@/features/HoD/lib/hod-mock-data";
 import { useNavigate } from "@tanstack/react-router";
 
 export function HodTopbar({ onMenu }: { onMenu: () => void }) {

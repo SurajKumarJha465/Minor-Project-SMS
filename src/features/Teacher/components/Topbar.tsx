@@ -12,7 +12,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { teacher } from "@/lib/mock-data";
+import { teacher } from "@/features/Teacher/lib/mock-data";
 
 export function Topbar({ onMenu }: { onMenu: () => void }) {
   const { theme, toggle } = useTheme();

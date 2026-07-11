@@ -6,7 +6,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { superAdmin } from "@/lib/superadmin-mock-data";
+import { superAdmin } from "@/features/SuperAdmin/lib/superadmin-mock-data";
 
 export function SaTopbar({ onMenu }: { onMenu: () => void }) {
   const { theme, toggle } = useTheme();

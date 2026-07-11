@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
-import { StatCard } from "@/components/StatCard";
+import { StatCard } from "@/features/HoD/components/StatCard";
 import {
   hod, teachers, hodStudents, hodCourses, semesters, sections,
   getStudentsBySemesterSection, type Section,

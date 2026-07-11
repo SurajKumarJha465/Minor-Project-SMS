@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Award, TrendingUp, AlertCircle, PieChart as PieIcon } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StatCard } from "@/components/StatCard";
+import { StatCard } from "@/features/HoD/components/StatCard";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { atRiskStudents, gpaTrend, passFail, topStudents, hodCourses } from "@/features/HoD/lib/hod-mock-data";

@@ -1,4 +1,5 @@
 import { Link, useLocation } from "@tanstack/react-router";
+import { logout } from "@/lib/auth";
 import { useState } from "react";
 import {
   LayoutDashboard, User, BookOpen, ClipboardCheck, GraduationCap,
@@ -93,7 +94,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => setLogoutOpen(false)}>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={logout}>
               Logout
             </AlertDialogAction>
           </AlertDialogFooter>

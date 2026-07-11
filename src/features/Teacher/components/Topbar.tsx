@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { logout } from "@/lib/auth";
 import { Search, Sun, Moon, Menu, LogOut, User } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { useNavigate } from "@tanstack/react-router";
@@ -70,7 +71,7 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => setLogoutOpen(false)}>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={logout}>
               Logout
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -50,7 +50,7 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>{teacher.title} {teacher.name}</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => navigate({ to: "/profile" })}>
+              <DropdownMenuItem onClick={() => navigate({ to: "/teacher/profile" })}>
                 <User className="mr-2 h-4 w-4" /> My Profile
               </DropdownMenuItem>
               <DropdownMenuSeparator />

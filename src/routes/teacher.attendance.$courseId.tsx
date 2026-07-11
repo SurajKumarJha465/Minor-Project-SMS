@@ -116,7 +116,7 @@ function TakeAttendance() {
   if (!course) {
     return (
       <div className="space-y-4">
-        <Link to="/attendance"><Button variant="outline" className="rounded-xl"><ArrowLeft className="mr-1.5 h-4 w-4" />Back to Attendance</Button></Link>
+        <Link to="/teacher/attendance"><Button variant="outline" className="rounded-xl"><ArrowLeft className="mr-1.5 h-4 w-4" />Back to Attendance</Button></Link>
         <p className="text-sm text-muted-foreground">Course not found.</p>
       </div>
     );
@@ -127,7 +127,7 @@ function TakeAttendance() {
       {/* Header */}
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <Link to="/attendance"><Button size="icon" variant="ghost" className="rounded-xl"><ArrowLeft className="h-4 w-4" /></Button></Link>
+          <Link to="/teacher/attendance"><Button size="icon" variant="ghost" className="rounded-xl"><ArrowLeft className="h-4 w-4" /></Button></Link>
           <div className="min-w-0">
             <div className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">{course.code} · {course.dept.toUpperCase()}</div>
             <h1 className="truncate font-display text-xl font-bold sm:text-2xl">{course.name} · Attendance</h1>

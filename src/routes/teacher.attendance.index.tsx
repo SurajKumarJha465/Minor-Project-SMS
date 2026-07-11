@@ -60,7 +60,7 @@ function AssignedCourses({ dept, sem, section }: { dept: string; sem: number; se
               <Badge variant="secondary" className="rounded-full">{c.enrolled}</Badge>
             </CardHeader>
             <CardContent className="space-y-4">
-              <Link to="/attendance/$courseId" params={{ courseId: c.id }}>
+              <Link to="/teacher/attendance/$courseId" params={{ courseId: c.id }}>
                 <Button className="w-full rounded-xl">
                   <Camera className="mr-2 h-4 w-4" /> Take Attendance
                   <ArrowRight className="ml-auto h-4 w-4" />

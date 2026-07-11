@@ -11,14 +11,14 @@ import {
 } from "@/components/ui/alert-dialog";
 
 const nav = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/profile", label: "My Profile", icon: User },
-  { to: "/courses", label: "My Courses", icon: BookOpen },
-  { to: "/attendance", label: "Attendance", icon: ClipboardCheck },
-  { to: "/marks", label: "Internal Marks", icon: GraduationCap },
-  { to: "/performance", label: "Performance", icon: BarChart3 },
-  { to: "/notices", label: "Notice", icon: Bell },
-  { to: "/reports", label: "Reports", icon: FileBarChart },
+  { to: "/teacher/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/teacher/profile", label: "My Profile", icon: User },
+  { to: "/teacher/courses", label: "My Courses", icon: BookOpen },
+  { to: "/teacher/attendance", label: "Attendance", icon: ClipboardCheck },
+  { to: "/teacher/marks", label: "Internal Marks", icon: GraduationCap },
+  { to: "/teacher/performance", label: "Performance", icon: BarChart3 },
+  { to: "/teacher/notices", label: "Notice", icon: Bell },
+  { to: "/teacher/reports", label: "Reports", icon: FileBarChart },
 ] as const;
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -37,7 +37,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
         )}
       >
         <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-5">
-          <Link to="/dashboard" className="flex items-center gap-2.5" onClick={onClose}>
+          <Link to="/teacher/dashboard" className="flex items-center gap-2.5" onClick={onClose}>
             <div className="grid h-9 w-9 place-items-center rounded-xl gradient-brand text-white shadow-soft">
               <GraduationCap className="h-5 w-5" />
             </div>
@@ -56,7 +56,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             Teacher Workspace
           </div>
           {nav.map(({ to, label, icon: Icon }) => {
-            const active = pathname === to || (to !== "/dashboard" && pathname.startsWith(to));
+            const active = pathname === to || (to !== "/teacher/dashboard" && pathname.startsWith(to));
             return (
               <Link
                 key={to}

@@ -15,6 +15,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as HodRouteImport } from './routes/hod'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as TeacherIndexRouteImport } from './routes/teacher.index'
 import { Route as HodIndexRouteImport } from './routes/hod.index'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as TeacherReportsRouteImport } from './routes/teacher.reports'
@@ -77,6 +78,11 @@ const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const TeacherIndexRoute = TeacherIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => TeacherRoute,
 } as any)
 const HodIndexRoute = HodIndexRouteImport.update({
   id: '/',
@@ -277,6 +283,7 @@ export interface FileRoutesByFullPath {
   '/teacher/reports': typeof TeacherReportsRoute
   '/admin/': typeof AdminIndexRoute
   '/hod/': typeof HodIndexRoute
+  '/teacher/': typeof TeacherIndexRoute
   '/teacher/attendance/$courseId': typeof TeacherAttendanceCourseIdRoute
   '/teacher/attendance/': typeof TeacherAttendanceIndexRoute
 }
@@ -284,7 +291,6 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/student': typeof StudentRoute
-  '/teacher': typeof TeacherRouteWithChildren
   '/admin/dashboard': typeof AdminDashboardRoute
   '/admin/hods': typeof AdminHodsRoute
   '/admin/profile': typeof AdminProfileRoute
@@ -315,6 +321,7 @@ export interface FileRoutesByTo {
   '/teacher/reports': typeof TeacherReportsRoute
   '/admin': typeof AdminIndexRoute
   '/hod': typeof HodIndexRoute
+  '/teacher': typeof TeacherIndexRoute
   '/teacher/attendance/$courseId': typeof TeacherAttendanceCourseIdRoute
   '/teacher/attendance': typeof TeacherAttendanceIndexRoute
 }
@@ -356,6 +363,7 @@ export interface FileRoutesById {
   '/teacher/reports': typeof TeacherReportsRoute
   '/admin/': typeof AdminIndexRoute
   '/hod/': typeof HodIndexRoute
+  '/teacher/': typeof TeacherIndexRoute
   '/teacher/attendance/$courseId': typeof TeacherAttendanceCourseIdRoute
   '/teacher/attendance/': typeof TeacherAttendanceIndexRoute
 }
@@ -398,6 +406,7 @@ export interface FileRouteTypes {
     | '/teacher/reports'
     | '/admin/'
     | '/hod/'
+    | '/teacher/'
     | '/teacher/attendance/$courseId'
     | '/teacher/attendance/'
   fileRoutesByTo: FileRoutesByTo
@@ -405,7 +414,6 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/student'
-    | '/teacher'
     | '/admin/dashboard'
     | '/admin/hods'
     | '/admin/profile'
@@ -436,6 +444,7 @@ export interface FileRouteTypes {
     | '/teacher/reports'
     | '/admin'
     | '/hod'
+    | '/teacher'
     | '/teacher/attendance/$courseId'
     | '/teacher/attendance'
   id:
@@ -476,6 +485,7 @@ export interface FileRouteTypes {
     | '/teacher/reports'
     | '/admin/'
     | '/hod/'
+    | '/teacher/'
     | '/teacher/attendance/$courseId'
     | '/teacher/attendance/'
   fileRoutesById: FileRoutesById
@@ -532,6 +542,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/teacher/': {
+      id: '/teacher/'
+      path: '/'
+      fullPath: '/teacher/'
+      preLoaderRoute: typeof TeacherIndexRouteImport
+      parentRoute: typeof TeacherRoute
     }
     '/hod/': {
       id: '/hod/'
@@ -830,6 +847,7 @@ interface TeacherRouteChildren {
   TeacherPerformanceRoute: typeof TeacherPerformanceRoute
   TeacherProfileRoute: typeof TeacherProfileRoute
   TeacherReportsRoute: typeof TeacherReportsRoute
+  TeacherIndexRoute: typeof TeacherIndexRoute
   TeacherAttendanceCourseIdRoute: typeof TeacherAttendanceCourseIdRoute
   TeacherAttendanceIndexRoute: typeof TeacherAttendanceIndexRoute
 }
@@ -842,6 +860,7 @@ const TeacherRouteChildren: TeacherRouteChildren = {
   TeacherPerformanceRoute: TeacherPerformanceRoute,
   TeacherProfileRoute: TeacherProfileRoute,
   TeacherReportsRoute: TeacherReportsRoute,
+  TeacherIndexRoute: TeacherIndexRoute,
   TeacherAttendanceCourseIdRoute: TeacherAttendanceCourseIdRoute,
   TeacherAttendanceIndexRoute: TeacherAttendanceIndexRoute,
 }

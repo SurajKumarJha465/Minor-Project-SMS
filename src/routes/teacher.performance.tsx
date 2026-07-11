@@ -4,12 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Award, TrendingUp } from "lucide-react";
-import { StatCard } from "@/components/StatCard";
-import { getAssignedCourses, getRosterFor, deptName, sectionLabel } from "@/lib/academic-data";
-import { DepartmentPicker, SemesterPicker, SectionPicker, DrillBreadcrumb, type DrillState } from "@/components/DrillNav";
+import { StatCard } from "@/features/Teacher/components/StatCard";
+import { getAssignedCourses, getRosterFor, deptName, sectionLabel } from "@/features/Teacher/lib/academic-data";
+import { DepartmentPicker, SemesterPicker, SectionPicker, DrillBreadcrumb, type DrillState } from "@/features/Teacher/components/DrillNav";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
-export const Route = createFileRoute("/_app/performance")({
+export const Route = createFileRoute("/teacher/performance")({
   head: () => ({ meta: [{ title: "Student Performance · Teacher Portal" }] }),
   component: PerformancePage,
 });

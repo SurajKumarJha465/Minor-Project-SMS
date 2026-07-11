@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
-import { semesters, department } from "@/lib/hod-mock-data";
+import { semesters, department } from "@/features/HoD/lib/hod-mock-data";
 
 export const Route = createFileRoute("/hod/semesters")({
   head: () => ({ meta: [{ title: "Semester Management · HOD" }] }),

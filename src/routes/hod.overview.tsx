@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Building2, Users, GraduationCap, BookOpen, CalendarRange, Mail, Phone, MapPin, Clock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { hod } from "@/lib/hod-mock-data";
+import { hod } from "@/features/HoD/lib/hod-mock-data";
 
 export const Route = createFileRoute("/hod/overview")({
   head: () => ({ meta: [{ title: "Department Overview · HOD" }] }),

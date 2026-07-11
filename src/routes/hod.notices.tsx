@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { departmentNotices } from "@/lib/hod-mock-data";
+import { departmentNotices } from "@/features/HoD/lib/hod-mock-data";
 
 export const Route = createFileRoute("/hod/notices")({
   head: () => ({ meta: [{ title: "Department Notices · HOD" }] }),

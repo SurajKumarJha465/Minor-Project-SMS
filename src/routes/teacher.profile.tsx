@@ -10,11 +10,11 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Mail, Phone, MapPin, Clock, Briefcase, GraduationCap, Pencil, Key, Camera, Check, X } from "lucide-react";
-import { teacher as teacherData, courses } from "@/lib/mock-data";
+import { teacher as teacherData, courses } from "@/features/Teacher/lib/mock-data";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/_app/profile")({
+export const Route = createFileRoute("/teacher/profile")({
   head: () => ({ meta: [{ title: "My Profile · Teacher Portal" }] }),
   component: Profile,
 });

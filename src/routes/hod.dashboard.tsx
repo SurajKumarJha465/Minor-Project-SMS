@@ -14,7 +14,7 @@ import { StatCard } from "@/components/StatCard";
 import {
   hod, teachers, hodStudents, hodCourses, semesters, sections,
   getStudentsBySemesterSection, type Section,
-} from "@/lib/hod-mock-data";
+} from "@/features/HoD/lib/hod-mock-data";
 
 export const Route = createFileRoute("/hod/dashboard")({
   head: () => ({ meta: [{ title: "HOD Dashboard · Comp. Engg." }] }),

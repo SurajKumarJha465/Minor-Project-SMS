@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Bell, Search, Paperclip, CalendarDays, Eye } from "lucide-react";
 
-export const Route = createFileRoute("/_app/notices")({
+export const Route = createFileRoute("/teacher/notices")({
   head: () => ({ meta: [{ title: "Notice · Teacher Portal" }] }),
   component: NoticesPage,
 });

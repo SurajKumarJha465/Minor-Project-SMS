@@ -10,11 +10,11 @@ import {
 import { ArrowLeft, Camera, CameraOff, CheckCircle2, XCircle, Save, ScanFace, MousePointerClick, PartyPopper } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { getCourseByCompositeId, getRosterFor, parseCourseId } from "@/lib/academic-data";
+import { getCourseByCompositeId, getRosterFor, parseCourseId } from "@/features/Teacher/lib/academic-data";
 
 type Status = "present" | "absent" | "pending";
 
-export const Route = createFileRoute("/_app/attendance/$courseId")({
+export const Route = createFileRoute("/teacher/attendance/$courseId")({
   head: () => ({ meta: [{ title: "Take Attendance · Teacher Portal" }] }),
   component: TakeAttendance,
 });

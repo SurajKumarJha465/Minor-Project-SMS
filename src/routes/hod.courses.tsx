@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { hodCourses } from "@/lib/hod-mock-data";
+import { hodCourses } from "@/features/HoD/lib/hod-mock-data";
 
 export const Route = createFileRoute("/hod/courses")({
   head: () => ({ meta: [{ title: "Course Management · HOD" }] }),

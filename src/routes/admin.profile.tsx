@@ -3,7 +3,7 @@ import { Mail, Phone, Shield, Clock, Pencil, KeyRound, ShieldCheck, Building2 } 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { superAdmin } from "@/lib/superadmin-mock-data";
+import { superAdmin } from "@/features/SuperAdmin/lib/superadmin-mock-data";
 
 export const Route = createFileRoute("/admin/profile")({
   head: () => ({ meta: [{ title: "Super Admin Profile" }] }),

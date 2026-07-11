@@ -3,7 +3,7 @@ import { ClipboardCheck, AlertTriangle, Clock, Download, Users } from "lucide-re
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/components/StatCard";
-import { deptAttendanceTrend, hodCourses, teachers } from "@/lib/hod-mock-data";
+import { deptAttendanceTrend, hodCourses, teachers } from "@/features/HoD/lib/hod-mock-data";
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 export const Route = createFileRoute("/hod/attendance")({

@@ -23,7 +23,7 @@ import {
 import {
   hodStudents as initialStudents, sections, semesters, department,
   getStudentsBySemesterSection, type Section,
-} from "@/lib/hod-mock-data";
+} from "@/features/HoD/lib/hod-mock-data";
 
 export const Route = createFileRoute("/hod/students")({
   head: () => ({ meta: [{ title: "Student Management · HOD" }] }),

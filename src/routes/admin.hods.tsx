@@ -20,7 +20,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { hods as initialHods, hodDepartmentOptions } from "@/lib/superadmin-mock-data";
+import { hods as initialHods, hodDepartmentOptions } from "@/features/SuperAdmin/lib/superadmin-mock-data";
 
 export const Route = createFileRoute("/admin/hods")({
   head: () => ({ meta: [{ title: "HOD Management · Super Admin" }] }),

@@ -18,7 +18,7 @@ import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
 } from "@/components/ui/alert-dialog";
-import { saTeachers as initialTeachers, departmentList, courseCatalog, type Course } from "@/lib/superadmin-mock-data";
+import { saTeachers as initialTeachers, departmentList, courseCatalog, type Course } from "@/features/SuperAdmin/lib/superadmin-mock-data";
 
 export const Route = createFileRoute("/admin/teachers")({
   head: () => ({ meta: [{ title: "Teacher Management · Super Admin" }] }),

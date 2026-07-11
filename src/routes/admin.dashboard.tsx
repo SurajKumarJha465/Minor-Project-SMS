@@ -4,8 +4,8 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { StatCard } from "@/components/StatCard";
-import { superAdmin, saAnalytics, deptDistribution } from "@/lib/superadmin-mock-data";
+import { StatCard } from "@/features/SuperAdmin/components/StatCard";
+import { superAdmin, saAnalytics, deptDistribution } from "@/features/SuperAdmin/lib/superadmin-mock-data";
 import {
   Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";

@@ -10,10 +10,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Save, Send, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
-import { getAssignedCourses, getRosterFor, deptName, sectionLabel } from "@/lib/academic-data";
-import { DepartmentPicker, SemesterPicker, SectionPicker, DrillBreadcrumb, type DrillState } from "@/components/DrillNav";
+import { getAssignedCourses, getRosterFor, deptName, sectionLabel } from "@/features/Teacher/lib/academic-data";
+import { DepartmentPicker, SemesterPicker, SectionPicker, DrillBreadcrumb, type DrillState } from "@/features/Teacher/components/DrillNav";
 
-export const Route = createFileRoute("/_app/marks")({
+export const Route = createFileRoute("/teacher/marks")({
   head: () => ({ meta: [{ title: "Internal Marks · Teacher Portal" }] }),
   component: MarksPage,
 });

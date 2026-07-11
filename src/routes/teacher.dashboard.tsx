@@ -5,10 +5,10 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { StatCard } from "@/components/StatCard";
-import { teacher, courses, activities } from "@/lib/mock-data";
+import { StatCard } from "@/features/Teacher/components/StatCard";
+import { teacher, courses, activities } from "@/features/Teacher/lib/mock-data";
 
-export const Route = createFileRoute("/_app/dashboard")({
+export const Route = createFileRoute("/teacher/dashboard")({
   head: () => ({ meta: [{ title: "Dashboard · Teacher Portal" }] }),
   component: Dashboard,
 });

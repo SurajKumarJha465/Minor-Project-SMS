@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { enrollmentRequests } from "@/lib/hod-mock-data";
+import { enrollmentRequests } from "@/features/HoD/lib/hod-mock-data";
 
 export const Route = createFileRoute("/hod/enrollments")({
   head: () => ({ meta: [{ title: "Enrollment Approval · HOD" }] }),

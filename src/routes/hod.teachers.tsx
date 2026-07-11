@@ -15,7 +15,7 @@ import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
 } from "@/components/ui/alert-dialog";
-import { hodCourses as initialCourses, teachers, semesters } from "@/lib/hod-mock-data";
+import { hodCourses as initialCourses, teachers, semesters } from "@/features/HoD/lib/hod-mock-data";
 
 export const Route = createFileRoute("/hod/teachers")({
   head: () => ({ meta: [{ title: "Teacher Management · HOD" }] }),

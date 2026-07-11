@@ -1,8 +1,8 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { useState } from "react";
-import { SaSidebar } from "@/components/superadmin/Sidebar";
-import { SaTopbar } from "@/components/superadmin/Topbar";
-import { SaBottomNav } from "@/components/superadmin/BottomNav";
+import { SaSidebar } from "@/features/SuperAdmin/components/Sidebar";
+import { SaTopbar } from "@/features/SuperAdmin/components/Topbar";
+import { SaBottomNav } from "@/features/SuperAdmin/components/BottomNav";
 
 export const Route = createFileRoute("/admin")({
   component: AdminLayout,

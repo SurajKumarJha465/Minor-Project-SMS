@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { CalendarDays, GraduationCap, FileText, Users, Bell, PartyPopper, Award } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { calendarEvents } from "@/lib/hod-mock-data";
+import { calendarEvents } from "@/features/HoD/lib/hod-mock-data";
 
 export const Route = createFileRoute("/hod/calendar")({
   head: () => ({ meta: [{ title: "Academic Calendar · HOD" }] }),

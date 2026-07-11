@@ -3,7 +3,7 @@ import { Mail, Phone, MapPin, Clock, GraduationCap, Award, Pencil, KeyRound, Bui
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { hod } from "@/lib/hod-mock-data";
+import { hod } from "@/features/HoD/lib/hod-mock-data";
 
 export const Route = createFileRoute("/hod/profile")({
   head: () => ({ meta: [{ title: "HOD Profile" }] }),

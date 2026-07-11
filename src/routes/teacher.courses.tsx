@@ -6,10 +6,10 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Eye } from "lucide-react";
 import { toast } from "sonner";
-import { getAssignedCourses, deptName, sectionLabel } from "@/lib/academic-data";
-import { DepartmentPicker, SemesterPicker, SectionPicker, DrillBreadcrumb, type DrillState } from "@/components/DrillNav";
+import { getAssignedCourses, deptName, sectionLabel } from "@/features/Teacher/lib/academic-data";
+import { DepartmentPicker, SemesterPicker, SectionPicker, DrillBreadcrumb, type DrillState } from "@/features/Teacher/components/DrillNav";
 
-export const Route = createFileRoute("/_app/courses")({
+export const Route = createFileRoute("/teacher/courses")({
   head: () => ({ meta: [{ title: "My Courses · Teacher Portal" }] }),
   component: CoursesPage,
 });

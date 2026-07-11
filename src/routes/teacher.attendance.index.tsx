@@ -4,10 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Camera, ArrowRight } from "lucide-react";
-import { getAssignedCourses, deptName, sectionLabel } from "@/lib/academic-data";
-import { DepartmentPicker, SemesterPicker, SectionPicker, DrillBreadcrumb, type DrillState } from "@/components/DrillNav";
+import { getAssignedCourses, deptName, sectionLabel } from "@/features/Teacher/lib/academic-data";
+import { DepartmentPicker, SemesterPicker, SectionPicker, DrillBreadcrumb, type DrillState } from "@/features/Teacher/components/DrillNav";
 
-export const Route = createFileRoute("/_app/attendance/")({
+export const Route = createFileRoute("/teacher/attendance/")({
   head: () => ({ meta: [{ title: "Attendance · Teacher Portal" }] }),
   component: AttendanceIndex,
 });

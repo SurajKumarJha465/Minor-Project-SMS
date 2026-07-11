@@ -12,7 +12,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
-import { saStudents, departmentList } from "@/lib/superadmin-mock-data";
+import { saStudents, departmentList } from "@/features/SuperAdmin/lib/superadmin-mock-data";
 
 export const Route = createFileRoute("/admin/students")({
   head: () => ({ meta: [{ title: "View Students · Super Admin" }] }),

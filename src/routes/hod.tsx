@@ -1,8 +1,8 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { useState } from "react";
-import { HodSidebar } from "@/components/hod/Sidebar";
-import { HodTopbar } from "@/components/hod/Topbar";
-import { HodBottomNav } from "@/components/hod/BottomNav";
+import { HodSidebar } from "@/features/HoD/components/Sidebar";
+import { HodTopbar } from "@/features/HoD/components/Topbar";
+import { HodBottomNav } from "@/features/HoD/components/BottomNav";
 
 export const Route = createFileRoute("/hod")({
   component: HodLayout,

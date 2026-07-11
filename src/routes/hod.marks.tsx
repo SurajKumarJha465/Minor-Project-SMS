@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Award, TrendingUp, TrendingDown, Clock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard } from "@/components/StatCard";
-import { hodCourses, teachers } from "@/lib/hod-mock-data";
+import { hodCourses, teachers } from "@/features/HoD/lib/hod-mock-data";
 import { Badge } from "@/components/ui/badge";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 

@@ -8,10 +8,10 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ArrowLeft, FileBarChart, Download, FileSpreadsheet, PartyPopper } from "lucide-react";
-import { getAssignedCourses, getRosterFor, deptName, sectionLabel } from "@/lib/academic-data";
-import { DepartmentPicker, SemesterPicker, SectionPicker, DrillBreadcrumb, type DrillState } from "@/components/DrillNav";
+import { getAssignedCourses, getRosterFor, deptName, sectionLabel } from "@/features/Teacher/lib/academic-data";
+import { DepartmentPicker, SemesterPicker, SectionPicker, DrillBreadcrumb, type DrillState } from "@/features/Teacher/components/DrillNav";
 
-export const Route = createFileRoute("/_app/reports")({
+export const Route = createFileRoute("/teacher/reports")({
   head: () => ({ meta: [{ title: "Reports · Teacher Portal" }] }),
   component: ReportsPage,
 });

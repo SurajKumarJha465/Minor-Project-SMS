@@ -20,7 +20,7 @@ export const Route = createFileRoute("/teacher/attendance/$courseId")({
 });
 
 function TakeAttendance() {
-  const { courseId } = useParams({ from: "/_app/attendance/$courseId" });
+  const { courseId } = useParams({ from: "/teacher/attendance/$courseId" });
   const { dept, sem, section } = parseCourseId(courseId);
   const course = getCourseByCompositeId(courseId);
 

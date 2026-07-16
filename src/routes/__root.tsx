@@ -89,6 +89,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: "Smart Student Management System" },
+      { name: "twitter:description", content: "An intelligent multi-role academic platform for students, teachers, HODs and administrators." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/dc865380-0d13-4897-9b12-0cc929ee1521/id-preview-7c640ccb--901a3521-9d4e-49e6-8b7d-7b7d35fe58ea.lovable.app-1783922209314.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/dc865380-0d13-4897-9b12-0cc929ee1521/id-preview-7c640ccb--901a3521-9d4e-49e6-8b7d-7b7d35fe58ea.lovable.app-1783922209314.png" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },

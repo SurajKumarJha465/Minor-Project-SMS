@@ -58,7 +58,7 @@ function TakeAttendance() {
       }
       setCameraOn(true);
       toast.success("Camera started · AI face recognition active");
-      simulateRecognition();
+      realRecognition();
     } catch (err: any) {
       setCameraError(err?.message ?? "Camera not available. Use manual mode.");
       toast.error("Camera unavailable — switch to manual mode below.");

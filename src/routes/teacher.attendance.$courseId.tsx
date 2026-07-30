@@ -11,7 +11,6 @@ import { ArrowLeft, Camera, CameraOff, CheckCircle2, XCircle, Save, ScanFace, Mo
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { getCourseByCompositeId, getRosterForCourse } from "@/features/Teacher/lib/academic-data";
-import { authHeader } from "@/lib/auth";
 
 type Status = "present" | "absent" | "pending";
 
@@ -124,7 +123,6 @@ function TakeAttendance() {
 
         const res = await fetch(`${RECOGNITION_API}/api/attendance/recognize`, {
           method: "POST",
-          headers: authHeader(),
           body: formData,
         });
         if (!res.ok) throw new Error(`Recognition failed (${res.status})`);

@@ -14,6 +14,9 @@ import { getCourseByCompositeId, getRosterFor, parseCourseId } from "@/features/
 
 type Status = "present" | "absent" | "pending";
 
+const RECOGNITION_API =
+  (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
 export const Route = createFileRoute("/teacher/attendance/$courseId")({
   head: () => ({ meta: [{ title: "Take Attendance · Teacher Portal" }] }),
   component: TakeAttendance,
@@ -69,19 +72,57 @@ function TakeAttendance() {
     setScanning(false);
   }
 
-  function simulateRecognition() {
+  async function realRecognition() {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) {
+      toast.error("Camera frame not ready yet — try again in a moment.");
+      return;
+    }
     setScanning(true);
-    const order = [...classRoster].sort(() => Math.random() - 0.5);
-    order.forEach((s, i) => {
-      setTimeout(() => {
-        // ~85% get recognized
-        if (Math.random() > 0.15) {
-          setRecognized((r) => ({ ...r, [s.id]: true }));
-          setStatuses((prev) => (prev[s.id] === "pending" ? { ...prev, [s.id]: "present" } : prev));
-        }
-        if (i === order.length - 1) setScanning(false);
-      }, 500 + i * 350);
-    });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      setScanning(false);
+      toast.error("Could not capture a frame from the camera.");
+      return;
+    }
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(async (blob) => {
+      if (!blob) {
+        setScanning(false);
+        toast.error("Could not encode the camera frame.");
+        return;
+      }
+      try {
+        const formData = new FormData();
+        formData.append("course_id", courseId);
+        formData.append("frame", blob, "frame.jpg");
+
+        const res = await fetch(`${RECOGNITION_API}/api/attendance/recognize`, {
+          method: "POST",
+          body: formData,
+        });
+        if (!res.ok) throw new Error(`Recognition failed (${res.status})`);
+        const data: { recognized?: Array<{ student_id: string }> } = await res.json();
+        const list = data.recognized ?? [];
+
+        list.forEach(({ student_id }) => {
+          setRecognized((r) => ({ ...r, [student_id]: true }));
+          setStatuses((prev) =>
+            prev[student_id] === "pending" ? { ...prev, [student_id]: "present" } : prev,
+          );
+        });
+        toast.success(`${list.length} student${list.length === 1 ? "" : "s"} recognized`);
+      } catch (err: any) {
+        toast.error(err?.message ?? "Recognition service unavailable — mark students manually.");
+      } finally {
+        setScanning(false);
+      }
+    }, "image/jpeg");
   }
 
   function setStatus(id: string, s: Status) {

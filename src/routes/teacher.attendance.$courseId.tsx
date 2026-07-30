@@ -10,7 +10,7 @@ import {
 import { ArrowLeft, Camera, CameraOff, CheckCircle2, XCircle, Save, ScanFace, MousePointerClick, PartyPopper } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { getCourseByCompositeId, getRosterFor, parseCourseId } from "@/features/Teacher/lib/academic-data";
+import { getCourseByCompositeId, getRosterForCourse } from "@/features/Teacher/lib/academic-data";
 
 type Status = "present" | "absent" | "pending";
 
@@ -22,16 +22,35 @@ export const Route = createFileRoute("/teacher/attendance/$courseId")({
   component: TakeAttendance,
 });
 
+type Student = { id: string; name: string; enrollment: string; photo: string };
+type Course = { code: string; name: string; dept: string };
+
 function TakeAttendance() {
   const { courseId } = useParams({ from: "/teacher/attendance/$courseId" });
-  const { dept, sem, section } = parseCourseId(courseId);
-  const course = getCourseByCompositeId(courseId);
 
-  const classRoster = useMemo(() => getRosterFor(dept, sem, section), [dept, sem, section]);
-  const [statuses, setStatuses] = useState<Record<string, Status>>(
-    () => Object.fromEntries(classRoster.map((s) => [s.id, "pending" as Status])),
-  );
+  const [course, setCourse] = useState<Course | null>(null);
+  const [classRoster, setClassRoster] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [statuses, setStatuses] = useState<Record<string, Status>>({});
   const [recognized, setRecognized] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([getCourseByCompositeId(courseId), getRosterForCourse(courseId)])
+      .then(([c, roster]) => {
+        if (cancelled) return;
+        setCourse(c);
+        setClassRoster(roster ?? []);
+        setStatuses(Object.fromEntries((roster ?? []).map((s: Student) => [s.id, "pending" as Status])));
+        setRecognized({});
+      })
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [courseId]);
+
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);

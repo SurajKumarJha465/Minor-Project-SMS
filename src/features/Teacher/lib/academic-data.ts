@@ -46,7 +46,33 @@ export function parseCourseId(compositeId: string) {
   return { dept, sem: Number(semStr), section };
 }
 
-export function getCourseByCompositeId(compositeId: string) {
+const RECOGNITION_API =
+  (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+// Real backend reads. Fall back to the deterministic mock when the service
+// is unreachable so the UI stays usable offline.
+export async function getCourseByCompositeId(courseId: string) {
+  try {
+    const res = await fetch(`${RECOGNITION_API}/api/courses/${courseId}`);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return getMockCourse(courseId) ?? null;
+  }
+}
+
+export async function getRosterForCourse(courseId: string) {
+  try {
+    const res = await fetch(`${RECOGNITION_API}/api/courses/${courseId}/roster`);
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    const { dept, sem, section } = parseCourseId(courseId);
+    return getRosterFor(dept, sem, section);
+  }
+}
+
+export function getMockCourse(compositeId: string) {
   const { dept, sem, section } = parseCourseId(compositeId);
   return getAssignedCourses(dept, sem, section).find((c) => c.id === compositeId);
 }

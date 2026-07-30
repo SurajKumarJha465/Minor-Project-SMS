@@ -17,11 +17,11 @@ export const Route = createFileRoute("/login")({
   component: LoginPage,
 });
 
-const ACCOUNTS: Record<string, { role: Role; to: string }> = {
-  "admin@ssms.edu":   { role: "admin",   to: "/admin/dashboard" },
-  "hod@ssms.edu":     { role: "hod",     to: "/hod/dashboard" },
-  "teacher@ssms.edu": { role: "teacher", to: "/teacher/dashboard" },
-  "student@ssms.edu": { role: "student", to: "/student" },
+const ROLE_ROUTES: Record<Role, string> = {
+  admin: "/admin/dashboard",
+  hod: "/hod/dashboard",
+  teacher: "/teacher/dashboard",
+  student: "/student",
 };
 
 function LoginPage() {
@@ -34,26 +34,44 @@ function LoginPage() {
   const [forgotOpen, setForgotOpen] = useState(false);
   const [err, setErr] = useState<{ email?: string; password?: string; form?: string }>({});
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const errs: typeof err = {};
     if (!email.trim()) errs.email = "Please enter your email.";
     if (!password) errs.password = "Please enter your password.";
     if (Object.keys(errs).length) { setErr(errs); return; }
 
-    const acc = ACCOUNTS[email.trim().toLowerCase()];
-    if (!acc || password !== "123456") {
-      setErr({ form: "Invalid email or password." });
-      toast.error("Invalid email or password.");
-      return;
-    }
     setErr({});
     setLoading(true);
-    setSession({ role: acc.role, email: email.trim().toLowerCase() });
-    setTimeout(() => {
-      toast.success(`Login Successful — opening ${acc.role.toUpperCase()} dashboard`);
-      navigate({ to: acc.to });
-    }, 900);
+    try {
+      const form = new URLSearchParams();
+      form.append("username", email.trim().toLowerCase());
+      form.append("password", password);
+
+      const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+      const res = await fetch(`${API_URL}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form,
+      });
+
+      if (!res.ok) {
+        setErr({ form: "Invalid email or password." });
+        toast.error("Invalid email or password.");
+        setLoading(false);
+        return;
+      }
+
+      const data = await res.json();
+      setSession({ role: data.role as Role, email: email.trim().toLowerCase(), token: data.access_token });
+      toast.success(`Login Successful — opening ${String(data.role).toUpperCase()} dashboard`);
+      navigate({ to: ROLE_ROUTES[data.role as Role] });
+    } catch {
+      setErr({ form: "Could not reach the server. Try again." });
+      toast.error("Could not reach the server.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

@@ -169,9 +169,13 @@ function TakeAttendance() {
   }
 
   const counts = classRoster.reduce(
-    (acc, s) => { acc[statuses[s.id]]++; return acc; },
+    (acc, s) => { acc[statuses[s.id] ?? "pending"]++; return acc; },
     { present: 0, absent: 0, pending: 0 } as Record<Status, number>,
   );
+
+  if (loading) {
+    return <p className="text-sm text-muted-foreground">Loading course…</p>;
+  }
 
   if (!course) {
     return (

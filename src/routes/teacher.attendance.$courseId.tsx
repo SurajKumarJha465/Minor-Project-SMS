@@ -233,7 +233,7 @@ function TakeAttendance() {
                 </Button>
               ) : (
                 <>
-                  <Button variant="outline" className="w-full rounded-xl" onClick={simulateRecognition} disabled={scanning}>
+                  <Button variant="outline" className="w-full rounded-xl" onClick={realRecognition} disabled={scanning}>
                     <ScanFace className="mr-1.5 h-4 w-4" /> {scanning ? "Scanning…" : "Re-scan"}
                   </Button>
                   <Button variant="destructive" className="w-full rounded-xl" onClick={stopCamera}>

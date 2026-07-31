@@ -19,12 +19,6 @@ import {
   type AttendanceEntry,
   type Status,
 } from "@/features/Teacher/lib/attendance-api";
-import {
-  recognizeAttendanceFrame,
-  saveAttendance,
-  type AttendanceEntry,
-  type Status,
-} from "@/features/Teacher/lib/attendance-api";
 
 export const Route = createFileRoute("/teacher/attendance/$courseId")({
   head: () => ({ meta: [{ title: "Take Attendance · Teacher Portal" }] }),

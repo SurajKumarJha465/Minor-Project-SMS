@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
 import {
   BookOpen, Users, Camera, Megaphone, PenSquare, Eye, FileBarChart, ArrowRight,
   CheckCheck, Award, Bell, FileText, MessageCircle,
@@ -6,7 +7,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/features/Teacher/components/StatCard";
-import { teacher, courses, activities } from "@/features/Teacher/lib/mock-data";
+import { teacher, activities } from "@/features/Teacher/lib/mock-data";
+import { getTeacherCourses, type TeacherCourse } from "@/features/Teacher/lib/academic-data";
 
 export const Route = createFileRoute("/teacher/dashboard")({
   head: () => ({ meta: [{ title: "Dashboard · Teacher Portal" }] }),
@@ -16,8 +18,43 @@ export const Route = createFileRoute("/teacher/dashboard")({
 const activityIcons = { check: CheckCheck, award: Award, bell: Bell, file: FileText, message: MessageCircle };
 
 function Dashboard() {
-  const today = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-  const totalStudents = courses.reduce((s, c) => s + c.enrolled, 0);
+  const today = new Date().toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  const [courses, setCourses] = useState<TeacherCourse[]>([]);
+  const [loadingCourses, setLoadingCourses] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingCourses(true);
+    getTeacherCourses()
+      .then((list) => {
+        if (!cancelled) setCourses(list);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingCourses(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const totalStudents = useMemo(
+    () => courses.reduce((sum, c) => sum + (c.enrolled ?? 0), 0),
+    [courses],
+  );
+
+  const totalCourses = courses.length;
+
+  const welcomeDeptSemester = useMemo(() => {
+    if (courses.length === 0) return `${teacher.department} · ${teacher.semester}`; // fallback to mock
+    const first = courses[0];
+    return `${first.dept.toUpperCase()} · Semester ${first.sem}`;
+  }, [courses]);
 
   return (
     <div className="space-y-6">
@@ -30,7 +67,7 @@ function Dashboard() {
             Welcome back, {teacher.title} {teacher.name.split(" ")[0]} 👋
           </h1>
           <p className="mt-1.5 max-w-xl text-sm text-white/80">
-            {teacher.department} · {teacher.semester}.
+            {welcomeDeptSemester}
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <Link to="/teacher/attendance">
@@ -44,8 +81,18 @@ function Dashboard() {
 
       {/* Statistics */}
       <div className="grid grid-cols-2 gap-4">
-        <StatCard label="Total Courses" value={courses.length} icon={BookOpen} tone="primary" />
-        <StatCard label="Total Students" value={totalStudents} icon={Users} tone="accent" />
+        <StatCard
+          label="Total Courses"
+          value={loadingCourses ? "…" : totalCourses}
+          icon={BookOpen}
+          tone="primary"
+        />
+        <StatCard
+          label="Total Students"
+          value={loadingCourses ? "…" : totalStudents}
+          icon={Users}
+          tone="accent"
+        />
       </div>
 
       {/* Quick actions */}
@@ -70,7 +117,7 @@ function Dashboard() {
         </CardContent>
       </Card>
 
-      {/* Recent Activity */}
+      {/* Recent Activity (mock for now) */}
       <Card className="rounded-2xl shadow-soft">
         <CardHeader className="pb-2"><CardTitle className="text-base">Recent Activity</CardTitle></CardHeader>
         <CardContent>

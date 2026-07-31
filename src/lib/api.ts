@@ -1,4 +1,4 @@
-import { getSession, logout } from "@/lib/auth";
+import { getSession, logout } from "@/lib/auth.ts";
 
 const API_BASE =
   (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";

@@ -49,6 +49,7 @@ function TeachersPage() {
   const [semester, setSemester] = useState<number | null>(null);
   const [selectedCourses, setSelectedCourses] = useState<Course[]>([]);
   const [teacherForm, setTeacherForm] = useState(emptyTeacherForm);
+  const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
 
   function resetWizard() {
     setStep(1); setDept(null); setSemester(null); setSelectedCourses([]); setTeacherForm(emptyTeacherForm);

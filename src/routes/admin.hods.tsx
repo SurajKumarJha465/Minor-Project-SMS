@@ -55,7 +55,7 @@ function HodsPage() {
   function openEdit(h: Hod) {
     setEditForm({
       name: h.name, email: h.email, phone: h.phone, qualification: h.qualification,
-      experience: h.experience, department: h.department, username: "", password: "",
+      experience: h.experience, department: h.department,
     });
     setEditTarget(h);
   }

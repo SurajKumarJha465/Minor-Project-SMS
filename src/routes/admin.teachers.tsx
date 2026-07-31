@@ -270,6 +270,46 @@ function TeachersPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* GENERATED PASSWORD */}
+      <Dialog
+        open={!!generatedPassword}
+        onOpenChange={(o) => { if (!o) { setGeneratedPassword(null); resetWizard(); } }}
+      >
+        <DialogContent className="rounded-2xl sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Teacher account created</DialogTitle>
+            <DialogDescription>
+              Share this temporary password with the teacher. It will not be shown again.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/40 p-3">
+            <code className="min-w-0 flex-1 truncate font-mono text-sm">{generatedPassword}</code>
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-lg"
+              onClick={() => {
+                navigator.clipboard?.writeText(generatedPassword ?? "");
+                toast.success("Password copied to clipboard");
+              }}
+            >
+              Copy
+            </Button>
+          </div>
+          <p className="text-xs text-destructive">
+            Warning: this password is displayed only once. Copy it before closing.
+          </p>
+          <DialogFooter>
+            <Button
+              className="rounded-xl gradient-brand text-white"
+              onClick={() => { setGeneratedPassword(null); resetWizard(); }}
+            >
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ADD TEACHER WIZARD */}
       <Dialog open={addOpen} onOpenChange={(o) => { setAddOpen(o); if (!o) resetWizard(); }}>
         <DialogContent className="rounded-2xl sm:max-w-lg">

@@ -349,6 +349,36 @@ function HodsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* GENERATED PASSWORD */}
+      <Dialog open={!!generatedPassword} onOpenChange={(o) => !o && setGeneratedPassword(null)}>
+        <DialogContent className="rounded-2xl sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>HOD account created</DialogTitle>
+            <DialogDescription>
+              Share this temporary password with the new HOD. It won't be shown again.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/40 px-3 py-2">
+            <code className="flex-1 truncate font-mono text-sm">{generatedPassword}</code>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              title="Copy password"
+              onClick={() => {
+                navigator.clipboard.writeText(generatedPassword ?? "");
+                toast.success("Password copied to clipboard");
+              }}
+            >
+              <Copy className="h-4 w-4" />
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button className="rounded-xl gradient-brand text-white" onClick={() => setGeneratedPassword(null)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

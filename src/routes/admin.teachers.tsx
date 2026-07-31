@@ -19,6 +19,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 import { saTeachers as initialTeachers, departmentList, courseCatalog, type Course } from "@/features/SuperAdmin/lib/superadmin-mock-data";
+import { authHeader } from "@/lib/auth";
 
 export const Route = createFileRoute("/admin/teachers")({
   head: () => ({ meta: [{ title: "Teacher Management · Super Admin" }] }),
@@ -28,7 +29,7 @@ export const Route = createFileRoute("/admin/teachers")({
 type Teacher = (typeof initialTeachers)[number];
 
 const emptyTeacherForm = {
-  name: "", email: "", phone: "", qualification: "", specialization: "", username: "", password: "",
+  name: "", email: "", phone: "", qualification: "", specialization: "", username: "",
 };
 
 function TeachersPage() {
@@ -48,6 +49,7 @@ function TeachersPage() {
   const [semester, setSemester] = useState<number | null>(null);
   const [selectedCourses, setSelectedCourses] = useState<Course[]>([]);
   const [teacherForm, setTeacherForm] = useState(emptyTeacherForm);
+  const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
 
   function resetWizard() {
     setStep(1); setDept(null); setSemester(null); setSelectedCourses([]); setTeacherForm(emptyTeacherForm);
@@ -58,7 +60,7 @@ function TeachersPage() {
   }
 
   function openEdit(t: Teacher) {
-    setEditForm({ name: t.name, email: t.email, phone: t.phone, qualification: t.qualification, specialization: t.specialization, username: t.username, password: "" });
+    setEditForm({ name: t.name, email: t.email, phone: t.phone, qualification: t.qualification, specialization: t.specialization, username: t.username });
     setEditTarget(t);
   }
 
@@ -78,28 +80,53 @@ function TeachersPage() {
     setDeleteTarget(null);
   }
 
-  function saveNewTeacher() {
+  async function saveNewTeacher() {
     if (!teacherForm.name || !teacherForm.email || selectedCourses.length === 0) {
       toast.error("Please fill in the teacher's name, email and assign at least one course");
       return;
     }
-    const newTeacher: Teacher = {
-      id: `T${200 + teachers.length + Math.floor(Math.random() * 900)}`,
-      name: teacherForm.name,
-      specialization: teacherForm.specialization,
-      department: dept ?? "",
-      courses: selectedCourses.length,
-      email: teacherForm.email,
-      phone: teacherForm.phone,
-      status: "active",
-      qualification: teacherForm.qualification,
-      username: teacherForm.username,
-      photo: `https://i.pravatar.cc/120?img=${Math.floor(Math.random() * 60)}`,
-    };
-    setTeachers((prev) => [newTeacher, ...prev]);
-    toast.success(`${newTeacher.name} added to ${dept} · Semester ${semester}`);
-    setAddOpen(false);
-    resetWizard();
+    try {
+      const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+      const res = await fetch(`${API_URL}/api/admin/teachers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({
+          department_id: dept,
+          semester: semester,
+          courses: selectedCourses.map((c: any) => ({ code: c.code, name: c.name, credit: c.credit })),
+          name: teacherForm.name,
+          email: teacherForm.email,
+          phone: teacherForm.phone,
+          qualification: teacherForm.qualification,
+          specialization: teacherForm.specialization,
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.detail ?? "Failed to create teacher");
+        return;
+      }
+      const data = await res.json();
+      const newTeacher: Teacher = {
+        id: `T${data.teacher_id}`,
+        name: teacherForm.name,
+        specialization: teacherForm.specialization,
+        department: dept ?? "",
+        courses: selectedCourses.length,
+        email: teacherForm.email,
+        phone: teacherForm.phone,
+        status: "active",
+        qualification: teacherForm.qualification,
+        username: teacherForm.username,
+        photo: `https://i.pravatar.cc/120?img=${Math.floor(Math.random() * 60)}`,
+      };
+      setTeachers((prev) => [newTeacher, ...prev]);
+      setGeneratedPassword(data.default_password);
+      setAddOpen(false);
+      setStep(1);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    }
   }
 
   return (
@@ -243,6 +270,46 @@ function TeachersPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* GENERATED PASSWORD */}
+      <Dialog
+        open={!!generatedPassword}
+        onOpenChange={(o) => { if (!o) { setGeneratedPassword(null); resetWizard(); } }}
+      >
+        <DialogContent className="rounded-2xl sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Teacher account created</DialogTitle>
+            <DialogDescription>
+              Share this temporary password with the teacher. It will not be shown again.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/40 p-3">
+            <code className="min-w-0 flex-1 truncate font-mono text-sm">{generatedPassword}</code>
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-lg"
+              onClick={() => {
+                navigator.clipboard?.writeText(generatedPassword ?? "");
+                toast.success("Password copied to clipboard");
+              }}
+            >
+              Copy
+            </Button>
+          </div>
+          <p className="text-xs text-destructive">
+            Warning: this password is displayed only once. Copy it before closing.
+          </p>
+          <DialogFooter>
+            <Button
+              className="rounded-xl gradient-brand text-white"
+              onClick={() => { setGeneratedPassword(null); resetWizard(); }}
+            >
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ADD TEACHER WIZARD */}
       <Dialog open={addOpen} onOpenChange={(o) => { setAddOpen(o); if (!o) resetWizard(); }}>
         <DialogContent className="rounded-2xl sm:max-w-lg">
@@ -329,7 +396,6 @@ function TeachersPage() {
               <Field label="Qualification"><Input className="rounded-xl" value={teacherForm.qualification} onChange={(e) => setTeacherForm({ ...teacherForm, qualification: e.target.value })} /></Field>
               <Field label="Specialization"><Input className="rounded-xl" value={teacherForm.specialization} onChange={(e) => setTeacherForm({ ...teacherForm, specialization: e.target.value })} /></Field>
               <Field label="Username"><Input className="rounded-xl" value={teacherForm.username} onChange={(e) => setTeacherForm({ ...teacherForm, username: e.target.value })} /></Field>
-              <Field label="Password"><Input type="password" className="rounded-xl" value={teacherForm.password} onChange={(e) => setTeacherForm({ ...teacherForm, password: e.target.value })} /></Field>
             </div>
           )}
 

@@ -1,4 +1,4 @@
-import { apiFormJson } from "@/lib/api";
+import { apiFormJson, apiJson } from "@/lib/api";
 
 export type Status = "present" | "absent" | "pending";
 export type MarkSource = "ai" | "manual";
@@ -22,6 +22,19 @@ export type SaveAttendanceResponse = {
   saved: number;
 };
 
+export type AttendanceTodayItem = {
+  student_id: string;
+  status: "present" | "absent" | "pending";
+  similarity?: number | null;
+  marked_by?: string | null; // "ai" or teacher user id
+};
+
+export type AttendanceTodayResponse = {
+  course_id: string;
+  date: string;
+  records: AttendanceTodayItem[];
+};
+
 export async function recognizeAttendanceFrame(input: {
   courseId: string;
   frameBlob: Blob;
@@ -40,4 +53,8 @@ export async function saveAttendance(input: {
   formData.append("course_id", input.courseId);
   formData.append("statuses", JSON.stringify(input.statuses));
   return apiFormJson<SaveAttendanceResponse>("/api/attendance/save", formData);
+}
+
+export async function getTodayAttendance(courseId: string): Promise<AttendanceTodayResponse> {
+  return apiJson<AttendanceTodayResponse>(`/api/attendance/today?course_id=${encodeURIComponent(courseId)}`);
 }

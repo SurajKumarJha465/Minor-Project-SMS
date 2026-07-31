@@ -15,6 +15,13 @@ import { getCourseByCompositeId, getRosterForCourse } from "@/features/Teacher/l
 import {
   recognizeAttendanceFrame,
   saveAttendance,
+  getTodayAttendance,
+  type AttendanceEntry,
+  type Status,
+} from "@/features/Teacher/lib/attendance-api";
+import {
+  recognizeAttendanceFrame,
+  saveAttendance,
   type AttendanceEntry,
   type Status,
 } from "@/features/Teacher/lib/attendance-api";
@@ -42,13 +49,38 @@ function TakeAttendance() {
     let cancelled = false;
     setLoading(true);
     Promise.all([getCourseByCompositeId(courseId), getRosterForCourse(courseId)])
-      .then(([c, roster]) => {
+      .then(async ([c, roster]) => {
         if (cancelled) return;
         setCourse(c);
-        setClassRoster(roster ?? []);
-        setStatuses(Object.fromEntries((roster ?? []).map((s: Student) => [s.id, "pending" as Status])));
-        setRecognized({});
-        setAttendanceMeta({});
+
+        const list = roster ?? [];
+        setClassRoster(list);
+
+        const baseStatuses = Object.fromEntries(
+          list.map((s: Student) => [s.id, "pending" as Status]),
+        );
+        const baseRecognized: Record<string, boolean> = {};
+        const baseMeta: Record<string, Omit<AttendanceEntry, "status">> = {};
+
+        // Try preloading today's existing saved attendance
+        try {
+          const today = await getTodayAttendance(courseId);
+          for (const r of today.records ?? []) {
+            if (!(r.student_id in baseStatuses)) continue;
+            baseStatuses[r.student_id] = r.status;
+            baseRecognized[r.student_id] = true;
+            baseMeta[r.student_id] = {
+              source: r.marked_by === "ai" ? "ai" : "manual",
+              similarity: r.similarity ?? null,
+            };
+          }
+        } catch {
+          // no-op: keep pending defaults if none saved yet / endpoint unavailable
+        }
+
+        setStatuses(baseStatuses);
+        setRecognized(baseRecognized);
+        setAttendanceMeta(baseMeta);
       })
       .finally(() => !cancelled && setLoading(false));
     return () => {

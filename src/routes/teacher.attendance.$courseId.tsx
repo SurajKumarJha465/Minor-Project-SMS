@@ -47,42 +47,49 @@ function TakeAttendance() {
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    Promise.all([getCourseByCompositeId(courseId), getRosterForCourse(courseId)])
-      .then(async ([c, roster]) => {
-        if (cancelled) return;
-        setCourse(c);
 
+    async function load() {
+      setLoading(true);
+      try {
+        const [c, roster, today] = await Promise.all([
+          getCourseByCompositeId(courseId),
+          getRosterForCourse(courseId),
+          getTodayAttendance(courseId).catch(() => null), // don't fail page if empty/unavailable
+        ]);
+
+        if (cancelled) return;
+
+        setCourse(c);
         const list = roster ?? [];
         setClassRoster(list);
 
-        const baseStatuses = Object.fromEntries(
+        const nextStatuses: Record<string, Status> = Object.fromEntries(
           list.map((s: Student) => [s.id, "pending" as Status]),
         );
-        const baseRecognized: Record<string, boolean> = {};
-        const baseMeta: Record<string, Omit<AttendanceEntry, "status">> = {};
+        const nextRecognized: Record<string, boolean> = {};
+        const nextMeta: Record<string, Omit<AttendanceEntry, "status">> = {};
 
-        // Try preloading today's existing saved attendance
-        try {
-          const today = await getTodayAttendance(courseId);
-          for (const r of today.records ?? []) {
-            if (!(r.student_id in baseStatuses)) continue;
-            baseStatuses[r.student_id] = r.status;
-            baseRecognized[r.student_id] = true;
-            baseMeta[r.student_id] = {
+        if (today?.records?.length) {
+          for (const r of today.records) {
+            if (!(r.student_id in nextStatuses)) continue;
+            nextStatuses[r.student_id] = r.status;
+            nextRecognized[r.student_id] = true;
+            nextMeta[r.student_id] = {
               source: r.marked_by === "ai" ? "ai" : "manual",
               similarity: r.similarity ?? null,
             };
           }
-        } catch {
-          // no-op: keep pending defaults if none saved yet / endpoint unavailable
         }
 
-        setStatuses(baseStatuses);
-        setRecognized(baseRecognized);
-        setAttendanceMeta(baseMeta);
-      })
-      .finally(() => !cancelled && setLoading(false));
+        setStatuses(nextStatuses);
+        setRecognized(nextRecognized);
+        setAttendanceMeta(nextMeta);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void load();
     return () => {
       cancelled = true;
     };

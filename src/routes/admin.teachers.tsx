@@ -91,7 +91,7 @@ function TeachersPage() {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeader() },
         body: JSON.stringify({
-          department_id: dept,
+          department_name: dept,
           semester: semester,
           courses: selectedCourses.map((c: any) => ({ code: c.code, name: c.name, credit: c.credit })),
           name: teacherForm.name,

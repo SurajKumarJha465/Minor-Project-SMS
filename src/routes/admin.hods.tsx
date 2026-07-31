@@ -3,8 +3,9 @@ import { useState } from "react";
 import { toast } from "sonner";
 import {
   Search, Plus, Mail, Phone, Eye, Pencil, Trash2, ArrowLeftRight,
-  Briefcase, Award, CalendarClock, Building2,
+  Briefcase, Award, CalendarClock, Building2, Copy,
 } from "lucide-react";
+import { authHeader } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";

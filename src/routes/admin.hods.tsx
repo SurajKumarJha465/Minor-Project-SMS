@@ -32,7 +32,7 @@ type Hod = (typeof initialHods)[number];
 
 const emptyForm = {
   name: "", email: "", phone: "", qualification: "", experience: "",
-  department: "", username: "", password: "",
+  department: "",
 };
 
 function HodsPage() {
@@ -44,6 +44,7 @@ function HodsPage() {
   const [transferTarget, setTransferTarget] = useState<Hod | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Hod | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
 
   const [editForm, setEditForm] = useState(emptyForm);
   const [transferDept, setTransferDept] = useState("");
@@ -87,27 +88,50 @@ function HodsPage() {
     setDeleteTarget(null);
   }
 
-  function createHod() {
+  async function createHod() {
     if (!createForm.name || !createForm.department || !createForm.email) {
       toast.error("Please fill in name, email and department");
       return;
     }
-    const newHod: Hod = {
-      id: `H${100 + hods.length + Math.floor(Math.random() * 900)}`,
-      name: createForm.name,
-      department: createForm.department,
-      email: createForm.email,
-      phone: createForm.phone,
-      status: "active",
-      qualification: createForm.qualification,
-      experience: createForm.experience,
-      assignedSince: new Date().toLocaleDateString(undefined, { month: "short", year: "numeric" }),
-      photo: `https://i.pravatar.cc/120?img=${Math.floor(Math.random() * 60)}`,
-    };
-    setHods((prev) => [newHod, ...prev]);
-    toast.success(`${newHod.name} created as HOD of ${newHod.department}`);
-    setCreateForm(emptyForm);
-    setCreateOpen(false);
+    try {
+      const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+      const res = await fetch(`${API_URL}/api/admin/hods`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({
+          name: createForm.name,
+          email: createForm.email,
+          phone: createForm.phone,
+          qualification: createForm.qualification,
+          experience: createForm.experience,
+          department_name: createForm.department,
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.detail ?? "Failed to create HOD");
+        return;
+      }
+      const data = await res.json();
+      const newHod: Hod = {
+        id: `H${data.hod_id}`,
+        name: createForm.name,
+        department: createForm.department,
+        email: createForm.email,
+        phone: createForm.phone,
+        status: "active",
+        qualification: createForm.qualification,
+        experience: createForm.experience,
+        assignedSince: new Date().toLocaleDateString(undefined, { month: "short", year: "numeric" }),
+        photo: `https://i.pravatar.cc/120?img=${Math.floor(Math.random() * 60)}`,
+      };
+      setHods((prev) => [newHod, ...prev]);
+      setGeneratedPassword(data.default_password);
+      setCreateForm(emptyForm);
+      setCreateOpen(false);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    }
   }
 
   return (
@@ -318,8 +342,6 @@ function HodsPage() {
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="Username"><Input className="rounded-xl" value={createForm.username} onChange={(e) => setCreateForm({ ...createForm, username: e.target.value })} /></Field>
-            <Field label="Password"><Input type="password" className="rounded-xl" value={createForm.password} onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })} /></Field>
           </div>
           <DialogFooter>
             <Button variant="outline" className="rounded-xl" onClick={() => setCreateOpen(false)}>Cancel</Button>

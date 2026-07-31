@@ -59,7 +59,7 @@ function TeachersPage() {
   }
 
   function openEdit(t: Teacher) {
-    setEditForm({ name: t.name, email: t.email, phone: t.phone, qualification: t.qualification, specialization: t.specialization, username: t.username, password: "" });
+    setEditForm({ name: t.name, email: t.email, phone: t.phone, qualification: t.qualification, specialization: t.specialization, username: t.username });
     setEditTarget(t);
   }
 
@@ -330,7 +330,6 @@ function TeachersPage() {
               <Field label="Qualification"><Input className="rounded-xl" value={teacherForm.qualification} onChange={(e) => setTeacherForm({ ...teacherForm, qualification: e.target.value })} /></Field>
               <Field label="Specialization"><Input className="rounded-xl" value={teacherForm.specialization} onChange={(e) => setTeacherForm({ ...teacherForm, specialization: e.target.value })} /></Field>
               <Field label="Username"><Input className="rounded-xl" value={teacherForm.username} onChange={(e) => setTeacherForm({ ...teacherForm, username: e.target.value })} /></Field>
-              <Field label="Password"><Input type="password" className="rounded-xl" value={teacherForm.password} onChange={(e) => setTeacherForm({ ...teacherForm, password: e.target.value })} /></Field>
             </div>
           )}
 

@@ -14,6 +14,12 @@ import { getCourseByCompositeId, getRosterForCourse } from "@/features/Teacher/l
 import { authHeader } from "@/lib/auth";
 
 type Status = "present" | "absent" | "pending";
+type MarkSource = "ai" | "manual";
+type AttendanceEntry = {
+  status: Status;
+  similarity?: number | null;
+  source?: MarkSource;
+};
 
 const RECOGNITION_API =
   (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
@@ -34,6 +40,8 @@ function TakeAttendance() {
   const [loading, setLoading] = useState(true);
   const [statuses, setStatuses] = useState<Record<string, Status>>({});
   const [recognized, setRecognized] = useState<Record<string, boolean>>({});
+  const [attendanceMeta, setAttendanceMeta] = useState<Record<string, Omit<AttendanceEntry, "status">>>({});
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,13 +53,13 @@ function TakeAttendance() {
         setClassRoster(roster ?? []);
         setStatuses(Object.fromEntries((roster ?? []).map((s: Student) => [s.id, "pending" as Status])));
         setRecognized({});
+        setAttendanceMeta({});
       })
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
   }, [courseId]);
-
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -93,6 +101,7 @@ function TakeAttendance() {
   }
 
   async function realRecognition() {
+    if (scanning || saving) return; // prevent overlaps
     const video = videoRef.current;
     if (!video || !video.videoWidth) {
       toast.error("Camera frame not ready yet — try again in a moment.");
@@ -127,19 +136,38 @@ function TakeAttendance() {
           headers: authHeader(),
           body: formData,
         });
+
+        if (res.status === 401) throw new Error("UNAUTHORIZED");
+        if (res.status === 403) throw new Error("FORBIDDEN");
         if (!res.ok) throw new Error(`Recognition failed (${res.status})`);
-        const data: { recognized?: Array<{ student_id: string }> } = await res.json();
+
+        const data: { recognized?: Array<{ student_id: string; similarity?: number }> } = await res.json();
         const list = data.recognized ?? [];
 
-        list.forEach(({ student_id }) => {
+        if (list.length === 0) {
+          toast.info("No faces matched this scan.");
+        }
+
+        list.forEach(({ student_id, similarity }) => {
           setRecognized((r) => ({ ...r, [student_id]: true }));
           setStatuses((prev) =>
             prev[student_id] === "pending" ? { ...prev, [student_id]: "present" } : prev,
           );
+          setAttendanceMeta((m) => ({
+            ...m,
+            [student_id]: { source: "ai", similarity: similarity ?? null },
+          }));
         });
+
         toast.success(`${list.length} student${list.length === 1 ? "" : "s"} recognized`);
       } catch (err: any) {
-        toast.error(err?.message ?? "Recognition service unavailable — mark students manually.");
+        if (err?.message === "UNAUTHORIZED") {
+          toast.error("Session expired. Please login again.");
+        } else if (err?.message === "FORBIDDEN") {
+          toast.error("You are not allowed to run recognition.");
+        } else {
+          toast.error(err?.message ?? "Recognition service unavailable — mark students manually.");
+        }
       } finally {
         setScanning(false);
       }
@@ -149,25 +177,93 @@ function TakeAttendance() {
   function setStatus(id: string, s: Status) {
     setStatuses((p) => ({ ...p, [id]: s }));
     setRecognized((r) => ({ ...r, [id]: true }));
+
+    // If teacher manually sets a status, mark source manual.
+    setAttendanceMeta((m) => ({
+      ...m,
+      [id]: {
+        source: "manual",
+        similarity: null,
+      },
+    }));
   }
 
   function markAllPresent() {
     const all: Record<string, Status> = {};
     const rec: Record<string, boolean> = {};
-    classRoster.forEach((s) => { all[s.id] = "present"; rec[s.id] = true; });
-    setStatuses(all); setRecognized(rec);
+    const meta: Record<string, Omit<AttendanceEntry, "status">> = {};
+    classRoster.forEach((s) => {
+      all[s.id] = "present";
+      rec[s.id] = true;
+      meta[s.id] = { source: "manual", similarity: null };
+    });
+    setStatuses(all);
+    setRecognized(rec);
+    setAttendanceMeta(meta);
     toast.success("All students marked present");
   }
 
+  async function persistAttendance(finalStatuses: Record<string, Status>) {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const payload: Record<string, AttendanceEntry> = {};
+
+      classRoster.forEach((s) => {
+        payload[s.id] = {
+          status: finalStatuses[s.id] ?? "absent",
+          similarity: attendanceMeta[s.id]?.similarity ?? null,
+          source: attendanceMeta[s.id]?.source ?? "manual",
+        };
+      });
+
+      const formData = new FormData();
+      formData.append("course_id", courseId);
+      formData.append("statuses", JSON.stringify(payload));
+
+      const res = await fetch(`${RECOGNITION_API}/api/attendance/save`, {
+        method: "POST",
+        headers: authHeader(),
+        body: formData,
+      });
+
+      if (res.status === 401) throw new Error("UNAUTHORIZED");
+      if (res.status === 403) throw new Error("FORBIDDEN");
+      if (!res.ok) throw new Error(`Save failed (${res.status})`);
+
+      setSuccessOpen(true);
+      toast.success("Attendance saved successfully.");
+    } catch (err: any) {
+      if (err?.message === "UNAUTHORIZED") {
+        toast.error("Session expired. Please login again.");
+      } else if (err?.message === "FORBIDDEN") {
+        toast.error("You are not allowed to save attendance.");
+      } else {
+        toast.error(err?.message ?? "Could not save attendance.");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function confirmSave() {
-    // Manual entry: anything not yet touched defaults to absent, per spec (only Present/Absent allowed).
+    // Any untouched pending students become absent before save.
     setStatuses((prev) => {
       const next = { ...prev };
-      classRoster.forEach((s) => { if (next[s.id] === "pending") next[s.id] = "absent"; });
+      classRoster.forEach((s) => {
+        if (next[s.id] === "pending") {
+          next[s.id] = "absent";
+          setAttendanceMeta((m) => ({
+            ...m,
+            [s.id]: { source: "manual", similarity: null },
+          }));
+        }
+      });
+
+      setConfirmOpen(false);
+      void persistAttendance(next);
       return next;
     });
-    setConfirmOpen(false);
-    setSuccessOpen(true);
   }
 
   const counts = classRoster.reduce(
@@ -200,8 +296,10 @@ function TakeAttendance() {
           </div>
         </div>
         <div className="flex shrink-0 gap-2">
-          <Button variant="outline" className="rounded-xl" onClick={markAllPresent}>Mark All Present</Button>
-          <Button className="rounded-xl" onClick={() => setConfirmOpen(true)}><Save className="mr-1.5 h-4 w-4" />Save</Button>
+          <Button variant="outline" className="rounded-xl" onClick={markAllPresent} disabled={saving || scanning}>Mark All Present</Button>
+          <Button className="rounded-xl" onClick={() => setConfirmOpen(true)} disabled={saving || scanning}>
+            <Save className="mr-1.5 h-4 w-4" /> {saving ? "Saving..." : "Save"}
+          </Button>
         </div>
       </div>
 
@@ -253,15 +351,15 @@ function TakeAttendance() {
 
             <div className="flex gap-2">
               {!cameraOn ? (
-                <Button className="w-full rounded-xl" onClick={startCamera}>
+                <Button className="w-full rounded-xl" onClick={startCamera} disabled={saving || scanning}>
                   <Camera className="mr-1.5 h-4 w-4" /> Start Camera
                 </Button>
               ) : (
                 <>
-                  <Button variant="outline" className="w-full rounded-xl" onClick={realRecognition} disabled={scanning}>
+                  <Button variant="outline" className="w-full rounded-xl" onClick={realRecognition} disabled={scanning || saving}>
                     <ScanFace className="mr-1.5 h-4 w-4" /> {scanning ? "Scanning…" : "Re-scan"}
                   </Button>
-                  <Button variant="destructive" className="w-full rounded-xl" onClick={stopCamera}>
+                  <Button variant="destructive" className="w-full rounded-xl" onClick={stopCamera} disabled={saving}>
                     <CameraOff className="mr-1.5 h-4 w-4" /> Stop
                   </Button>
                 </>
@@ -297,6 +395,7 @@ function TakeAttendance() {
                       onClick={() => setStatus(s.id, "present")}
                       className="relative block h-24 w-full overflow-hidden rounded-xl"
                       title="Click to mark present"
+                      disabled={saving}
                     >
                       <img
                         src={s.photo}
@@ -350,8 +449,10 @@ function TakeAttendance() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>No</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmSave}>Yes</AlertDialogAction>
+            <AlertDialogCancel disabled={saving}>No</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmSave} disabled={saving}>
+              {saving ? "Saving..." : "Yes"}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

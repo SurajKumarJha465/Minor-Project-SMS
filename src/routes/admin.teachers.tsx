@@ -79,28 +79,53 @@ function TeachersPage() {
     setDeleteTarget(null);
   }
 
-  function saveNewTeacher() {
+  async function saveNewTeacher() {
     if (!teacherForm.name || !teacherForm.email || selectedCourses.length === 0) {
       toast.error("Please fill in the teacher's name, email and assign at least one course");
       return;
     }
-    const newTeacher: Teacher = {
-      id: `T${200 + teachers.length + Math.floor(Math.random() * 900)}`,
-      name: teacherForm.name,
-      specialization: teacherForm.specialization,
-      department: dept ?? "",
-      courses: selectedCourses.length,
-      email: teacherForm.email,
-      phone: teacherForm.phone,
-      status: "active",
-      qualification: teacherForm.qualification,
-      username: teacherForm.username,
-      photo: `https://i.pravatar.cc/120?img=${Math.floor(Math.random() * 60)}`,
-    };
-    setTeachers((prev) => [newTeacher, ...prev]);
-    toast.success(`${newTeacher.name} added to ${dept} · Semester ${semester}`);
-    setAddOpen(false);
-    resetWizard();
+    try {
+      const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+      const res = await fetch(`${API_URL}/api/admin/teachers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({
+          department_id: dept,
+          semester: semester,
+          courses: selectedCourses.map((c: any) => ({ code: c.code, name: c.name, credit: c.credit })),
+          name: teacherForm.name,
+          email: teacherForm.email,
+          phone: teacherForm.phone,
+          qualification: teacherForm.qualification,
+          specialization: teacherForm.specialization,
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.detail ?? "Failed to create teacher");
+        return;
+      }
+      const data = await res.json();
+      const newTeacher: Teacher = {
+        id: `T${data.teacher_id}`,
+        name: teacherForm.name,
+        specialization: teacherForm.specialization,
+        department: dept ?? "",
+        courses: selectedCourses.length,
+        email: teacherForm.email,
+        phone: teacherForm.phone,
+        status: "active",
+        qualification: teacherForm.qualification,
+        username: teacherForm.username,
+        photo: `https://i.pravatar.cc/120?img=${Math.floor(Math.random() * 60)}`,
+      };
+      setTeachers((prev) => [newTeacher, ...prev]);
+      setGeneratedPassword(data.default_password);
+      setAddOpen(false);
+      setStep(1);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    }
   }
 
   return (

@@ -19,6 +19,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
 } from "@/components/ui/alert-dialog";
 import { saTeachers as initialTeachers, departmentList, courseCatalog, type Course } from "@/features/SuperAdmin/lib/superadmin-mock-data";
+import { authHeader } from "@/lib/auth";
 
 export const Route = createFileRoute("/admin/teachers")({
   head: () => ({ meta: [{ title: "Teacher Management · Super Admin" }] }),
@@ -28,7 +29,7 @@ export const Route = createFileRoute("/admin/teachers")({
 type Teacher = (typeof initialTeachers)[number];
 
 const emptyTeacherForm = {
-  name: "", email: "", phone: "", qualification: "", specialization: "", username: "", password: "",
+  name: "", email: "", phone: "", qualification: "", specialization: "", username: "",
 };
 
 function TeachersPage() {

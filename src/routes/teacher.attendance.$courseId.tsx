@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { apiFormJson, ApiError } from "@/lib/api";
+import { ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -12,14 +12,12 @@ import { ArrowLeft, Camera, CameraOff, CheckCircle2, XCircle, Save, ScanFace, Mo
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { getCourseByCompositeId, getRosterForCourse } from "@/features/Teacher/lib/academic-data";
-
-type Status = "present" | "absent" | "pending";
-type MarkSource = "ai" | "manual";
-type AttendanceEntry = {
-  status: Status;
-  similarity?: number | null;
-  source?: MarkSource;
-};
+import {
+  recognizeAttendanceFrame,
+  saveAttendance,
+  type AttendanceEntry,
+  type Status,
+} from "@/features/Teacher/lib/attendance-api";
 
 export const Route = createFileRoute("/teacher/attendance/$courseId")({
   head: () => ({ meta: [{ title: "Take Attendance · Teacher Portal" }] }),
@@ -127,14 +125,10 @@ function TakeAttendance() {
       }
 
       try {
-        const formData = new FormData();
-        formData.append("course_id", courseId);
-        formData.append("frame", blob, "frame.jpg");
-
-        const data = await apiFormJson<{ recognized?: Array<{ student_id: string; similarity?: number }> }>(
-          "/api/attendance/recognize",
-          formData,
-        );
+        const data = await recognizeAttendanceFrame({
+          courseId,
+          frameBlob: blob,
+        });
 
         const list = data.recognized ?? [];
 
@@ -158,7 +152,6 @@ function TakeAttendance() {
         if (err instanceof ApiError && err.status === 403) {
           toast.error("You are not allowed to run recognition.");
         } else if (err instanceof ApiError && err.status === 401) {
-          // api.ts handles logout redirect, keep message minimal
           toast.error("Session expired. Please login again.");
         } else {
           toast.error(err?.message ?? "Recognition service unavailable — mark students manually.");
@@ -210,11 +203,10 @@ function TakeAttendance() {
         };
       });
 
-      const formData = new FormData();
-      formData.append("course_id", courseId);
-      formData.append("statuses", JSON.stringify(payload));
-
-      await apiFormJson<{ saved: number }>("/api/attendance/save", formData);
+      await saveAttendance({
+        courseId,
+        statuses: payload,
+      });
 
       setSuccessOpen(true);
       toast.success("Attendance saved successfully.");

@@ -1,5 +1,5 @@
 import { courses as baseCourses, students as baseStudents } from "@/features/Teacher/lib/mock-data";
-import { authHeader } from "@/lib/auth";
+import { apiJson } from "@/lib/api";
 
 export const departments = [
   { id: "ce", name: "Computer Engineering", code: "CE" },
@@ -27,7 +27,24 @@ export type TeacherCourse = {
   dept: string;
   enrolled: number;
   section?: string;
-  attendance?: number; // UI-only fallback for course cards that display %
+  attendance?: number; // UI-only placeholder until backend provides %
+};
+
+export type CourseDto = {
+  id: string;
+  code: string;
+  name: string;
+  credits: number;
+  sem: number;
+  dept: string;
+  enrolled: number;
+};
+
+export type RosterStudentDto = {
+  id: string;
+  name: string;
+  enrollment: string;
+  photo?: string | null;
 };
 
 export function getAssignedCourses(deptId: string, sem: number, sectionId: string) {
@@ -56,50 +73,33 @@ export function parseCourseId(compositeId: string) {
   return { dept, sem: Number(semStr), section };
 }
 
-const RECOGNITION_API =
-  (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
-
+/** Real backend read: current teacher's assigned courses */
 export async function getTeacherCourses(): Promise<TeacherCourse[]> {
   try {
-    const res = await fetch(`${RECOGNITION_API}/api/teacher/courses`, {
-      headers: authHeader(),
-    });
-
-    if (res.status === 401 || res.status === 403) return [];
-    if (!res.ok) return [];
-
-    const list = (await res.json()) as TeacherCourse[];
+    const list = await apiJson<TeacherCourse[]>("/api/teacher/courses");
     return list.map((c) => ({
       ...c,
       section: parseCourseId(c.id).section ?? "d",
-      attendance: c.attendance ?? 0, // until backend provides real %
+      attendance: c.attendance ?? 0,
     }));
   } catch {
     return [];
   }
 }
 
-// Real backend reads with auth header.
-// Falls back to deterministic mock when offline/unavailable.
-export async function getCourseByCompositeId(courseId: string) {
+/** Real backend read with mock fallback */
+export async function getCourseByCompositeId(courseId: string): Promise<CourseDto | null> {
   try {
-    const res = await fetch(`${RECOGNITION_API}/api/courses/${courseId}`, {
-      headers: authHeader(),
-    });
-    if (!res.ok) return null;
-    return await res.json();
+    return await apiJson<CourseDto>(`/api/courses/${courseId}`);
   } catch {
     return getMockCourse(courseId) ?? null;
   }
 }
 
-export async function getRosterForCourse(courseId: string) {
+/** Real backend read with mock fallback */
+export async function getRosterForCourse(courseId: string): Promise<RosterStudentDto[]> {
   try {
-    const res = await fetch(`${RECOGNITION_API}/api/courses/${courseId}/roster`, {
-      headers: authHeader(),
-    });
-    if (!res.ok) return [];
-    return await res.json();
+    return await apiJson<RosterStudentDto[]>(`/api/courses/${courseId}/roster`);
   } catch {
     const { dept, sem, section } = parseCourseId(courseId);
     return getRosterFor(dept, sem, section);
@@ -114,6 +114,7 @@ export function getMockCourse(compositeId: string) {
 export function deptName(id: string) {
   return departments.find((d) => d.id === id)?.name ?? id;
 }
+
 export function sectionLabel(id: string) {
   return sections.find((s) => s.id === id)?.label ?? id;
 }

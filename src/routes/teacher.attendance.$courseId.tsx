@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { apiFormJson, ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -11,7 +12,6 @@ import { ArrowLeft, Camera, CameraOff, CheckCircle2, XCircle, Save, ScanFace, Mo
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { getCourseByCompositeId, getRosterForCourse } from "@/features/Teacher/lib/academic-data";
-import { authHeader } from "@/lib/auth";
 
 type Status = "present" | "absent" | "pending";
 type MarkSource = "ai" | "manual";
@@ -20,9 +20,6 @@ type AttendanceEntry = {
   similarity?: number | null;
   source?: MarkSource;
 };
-
-const RECOGNITION_API =
-  (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
 
 export const Route = createFileRoute("/teacher/attendance/$courseId")({
   head: () => ({ meta: [{ title: "Take Attendance · Teacher Portal" }] }),
@@ -101,12 +98,13 @@ function TakeAttendance() {
   }
 
   async function realRecognition() {
-    if (scanning || saving) return; // prevent overlaps
+    if (scanning || saving) return;
     const video = videoRef.current;
     if (!video || !video.videoWidth) {
       toast.error("Camera frame not ready yet — try again in a moment.");
       return;
     }
+
     setScanning(true);
 
     const canvas = document.createElement("canvas");
@@ -118,6 +116,7 @@ function TakeAttendance() {
       toast.error("Could not capture a frame from the camera.");
       return;
     }
+
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     canvas.toBlob(async (blob) => {
@@ -126,22 +125,17 @@ function TakeAttendance() {
         toast.error("Could not encode the camera frame.");
         return;
       }
+
       try {
         const formData = new FormData();
         formData.append("course_id", courseId);
         formData.append("frame", blob, "frame.jpg");
 
-        const res = await fetch(`${RECOGNITION_API}/api/attendance/recognize`, {
-          method: "POST",
-          headers: authHeader(),
-          body: formData,
-        });
+        const data = await apiFormJson<{ recognized?: Array<{ student_id: string; similarity?: number }> }>(
+          "/api/attendance/recognize",
+          formData,
+        );
 
-        if (res.status === 401) throw new Error("UNAUTHORIZED");
-        if (res.status === 403) throw new Error("FORBIDDEN");
-        if (!res.ok) throw new Error(`Recognition failed (${res.status})`);
-
-        const data: { recognized?: Array<{ student_id: string; similarity?: number }> } = await res.json();
         const list = data.recognized ?? [];
 
         if (list.length === 0) {
@@ -161,10 +155,11 @@ function TakeAttendance() {
 
         toast.success(`${list.length} student${list.length === 1 ? "" : "s"} recognized`);
       } catch (err: any) {
-        if (err?.message === "UNAUTHORIZED") {
-          toast.error("Session expired. Please login again.");
-        } else if (err?.message === "FORBIDDEN") {
+        if (err instanceof ApiError && err.status === 403) {
           toast.error("You are not allowed to run recognition.");
+        } else if (err instanceof ApiError && err.status === 401) {
+          // api.ts handles logout redirect, keep message minimal
+          toast.error("Session expired. Please login again.");
         } else {
           toast.error(err?.message ?? "Recognition service unavailable — mark students manually.");
         }
@@ -177,8 +172,6 @@ function TakeAttendance() {
   function setStatus(id: string, s: Status) {
     setStatuses((p) => ({ ...p, [id]: s }));
     setRecognized((r) => ({ ...r, [id]: true }));
-
-    // If teacher manually sets a status, mark source manual.
     setAttendanceMeta((m) => ({
       ...m,
       [id]: {
@@ -206,9 +199,9 @@ function TakeAttendance() {
   async function persistAttendance(finalStatuses: Record<string, Status>) {
     if (saving) return;
     setSaving(true);
+
     try {
       const payload: Record<string, AttendanceEntry> = {};
-
       classRoster.forEach((s) => {
         payload[s.id] = {
           status: finalStatuses[s.id] ?? "absent",
@@ -221,23 +214,15 @@ function TakeAttendance() {
       formData.append("course_id", courseId);
       formData.append("statuses", JSON.stringify(payload));
 
-      const res = await fetch(`${RECOGNITION_API}/api/attendance/save`, {
-        method: "POST",
-        headers: authHeader(),
-        body: formData,
-      });
-
-      if (res.status === 401) throw new Error("UNAUTHORIZED");
-      if (res.status === 403) throw new Error("FORBIDDEN");
-      if (!res.ok) throw new Error(`Save failed (${res.status})`);
+      await apiFormJson<{ saved: number }>("/api/attendance/save", formData);
 
       setSuccessOpen(true);
       toast.success("Attendance saved successfully.");
     } catch (err: any) {
-      if (err?.message === "UNAUTHORIZED") {
-        toast.error("Session expired. Please login again.");
-      } else if (err?.message === "FORBIDDEN") {
+      if (err instanceof ApiError && err.status === 403) {
         toast.error("You are not allowed to save attendance.");
+      } else if (err instanceof ApiError && err.status === 401) {
+        toast.error("Session expired. Please login again.");
       } else {
         toast.error(err?.message ?? "Could not save attendance.");
       }
@@ -247,19 +232,20 @@ function TakeAttendance() {
   }
 
   function confirmSave() {
-    // Any untouched pending students become absent before save.
     setStatuses((prev) => {
       const next = { ...prev };
+      const nextMeta = { ...attendanceMeta };
+
       classRoster.forEach((s) => {
         if (next[s.id] === "pending") {
           next[s.id] = "absent";
-          setAttendanceMeta((m) => ({
-            ...m,
-            [s.id]: { source: "manual", similarity: null },
-          }));
+          if (!nextMeta[s.id]) {
+            nextMeta[s.id] = { source: "manual", similarity: null };
+          }
         }
       });
 
+      setAttendanceMeta(nextMeta);
       setConfirmOpen(false);
       void persistAttendance(next);
       return next;
@@ -286,7 +272,6 @@ function TakeAttendance() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <Link to="/teacher/attendance"><Button size="icon" variant="ghost" className="rounded-xl"><ArrowLeft className="h-4 w-4" /></Button></Link>
@@ -303,7 +288,6 @@ function TakeAttendance() {
         </div>
       </div>
 
-      {/* Counters */}
       <div className="grid grid-cols-3 gap-3">
         <MiniStat label="Present" value={counts.present} tone="success" />
         <MiniStat label="Absent" value={counts.absent} tone="danger" />
@@ -311,7 +295,6 @@ function TakeAttendance() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
-        {/* Camera */}
         <Card className="rounded-2xl shadow-soft">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
@@ -373,7 +356,6 @@ function TakeAttendance() {
           </CardContent>
         </Card>
 
-        {/* Student Grid */}
         <Card className="rounded-2xl shadow-soft">
           <CardHeader className="flex flex-row items-center justify-between pb-3">
             <CardTitle className="text-base">Student Roster · {classRoster.length}</CardTitle>
@@ -439,7 +421,6 @@ function TakeAttendance() {
 
       <style>{`@keyframes scan { 0% { transform: translateY(0); } 100% { transform: translateY(220px); } }`}</style>
 
-      {/* Save confirmation */}
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -457,7 +438,6 @@ function TakeAttendance() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Success */}
       <AlertDialog open={successOpen} onOpenChange={setSuccessOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>

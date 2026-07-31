@@ -3,8 +3,9 @@ import { useState } from "react";
 import { toast } from "sonner";
 import {
   Search, Plus, Mail, Phone, Eye, Pencil, Trash2, ArrowLeftRight,
-  Briefcase, Award, CalendarClock, Building2,
+  Briefcase, Award, CalendarClock, Building2, Copy,
 } from "lucide-react";
+import { authHeader } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -31,7 +32,7 @@ type Hod = (typeof initialHods)[number];
 
 const emptyForm = {
   name: "", email: "", phone: "", qualification: "", experience: "",
-  department: "", username: "", password: "",
+  department: "",
 };
 
 function HodsPage() {
@@ -43,6 +44,7 @@ function HodsPage() {
   const [transferTarget, setTransferTarget] = useState<Hod | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Hod | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
 
   const [editForm, setEditForm] = useState(emptyForm);
   const [transferDept, setTransferDept] = useState("");
@@ -53,7 +55,7 @@ function HodsPage() {
   function openEdit(h: Hod) {
     setEditForm({
       name: h.name, email: h.email, phone: h.phone, qualification: h.qualification,
-      experience: h.experience, department: h.department, username: "", password: "",
+      experience: h.experience, department: h.department,
     });
     setEditTarget(h);
   }
@@ -86,27 +88,50 @@ function HodsPage() {
     setDeleteTarget(null);
   }
 
-  function createHod() {
+  async function createHod() {
     if (!createForm.name || !createForm.department || !createForm.email) {
       toast.error("Please fill in name, email and department");
       return;
     }
-    const newHod: Hod = {
-      id: `H${100 + hods.length + Math.floor(Math.random() * 900)}`,
-      name: createForm.name,
-      department: createForm.department,
-      email: createForm.email,
-      phone: createForm.phone,
-      status: "active",
-      qualification: createForm.qualification,
-      experience: createForm.experience,
-      assignedSince: new Date().toLocaleDateString(undefined, { month: "short", year: "numeric" }),
-      photo: `https://i.pravatar.cc/120?img=${Math.floor(Math.random() * 60)}`,
-    };
-    setHods((prev) => [newHod, ...prev]);
-    toast.success(`${newHod.name} created as HOD of ${newHod.department}`);
-    setCreateForm(emptyForm);
-    setCreateOpen(false);
+    try {
+      const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+      const res = await fetch(`${API_URL}/api/admin/hods`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({
+          name: createForm.name,
+          email: createForm.email,
+          phone: createForm.phone,
+          qualification: createForm.qualification,
+          experience: createForm.experience,
+          department_name: createForm.department,
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.detail ?? "Failed to create HOD");
+        return;
+      }
+      const data = await res.json();
+      const newHod: Hod = {
+        id: `H${data.hod_id}`,
+        name: createForm.name,
+        department: createForm.department,
+        email: createForm.email,
+        phone: createForm.phone,
+        status: "active",
+        qualification: createForm.qualification,
+        experience: createForm.experience,
+        assignedSince: new Date().toLocaleDateString(undefined, { month: "short", year: "numeric" }),
+        photo: `https://i.pravatar.cc/120?img=${Math.floor(Math.random() * 60)}`,
+      };
+      setHods((prev) => [newHod, ...prev]);
+      setGeneratedPassword(data.default_password);
+      setCreateForm(emptyForm);
+      setCreateOpen(false);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    }
   }
 
   return (
@@ -317,12 +342,40 @@ function HodsPage() {
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="Username"><Input className="rounded-xl" value={createForm.username} onChange={(e) => setCreateForm({ ...createForm, username: e.target.value })} /></Field>
-            <Field label="Password"><Input type="password" className="rounded-xl" value={createForm.password} onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })} /></Field>
           </div>
           <DialogFooter>
             <Button variant="outline" className="rounded-xl" onClick={() => setCreateOpen(false)}>Cancel</Button>
             <Button className="rounded-xl gradient-brand text-white" onClick={createHod}>Create HOD</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* GENERATED PASSWORD */}
+      <Dialog open={!!generatedPassword} onOpenChange={(o) => !o && setGeneratedPassword(null)}>
+        <DialogContent className="rounded-2xl sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>HOD account created</DialogTitle>
+            <DialogDescription>
+              Share this temporary password with the new HOD. It won't be shown again.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/40 px-3 py-2">
+            <code className="flex-1 truncate font-mono text-sm">{generatedPassword}</code>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8"
+              title="Copy password"
+              onClick={() => {
+                navigator.clipboard.writeText(generatedPassword ?? "");
+                toast.success("Password copied to clipboard");
+              }}
+            >
+              <Copy className="h-4 w-4" />
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button className="rounded-xl gradient-brand text-white" onClick={() => setGeneratedPassword(null)}>Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

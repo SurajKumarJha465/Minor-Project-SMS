@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { authHeader } from "@/lib/auth";
 import {
   Search, Plus, Eye, Pencil, Trash2, ArrowLeft, ChevronRight, CalendarRange,
-  Mail, Phone, MapPin, Users2, BookOpen, ClipboardCheck,
+  Mail, Phone, MapPin, Users2, BookOpen, ClipboardCheck, Copy,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";

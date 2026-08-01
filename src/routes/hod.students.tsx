@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { authHeader } from "@/lib/auth";
 import {
@@ -23,7 +23,7 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/select";
 import {
-  hodStudents as initialStudents, sections, semesters, department,
+  sections, semesters, department,
   getStudentsBySemesterSection, type Section,
 } from "@/features/HoD/lib/hod-mock-data";
 
@@ -32,7 +32,35 @@ export const Route = createFileRoute("/hod/students")({
   component: Students,
 });
 
-type Student = (typeof initialStudents)[number];
+type Student = {
+  id: string; name: string; enrollment: string; semester: number; section: Section;
+  department: string; attendance: number; gpa: string; status: string; photo: string;
+  email: string; phone: string; address: string; guardianName: string; guardianPhone: string;
+  username: string; coursesEnrolled: number;
+};
+
+function mapApiStudent(s: any): Student {
+  return {
+    id: s.id,
+    name: s.name,
+    enrollment: s.enrollment,
+    semester: s.semester,
+    section: s.section as Section,
+    department: s.department,
+    photo: s.photo ?? `https://i.pravatar.cc/120?img=${(s.enrollment?.length ?? 1) % 60}`,
+    email: s.email ?? "",
+    phone: s.phone ?? "",
+    address: s.address ?? "",
+    guardianName: s.guardian_name ?? "",
+    guardianPhone: s.guardian_phone ?? "",
+    coursesEnrolled: s.courses_enrolled ?? 0,
+    // not tracked by the backend yet — placeholders until attendance %/GPA modules exist
+    attendance: 100,
+    gpa: "0.00",
+    status: "active",
+    username: "",
+  };
+}
 
 const emptyForm = {
   name: "", enrollment: "", department, semester: 1, section: "D" as Section,
@@ -40,7 +68,31 @@ const emptyForm = {
 };
 
 function Students() {
-  const [students, setStudents] = useState<Student[]>(initialStudents);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadStudents() {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+        const res = await fetch(`${API_URL}/api/hod/students`, { headers: { ...authHeader() } });
+        if (!res.ok) throw new Error(`Failed to load students (${res.status})`);
+        const data = await res.json();
+        if (!cancelled) setStudents(data.map(mapApiStudent));
+      } catch (err) {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load students.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    loadStudents();
+    return () => { cancelled = true; };
+  }, []);
+
   const [selectedSem, setSelectedSem] = useState<number | null>(null);
   const [selectedSection, setSelectedSection] = useState<Section | null>(null);
   const [q, setQ] = useState("");
@@ -138,6 +190,17 @@ function Students() {
           <Plus className="mr-1.5 h-4 w-4" /> Add Student
         </Button>
       </div>
+
+      {loading && (
+        <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+          Loading students…
+        </div>
+      )}
+      {loadError && !loading && (
+        <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {loadError}
+        </div>
+      )}
 
       <Card className="rounded-2xl shadow-soft">
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-3">

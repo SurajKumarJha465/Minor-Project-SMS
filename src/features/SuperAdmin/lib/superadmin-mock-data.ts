@@ -91,8 +91,8 @@ const subjectPools: Record<string, string[]> = {
   ],
   "Computer Engineering": [
     "Engineering Mathematics", "Digital Logic Design", "Data Structures", "Computer Architecture",
-    "Microprocessors", "Operating Systems", "Computer Networks", "Embedded Systems",
-    "Database Systems", "Machine Learning","Computer Graphics", "Compiler Design", "VLSI Design",
+    "Microprocessors", "Operating Systems", "Computer Networks", "Embedded Systems", "Machine Learning",
+    "Database Systems", "Computer Graphics", "Compiler Design", "VLSI Design",
     "IoT Systems", "Robotics", "Major Project",
   ],
   "Electrical Engineering": [

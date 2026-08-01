@@ -47,6 +47,7 @@ function Students() {
 
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState({ ...emptyForm });
+  const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
 
   const [viewStudent, setViewStudent] = useState<Student | null>(null);
   const [editStudent, setEditStudent] = useState<Student | null>(null);

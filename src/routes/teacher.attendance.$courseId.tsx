@@ -54,11 +54,11 @@ function TakeAttendance() {
         if (cancelled) return;
 
         setCourse(c);
-        const list = roster ?? [];
+        const list = (roster ?? []).map((s) => ({ ...s, photo: s.photo ?? "" }));
         setClassRoster(list);
 
         const nextStatuses: Record<string, Status> = Object.fromEntries(
-          list.map((s: Student) => [s.id, "pending" as Status]),
+          list.map((s) => [s.id, "pending" as Status]),
         );
         const nextRecognized: Record<string, boolean> = {};
         const nextMeta: Record<string, Omit<AttendanceEntry, "status">> = {};

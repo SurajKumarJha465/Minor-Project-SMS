@@ -1,8 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { toast } from "sonner";
+import { authHeader } from "@/lib/auth";
 import {
   Search, Plus, Eye, Pencil, Trash2, ArrowLeft, ChevronRight, CalendarRange,
-  Mail, Phone, MapPin, Users2, BookOpen, ClipboardCheck,
+  Mail, Phone, MapPin, Users2, BookOpen, ClipboardCheck, Copy,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -35,7 +37,6 @@ type Student = (typeof initialStudents)[number];
 const emptyForm = {
   name: "", enrollment: "", department, semester: 1, section: "D" as Section,
   email: "", phone: "", address: "", guardianName: "", guardianPhone: "",
-  username: "", password: "",
 };
 
 function Students() {
@@ -46,6 +47,7 @@ function Students() {
 
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState({ ...emptyForm });
+  const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
 
   const [viewStudent, setViewStudent] = useState<Student | null>(null);
   const [editStudent, setEditStudent] = useState<Student | null>(null);
@@ -55,30 +57,57 @@ function Students() {
   const rows = (selectedSem && selectedSection ? getStudentsBySemesterSection(students, selectedSem, selectedSection) : [])
     .filter((s) => (s.name + s.enrollment).toLowerCase().includes(q.toLowerCase()));
 
-  function saveNewStudent() {
+  async function saveNewStudent() {
     if (!form.name || !form.enrollment) return;
-    const newStudent: Student = {
-      id: `S${3000 + students.length}`,
-      name: form.name,
-      enrollment: form.enrollment,
-      semester: form.semester,
-      section: form.section,
-      department: form.department,
-      attendance: 100,
-      gpa: "0.00",
-      status: "active",
-      photo: `https://i.pravatar.cc/120?img=${(students.length + 5) % 60}`,
-      email: form.email,
-      phone: form.phone,
-      address: form.address,
-      guardianName: form.guardianName,
-      guardianPhone: form.guardianPhone,
-      username: form.username,
-      coursesEnrolled: 0,
-    };
-    setStudents((prev) => [newStudent, ...prev]);
-    setAddOpen(false);
-    setForm({ ...emptyForm });
+    try {
+      const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+      const res = await fetch(`${API_URL}/api/hod/students`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({
+          name: form.name,
+          enrollment: form.enrollment,
+          semester: form.semester,
+          section: form.section,
+          email: form.email,
+          phone: form.phone,
+          address: form.address,
+          guardian_name: form.guardianName,
+          guardian_phone: form.guardianPhone,
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.detail ?? "Failed to add student");
+        return;
+      }
+      const data = await res.json();
+      const newStudent: Student = {
+        id: data.student_id,
+        name: form.name,
+        enrollment: form.enrollment,
+        semester: form.semester,
+        section: form.section,
+        department: form.department,
+        attendance: 100,
+        gpa: "0.00",
+        status: "active",
+        photo: `https://i.pravatar.cc/120?img=${(students.length + 5) % 60}`,
+        email: form.email,
+        phone: form.phone,
+        address: form.address,
+        guardianName: form.guardianName,
+        guardianPhone: form.guardianPhone,
+        username: data.username ?? "",
+        coursesEnrolled: 0,
+      };
+      setStudents((prev) => [newStudent, ...prev]);
+      setGeneratedPassword(data.default_password);
+      setAddOpen(false);
+      setForm({ ...emptyForm });
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    }
   }
 
   function openEdit(s: Student) {
@@ -272,16 +301,45 @@ function Students() {
             <Field label="Guardian Phone">
               <Input value={form.guardianPhone} onChange={(e) => setForm({ ...form, guardianPhone: e.target.value })} />
             </Field>
-            <Field label="Username">
-              <Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
-            </Field>
-            <Field label="Password">
-              <Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-            </Field>
           </div>
           <DialogFooter>
             <Button variant="outline" className="rounded-xl" onClick={() => setAddOpen(false)}>Cancel</Button>
             <Button className="rounded-xl gradient-brand text-white" onClick={saveNewStudent}>Save Student</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Generated password notice */}
+      <Dialog open={!!generatedPassword} onOpenChange={(o) => { if (!o) setGeneratedPassword(null); }}>
+        <DialogContent className="rounded-2xl sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Student Account Created</DialogTitle>
+            <DialogDescription>
+              Share the temporary password below. It will not be shown again.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-3">
+            <div className="mb-1 text-[11px] uppercase tracking-wider text-muted-foreground">Temporary Password</div>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 break-all text-sm font-semibold">{generatedPassword}</code>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8 shrink-0"
+                onClick={() => {
+                  if (generatedPassword) {
+                    navigator.clipboard.writeText(generatedPassword);
+                    toast.success("Password copied to clipboard");
+                  }
+                }}
+                title="Copy to clipboard"
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button className="rounded-xl gradient-brand text-white" onClick={() => setGeneratedPassword(null)}>Done</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

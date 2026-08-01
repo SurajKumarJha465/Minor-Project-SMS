@@ -57,30 +57,57 @@ function Students() {
   const rows = (selectedSem && selectedSection ? getStudentsBySemesterSection(students, selectedSem, selectedSection) : [])
     .filter((s) => (s.name + s.enrollment).toLowerCase().includes(q.toLowerCase()));
 
-  function saveNewStudent() {
+  async function saveNewStudent() {
     if (!form.name || !form.enrollment) return;
-    const newStudent: Student = {
-      id: `S${3000 + students.length}`,
-      name: form.name,
-      enrollment: form.enrollment,
-      semester: form.semester,
-      section: form.section,
-      department: form.department,
-      attendance: 100,
-      gpa: "0.00",
-      status: "active",
-      photo: `https://i.pravatar.cc/120?img=${(students.length + 5) % 60}`,
-      email: form.email,
-      phone: form.phone,
-      address: form.address,
-      guardianName: form.guardianName,
-      guardianPhone: form.guardianPhone,
-      username: form.username,
-      coursesEnrolled: 0,
-    };
-    setStudents((prev) => [newStudent, ...prev]);
-    setAddOpen(false);
-    setForm({ ...emptyForm });
+    try {
+      const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+      const res = await fetch(`${API_URL}/api/hod/students`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({
+          name: form.name,
+          enrollment: form.enrollment,
+          semester: form.semester,
+          section: form.section,
+          email: form.email,
+          phone: form.phone,
+          address: form.address,
+          guardian_name: form.guardianName,
+          guardian_phone: form.guardianPhone,
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.detail ?? "Failed to add student");
+        return;
+      }
+      const data = await res.json();
+      const newStudent: Student = {
+        id: data.student_id,
+        name: form.name,
+        enrollment: form.enrollment,
+        semester: form.semester,
+        section: form.section,
+        department: form.department,
+        attendance: 100,
+        gpa: "0.00",
+        status: "active",
+        photo: `https://i.pravatar.cc/120?img=${(students.length + 5) % 60}`,
+        email: form.email,
+        phone: form.phone,
+        address: form.address,
+        guardianName: form.guardianName,
+        guardianPhone: form.guardianPhone,
+        username: data.username ?? "",
+        coursesEnrolled: 0,
+      };
+      setStudents((prev) => [newStudent, ...prev]);
+      setGeneratedPassword(data.default_password);
+      setAddOpen(false);
+      setForm({ ...emptyForm });
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    }
   }
 
   function openEdit(s: Student) {

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   Search, Plus, Mail, Phone, Eye, Pencil, Trash2, ArrowLeftRight,
@@ -21,14 +21,33 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { hods as initialHods, hodDepartmentOptions } from "@/features/SuperAdmin/lib/superadmin-mock-data";
+import { hodDepartmentOptions } from "@/features/SuperAdmin/lib/superadmin-mock-data";
 
 export const Route = createFileRoute("/admin/hods")({
   head: () => ({ meta: [{ title: "HOD Management · Super Admin" }] }),
   component: HodsPage,
 });
 
-type Hod = (typeof initialHods)[number];
+type Hod = {
+  id: string; name: string; department: string; email: string; phone: string;
+  status: string; qualification: string; experience: string; assignedSince: string; photo: string;
+};
+
+function mapApiHod(h: any): Hod {
+  return {
+    id: h.id,
+    name: h.name,
+    department: h.department,
+    email: h.email,
+    phone: h.phone ?? "",
+    qualification: h.qualification ?? "",
+    experience: h.experience ?? "",
+    photo: h.photo ?? `https://i.pravatar.cc/120?img=${((h.id?.length ?? 1) * 7) % 60}`,
+    // not tracked by the backend yet
+    status: "active",
+    assignedSince: "—",
+  };
+}
 
 const emptyForm = {
   name: "", email: "", phone: "", qualification: "", experience: "",
@@ -36,8 +55,31 @@ const emptyForm = {
 };
 
 function HodsPage() {
-  const [hods, setHods] = useState<Hod[]>(initialHods);
+  const [hods, setHods] = useState<Hod[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [q, setQ] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadHods() {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+        const res = await fetch(`${API_URL}/api/admin/hods`, { headers: { ...authHeader() } });
+        if (!res.ok) throw new Error(`Failed to load HODs (${res.status})`);
+        const data = await res.json();
+        if (!cancelled) setHods(data.map(mapApiHod));
+      } catch (err) {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load HODs.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    loadHods();
+    return () => { cancelled = true; };
+  }, []);
 
   const [viewTarget, setViewTarget] = useState<Hod | null>(null);
   const [editTarget, setEditTarget] = useState<Hod | null>(null);
@@ -60,13 +102,36 @@ function HodsPage() {
     setEditTarget(h);
   }
 
-  function saveEdit() {
+  async function saveEdit() {
     if (!editTarget) return;
-    setHods((prev) => prev.map((h) => (h.id === editTarget.id
-      ? { ...h, name: editForm.name, email: editForm.email, phone: editForm.phone, qualification: editForm.qualification, experience: editForm.experience, department: editForm.department }
-      : h)));
-    toast.success(`${editForm.name}'s details updated`);
-    setEditTarget(null);
+    try {
+      const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+      const hodId = editTarget.id.replace(/^H/, "");
+      const res = await fetch(`${API_URL}/api/admin/hods/${hodId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({
+          name: editForm.name,
+          email: editForm.email,
+          phone: editForm.phone,
+          qualification: editForm.qualification,
+          experience: editForm.experience,
+          department_name: editForm.department,
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.detail ?? "Failed to update HOD");
+        return;
+      }
+      const data = await res.json();
+      const updated = mapApiHod(data);
+      setHods((prev) => prev.map((h) => (h.id === updated.id ? updated : h)));
+      toast.success(`${updated.name}'s details updated`);
+      setEditTarget(null);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    }
   }
 
   function openTransfer(h: Hod) {
@@ -74,18 +139,51 @@ function HodsPage() {
     setTransferTarget(h);
   }
 
-  function confirmTransfer() {
+  async function confirmTransfer() {
     if (!transferTarget) return;
-    setHods((prev) => prev.map((h) => (h.id === transferTarget.id ? { ...h, department: transferDept } : h)));
-    toast.success(`${transferTarget.name} transferred to ${transferDept}`);
-    setTransferTarget(null);
+    try {
+      const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+      const hodId = transferTarget.id.replace(/^H/, "");
+      const res = await fetch(`${API_URL}/api/admin/hods/${hodId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ department_name: transferDept }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.detail ?? "Failed to transfer HOD");
+        return;
+      }
+      const data = await res.json();
+      const updated = mapApiHod(data);
+      setHods((prev) => prev.map((h) => (h.id === updated.id ? updated : h)));
+      toast.success(`${transferTarget.name} transferred to ${transferDept}`);
+      setTransferTarget(null);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    }
   }
 
-  function confirmDelete() {
+  async function confirmDelete() {
     if (!deleteTarget) return;
-    setHods((prev) => prev.filter((h) => h.id !== deleteTarget.id));
-    toast.success(`${deleteTarget.name} removed as HOD`);
-    setDeleteTarget(null);
+    try {
+      const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+      const hodId = deleteTarget.id.replace(/^H/, "");
+      const res = await fetch(`${API_URL}/api/admin/hods/${hodId}`, {
+        method: "DELETE",
+        headers: { ...authHeader() },
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.detail ?? "Failed to remove HOD");
+        return;
+      }
+      setHods((prev) => prev.filter((h) => h.id !== deleteTarget.id));
+      toast.success(`${deleteTarget.name} removed as HOD`);
+      setDeleteTarget(null);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    }
   }
 
   async function createHod() {
@@ -145,6 +243,17 @@ function HodsPage() {
           <Plus className="mr-1.5 h-4 w-4" /> Create HOD
         </Button>
       </div>
+
+      {loading && (
+        <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+          Loading HODs…
+        </div>
+      )}
+      {loadError && !loading && (
+        <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {loadError}
+        </div>
+      )}
 
       <Card className="rounded-2xl shadow-soft">
         <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">

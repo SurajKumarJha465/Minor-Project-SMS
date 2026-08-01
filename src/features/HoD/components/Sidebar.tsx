@@ -2,15 +2,17 @@ import { Link, useLocation } from "@tanstack/react-router";
 import { logout } from "@/lib/auth";
 import {
   LayoutDashboard, Building2, Users, GraduationCap, CalendarRange,
-  Bell, User, Settings, LogOut, X,
+  Bell, User, Settings, LogOut, X, BookOpen, ClipboardCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const nav = [
   { to: "/hod/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/hod/overview", label: "Department Overview", icon: Building2 },
+  { to: "/hod/courses", label: "Course Management", icon: BookOpen },
   { to: "/hod/teachers", label: "Teacher Management", icon: Users },
   { to: "/hod/students", label: "Student Management", icon: GraduationCap },
+  { to: "/hod/enrollments", label: "Enrollments", icon: ClipboardCheck },
   { to: "/hod/semesters", label: "Semester Management", icon: CalendarRange },
   { to: "/hod/notices", label: "Department Notices", icon: Bell },
   { to: "/hod/profile", label: "Profile", icon: User },

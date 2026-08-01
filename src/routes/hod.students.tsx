@@ -167,16 +167,55 @@ function Students() {
     setEditForm({ email: s.email, phone: s.phone, address: s.address, semester: s.semester, section: s.section, guardianName: s.guardianName, guardianPhone: s.guardianPhone });
   }
 
-  function saveEdit() {
+  async function saveEdit() {
     if (!editStudent) return;
-    setStudents((prev) => prev.map((s) => (s.id === editStudent.id ? { ...s, ...editForm } as Student : s)));
-    setEditStudent(null);
+    try {
+      const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+      const res = await fetch(`${API_URL}/api/hod/students/${editStudent.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({
+          email: editForm.email,
+          phone: editForm.phone,
+          address: editForm.address,
+          semester: editForm.semester,
+          section: editForm.section,
+          guardian_name: editForm.guardianName,
+          guardian_phone: editForm.guardianPhone,
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.detail ?? "Failed to update student");
+        return;
+      }
+      const data = await res.json();
+      const updated = mapApiStudent(data);
+      setStudents((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      setEditStudent(null);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    }
   }
 
-  function doDelete() {
+  async function doDelete() {
     if (!deleteStudent) return;
-    setStudents((prev) => prev.filter((s) => s.id !== deleteStudent.id));
-    setDeleteStudent(null);
+    try {
+      const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+      const res = await fetch(`${API_URL}/api/hod/students/${deleteStudent.id}`, {
+        method: "DELETE",
+        headers: { ...authHeader() },
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.detail ?? "Failed to delete student");
+        return;
+      }
+      setStudents((prev) => prev.filter((s) => s.id !== deleteStudent.id));
+      setDeleteStudent(null);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    }
   }
 
   return (

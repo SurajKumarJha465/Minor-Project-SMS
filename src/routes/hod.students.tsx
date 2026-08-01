@@ -37,7 +37,6 @@ type Student = (typeof initialStudents)[number];
 const emptyForm = {
   name: "", enrollment: "", department, semester: 1, section: "D" as Section,
   email: "", phone: "", address: "", guardianName: "", guardianPhone: "",
-  username: "", password: "",
 };
 
 function Students() {

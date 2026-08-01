@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   Search, Plus, Eye, Pencil, Trash2, BookOpen, ChevronRight, ChevronLeft,
@@ -18,7 +18,7 @@ import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
 } from "@/components/ui/alert-dialog";
-import { saTeachers as initialTeachers, departmentList, courseCatalog, type Course } from "@/features/SuperAdmin/lib/superadmin-mock-data";
+import { departmentList, courseCatalog, type Course } from "@/features/SuperAdmin/lib/superadmin-mock-data";
 import { authHeader } from "@/lib/auth";
 
 export const Route = createFileRoute("/admin/teachers")({
@@ -26,16 +26,59 @@ export const Route = createFileRoute("/admin/teachers")({
   component: TeachersPage,
 });
 
-type Teacher = (typeof initialTeachers)[number];
+type Teacher = {
+  id: string; name: string; specialization: string; department: string; courses: number;
+  email: string; phone: string; status: string; qualification: string; username: string; photo: string;
+};
+
+function mapApiTeacher(t: any): Teacher {
+  return {
+    id: t.id,
+    name: t.name,
+    specialization: t.specialization ?? "",
+    department: t.department,
+    courses: t.courses ?? 0,
+    email: t.email,
+    phone: t.phone ?? "",
+    qualification: t.qualification ?? "",
+    photo: t.photo ?? `https://i.pravatar.cc/120?img=${((t.id?.length ?? 1) * 4) % 60}`,
+    // not tracked by the backend yet
+    status: "active",
+    username: "",
+  };
+}
 
 const emptyTeacherForm = {
   name: "", email: "", phone: "", qualification: "", specialization: "", username: "",
 };
 
 function TeachersPage() {
-  const [teachers, setTeachers] = useState<Teacher[]>(initialTeachers);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const rows = teachers.filter((t) => (t.name + t.specialization + t.department).toLowerCase().includes(q.toLowerCase()));
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTeachers() {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+        const res = await fetch(`${API_URL}/api/admin/teachers`, { headers: { ...authHeader() } });
+        if (!res.ok) throw new Error(`Failed to load teachers (${res.status})`);
+        const data = await res.json();
+        if (!cancelled) setTeachers(data.map(mapApiTeacher));
+      } catch (err) {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load teachers.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    loadTeachers();
+    return () => { cancelled = true; };
+  }, []);
 
   const [viewTarget, setViewTarget] = useState<Teacher | null>(null);
   const [editTarget, setEditTarget] = useState<Teacher | null>(null);
@@ -64,20 +107,57 @@ function TeachersPage() {
     setEditTarget(t);
   }
 
-  function saveEdit() {
+  async function saveEdit() {
     if (!editTarget) return;
-    setTeachers((prev) => prev.map((t) => (t.id === editTarget.id
-      ? { ...t, name: editForm.name, email: editForm.email, phone: editForm.phone, qualification: editForm.qualification, specialization: editForm.specialization }
-      : t)));
-    toast.success(`${editForm.name}'s details updated`);
-    setEditTarget(null);
+    try {
+      const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+      const teacherId = editTarget.id.replace(/^T/, "");
+      const res = await fetch(`${API_URL}/api/admin/teachers/${teacherId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({
+          name: editForm.name,
+          email: editForm.email,
+          phone: editForm.phone,
+          qualification: editForm.qualification,
+          specialization: editForm.specialization,
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.detail ?? "Failed to update teacher");
+        return;
+      }
+      const data = await res.json();
+      const updated = mapApiTeacher(data);
+      setTeachers((prev) => prev.map((t) => (t.id === updated.id ? { ...updated, username: t.username } : t)));
+      toast.success(`${updated.name}'s details updated`);
+      setEditTarget(null);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    }
   }
 
-  function confirmDelete() {
+  async function confirmDelete() {
     if (!deleteTarget) return;
-    setTeachers((prev) => prev.filter((t) => t.id !== deleteTarget.id));
-    toast.success(`${deleteTarget.name} removed`);
-    setDeleteTarget(null);
+    try {
+      const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+      const teacherId = deleteTarget.id.replace(/^T/, "");
+      const res = await fetch(`${API_URL}/api/admin/teachers/${teacherId}`, {
+        method: "DELETE",
+        headers: { ...authHeader() },
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.detail ?? "Failed to remove teacher");
+        return;
+      }
+      setTeachers((prev) => prev.filter((t) => t.id !== deleteTarget.id));
+      toast.success(`${deleteTarget.name} removed`);
+      setDeleteTarget(null);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    }
   }
 
   async function saveNewTeacher() {
@@ -140,6 +220,17 @@ function TeachersPage() {
           <Plus className="mr-1.5 h-4 w-4" /> Add Teacher
         </Button>
       </div>
+
+      {loading && (
+        <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+          Loading teachers…
+        </div>
+      )}
+      {loadError && !loading && (
+        <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {loadError}
+        </div>
+      )}
 
       <Card className="rounded-2xl shadow-soft">
         <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">

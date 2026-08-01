@@ -118,3 +118,28 @@ export function deptName(id: string) {
 export function sectionLabel(id: string) {
   return sections.find((s) => s.id === id)?.label ?? id;
 }
+
+export type MarkFields = {
+  p_att: number; p_lab: number; p_exam: number; p_viva: number;
+  t_att: number; t_assign: number; t_present: number; t_assess: number;
+};
+
+export type MarkRow = MarkFields & {
+  student_id: string; name: string; enrollment: string; status: "draft" | "published";
+};
+
+export async function getCourseMarks(courseId: string): Promise<MarkRow[]> {
+  return apiJson<MarkRow[]>(`/api/teacher/courses/${courseId}/marks`);
+}
+
+export async function saveCourseMarks(courseId: string, rows: (MarkFields & { student_id: string })[]) {
+  return apiJson<{ saved: number }>(`/api/teacher/courses/${courseId}/marks`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rows }),
+  });
+}
+
+export async function publishCourseMarks(courseId: string) {
+  return apiJson<{ published: number }>(`/api/teacher/courses/${courseId}/marks/publish`, { method: "POST" });
+}

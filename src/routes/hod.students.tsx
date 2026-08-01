@@ -309,6 +309,41 @@ function Students() {
         </DialogContent>
       </Dialog>
 
+      {/* Generated password notice */}
+      <Dialog open={!!generatedPassword} onOpenChange={(o) => { if (!o) setGeneratedPassword(null); }}>
+        <DialogContent className="rounded-2xl sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Student Account Created</DialogTitle>
+            <DialogDescription>
+              Share the temporary password below. It will not be shown again.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-3">
+            <div className="mb-1 text-[11px] uppercase tracking-wider text-muted-foreground">Temporary Password</div>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 break-all text-sm font-semibold">{generatedPassword}</code>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8 shrink-0"
+                onClick={() => {
+                  if (generatedPassword) {
+                    navigator.clipboard.writeText(generatedPassword);
+                    toast.success("Password copied to clipboard");
+                  }
+                }}
+                title="Copy to clipboard"
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button className="rounded-xl gradient-brand text-white" onClick={() => setGeneratedPassword(null)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* View student profile */}
       <Dialog open={!!viewStudent} onOpenChange={(o) => !o && setViewStudent(null)}>
         <DialogContent className="rounded-2xl sm:max-w-md">

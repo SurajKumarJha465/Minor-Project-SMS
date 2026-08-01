@@ -301,12 +301,6 @@ function Students() {
             <Field label="Guardian Phone">
               <Input value={form.guardianPhone} onChange={(e) => setForm({ ...form, guardianPhone: e.target.value })} />
             </Field>
-            <Field label="Username">
-              <Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
-            </Field>
-            <Field label="Password">
-              <Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-            </Field>
           </div>
           <DialogFooter>
             <Button variant="outline" className="rounded-xl" onClick={() => setAddOpen(false)}>Cancel</Button>

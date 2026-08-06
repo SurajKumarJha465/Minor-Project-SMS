@@ -1,0 +1,29 @@
+# ============ Python ============
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.env
+*.log
+
+# ML models & face-recognition data — never belong in git
+models/
+data/enrollment_photos/
+data/known_embeddings.pkl
+asset/data/
+asset/test_images/
+debug/
+attendance_logs/
+test_images/
+scraped_files.txt
+*_dump.md
+
+# ============ shared ============
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

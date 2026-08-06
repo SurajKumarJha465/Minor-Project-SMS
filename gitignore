@@ -5,13 +5,18 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.coverage
 backend/.env
+*.log
 
 # ML models & face-recognition data — real student photos/embeddings
 # never belong in git (privacy + large binary churn). Share out-of-band.
 backend/models/
 backend/data/enrollment_photos/
 backend/data/known_embeddings.pkl
+backend/asset/data/
+backend/asset/test_images/
 backend/debug/
 backend/attendance_logs/
 backend/test_images/
@@ -21,10 +26,15 @@ scraped_files.txt
 # ============ frontend (Bun / Vite) ============
 frontend/node_modules/
 frontend/dist/
+frontend/dist-ssr/
 frontend/.turbo/
 frontend/.vite/
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
 
 # ============ shared ============
 .idea/
 .vscode/
 .DS_Store
+Thumbs.db

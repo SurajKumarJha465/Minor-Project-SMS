@@ -1,0 +1,30 @@
+# ============ backend (Python / uv) ============
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+backend/.env
+
+# ML models & face-recognition data — real student photos/embeddings
+# never belong in git (privacy + large binary churn). Share out-of-band.
+backend/models/
+backend/data/enrollment_photos/
+backend/data/known_embeddings.pkl
+backend/debug/
+backend/attendance_logs/
+backend/test_images/
+scraped_files.txt
+*_dump.md
+
+# ============ frontend (Bun / Vite) ============
+frontend/node_modules/
+frontend/dist/
+frontend/.turbo/
+frontend/.vite/
+
+# ============ shared ============
+.idea/
+.vscode/
+.DS_Store

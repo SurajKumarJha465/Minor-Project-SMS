@@ -24,7 +24,8 @@ dependencies = [
 # insightface). Needs an NVIDIA GPU + matching CUDA runtime to be useful —
 # only install if you're running detection/enrollment locally.
 #   uv sync --extra face-recognition
-[project.optional-dependencies]
+#   uv sync --extra face-recognition-cpu
+#   uv sync --extra face-recognition-gpu
 
 # Common dependencies for face recognition
 face-recognition = [

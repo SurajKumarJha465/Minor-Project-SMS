@@ -1,0 +1,46 @@
+[project]
+name = "virekto"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+    # Web framework & server
+    "fastapi[standard]==0.141.1",
+    "uvicorn==0.52.0",
+
+    # Database
+    "sqlalchemy==2.0.50",
+    "psycopg[binary]>=3.3.4",
+
+    # Auth
+    "bcrypt==4.0.1",
+    "passlib[bcrypt]>=1.7.4",
+    "python-jose[cryptography]>=3.5.0",
+
+    # Config / validation
+    "python-dotenv>=1.2.2",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+# Face-recognition / attendance pipeline (YOLOv11 detection + ArcFace via
+# insightface). Needs an NVIDIA GPU + matching CUDA runtime to be useful —
+# only install if you're running detection/enrollment locally.
+#   uv sync --extra face-recognition
+face-recognition = [
+    "opencv-python",
+    "numpy",
+    "insightface==1.0.1",
+    "ultralytics==8.4.113",
+    "onnx>=1.22.0",
+    "onnxruntime-gpu==1.28.0",
+    "onnxslim==0.1.94",
+    "nvidia-cublas==13.6.1.10",
+    "nvidia-cuda-cupti==13.3.75",
+    "nvidia-cuda-nvrtc==13.3.33",
+    "nvidia-cuda-runtime==13.3.29",
+    "nvidia-cudnn-cu13==9.24.0.43",
+    "nvidia-cufft==12.3.0.29",
+    "nvidia-cufile==1.18.1.6",
+    "nvidia-curand==10.4.3.29",
+    "nvidia-cusolver==12.2.6.9",
+]

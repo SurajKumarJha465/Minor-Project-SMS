@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: ssms-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ssms_user
+      POSTGRES_PASSWORD: ssms_pass
+      POSTGRES_DB: ssms_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - ssms_pgdata:/var/lib/postgresql/data
+
+volumes:
+  ssms_pgdata:

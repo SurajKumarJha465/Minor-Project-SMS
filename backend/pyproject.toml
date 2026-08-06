@@ -17,8 +17,6 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "pydantic>=2.0",
     "tree3==0.2.0",
-    "opencv-python==5.0.0.93",
-    "ultralytics==8.4.115",
 ]
 
 [project.optional-dependencies]
@@ -26,14 +24,28 @@ dependencies = [
 # insightface). Needs an NVIDIA GPU + matching CUDA runtime to be useful —
 # only install if you're running detection/enrollment locally.
 #   uv sync --extra face-recognition
+[project.optional-dependencies]
+
+# Common dependencies for face recognition
 face-recognition = [
-    "opencv-python",
+    "opencv-python==5.0.0.93",
     "numpy",
     "insightface==1.0.1",
-    "ultralytics>=8.4.113",
+    "ultralytics==8.4.115",
     "onnx>=1.22.0",
-    "onnxruntime-gpu==1.28.0",
     "onnxslim==0.1.94",
+]
+
+# CPU inference
+face-recognition-cpu = [
+    "virekto[face-recognition]",
+    "onnxruntime==1.23.0",
+]
+
+# NVIDIA GPU inference
+face-recognition-gpu = [
+    "virekto[face-recognition]",
+    "onnxruntime-gpu==1.28.0",
     "nvidia-cublas==13.6.1.10",
     "nvidia-cuda-cupti==13.3.75",
     "nvidia-cuda-nvrtc==13.3.33",

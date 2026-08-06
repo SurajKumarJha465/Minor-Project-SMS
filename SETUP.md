@@ -135,7 +135,7 @@ ongoing updates, it's the only way they get a working local setup at all.
   invalid CORS combination — drop `allow_credentials=True` or list explicit
   origins via the new `CORS_ORIGINS` env var.
 - `api/seed1.py` is a dead stub pointing at `seed.py` — safe to delete.
-- `pyproject.toml` pins `requires-python >=3.14` — confirm your friend's
+- `backend/pyproject.toml` pins `requires-python >=3.14` — confirm your friend's
   `uv` resolves that before you're mid-collaboration.
 
 ## Deployment (defense day)

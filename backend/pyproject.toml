@@ -16,6 +16,9 @@ dependencies = [
     # Config / validation
     "python-dotenv>=1.2.2",
     "pydantic>=2.0",
+    "tree3==0.2.0",
+    "opencv-python==5.0.0.93",
+    "ultralytics==8.4.115",
 ]
 
 [project.optional-dependencies]
@@ -27,7 +30,7 @@ face-recognition = [
     "opencv-python",
     "numpy",
     "insightface==1.0.1",
-    "ultralytics==8.4.113",
+    "ultralytics>=8.4.113",
     "onnx>=1.22.0",
     "onnxruntime-gpu==1.28.0",
     "onnxslim==0.1.94",

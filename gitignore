@@ -38,3 +38,4 @@ frontend/.env.*.local
 .vscode/
 .DS_Store
 Thumbs.db
+.idea

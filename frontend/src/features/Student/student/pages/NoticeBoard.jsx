@@ -1,38 +1,65 @@
-import { useMemo, useState } from "react";
-import { toast } from "sonner";
-import { Bell, Filter, Paperclip, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Bell, Filter, Search } from "lucide-react";
 
-import SectionCard from "@/features/Student/ui/SectionCard";
 import Pill from "@/features/Student/ui/Pill";
 import Button from "@/features/Student/ui/Button";
 import FloatingModal from "@/features/Student/ui/FloatingModal";
-import { noticeCategories, notices } from "@/features/Student/data/mock/student";
+import { authHeader } from "@/lib/auth";
 
-const CAT_TONE = { Important: "danger", Academic: "info", Department: "primary", Exam: "warning" };
+const API_URL = import.meta.env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+const NOTICE_CATEGORIES = ["All", "Department", "Semester", "Exam", "Emergency"];
+const CAT_TONE = { Department: "primary", Semester: "info", Exam: "warning", Emergency: "danger" };
 
 export default function NoticeBoard() {
+  const [notices, setNotices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
   const [viewNotice, setViewNotice] = useState(null);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`${API_URL}/api/student/notices`, { headers: { ...authHeader() } });
+        if (!res.ok) throw new Error(`Failed to load notices (${res.status})`);
+        const data = await res.json();
+        if (!cancelled) setNotices(data);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load notices.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
   const filtered = useMemo(
     () =>
       notices.filter((n) => {
-        const matchCat = category === "All" || n.category === category;
+        const matchCat = category === "All" || n.type === category;
         const matchQuery = n.title.toLowerCase().includes(query.toLowerCase());
         return matchCat && matchQuery;
       }),
-    [query, category],
+    [notices, query, category],
   );
 
-  const unread = notices.filter((n) => n.unread).length;
+  const pinnedCount = notices.filter((n) => n.pinned).length;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">Notice Board</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{unread} unread of {notices.length} notices.</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {loading ? "Loading…" : `${pinnedCount} pinned of ${notices.length} notices.`}
+          </p>
         </div>
       </div>
 
@@ -49,7 +76,7 @@ export default function NoticeBoard() {
         </div>
         <div className="flex items-center gap-1.5 overflow-x-auto">
           <Filter className="size-4 shrink-0 text-muted-foreground" />
-          {noticeCategories.map((c) => (
+          {NOTICE_CATEGORIES.map((c) => (
             <button
               key={c}
               onClick={() => setCategory(c)}
@@ -65,7 +92,12 @@ export default function NoticeBoard() {
 
       {/* Notices */}
       <div className="space-y-3">
-        {filtered.length === 0 && (
+        {error && (
+          <p className="rounded-2xl border border-destructive/40 bg-destructive/5 p-8 text-center text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        {!error && !loading && filtered.length === 0 && (
           <p className="rounded-2xl border border-border/60 bg-card p-8 text-center text-sm text-muted-foreground">No notices found.</p>
         )}
         {filtered.map((n) => (
@@ -79,20 +111,12 @@ export default function NoticeBoard() {
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="font-display text-sm font-semibold text-foreground">{n.title}</h3>
-                {n.unread && <span className="size-2 rounded-full bg-destructive" title="Unread" />}
+                {n.pinned && <span className="size-2 rounded-full bg-destructive" title="Pinned" />}
               </div>
-              <p className="mt-1 text-sm text-muted-foreground">{n.summary}</p>
+              <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{n.body}</p>
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <Pill tone={CAT_TONE[n.category]} dot>{n.category}</Pill>
-                <span className="text-xs text-muted-foreground">{n.date}</span>
-                {n.attachment && (
-                  <button
-                    onClick={() => toast.success(`Downloading ${n.attachment}`)}
-                    className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-                  >
-                    <Paperclip className="size-3.5" /> {n.attachment}
-                  </button>
-                )}
+                <Pill tone={CAT_TONE[n.type] ?? "neutral"} dot>{n.type}</Pill>
+                <span className="text-xs text-muted-foreground">{n.audience} · {n.author} · {n.date}</span>
                 <Button size="sm" variant="outline" className="ml-auto" onClick={() => setViewNotice(n)}>
                   View
                 </Button>
@@ -107,21 +131,15 @@ export default function NoticeBoard() {
         open={!!viewNotice}
         onClose={() => setViewNotice(null)}
         title={viewNotice?.title}
-        description={viewNotice?.date}
+        description={viewNotice ? `${viewNotice.audience} · ${viewNotice.author} · ${viewNotice.date}` : undefined}
       >
         {viewNotice && (
           <div className="space-y-4">
-            <p className="text-sm text-foreground">{viewNotice.description}</p>
+            <p className="whitespace-pre-wrap text-sm text-foreground">{viewNotice.body}</p>
             <div className="flex flex-wrap items-center gap-2">
-              <Pill tone={CAT_TONE[viewNotice.category]} dot>{viewNotice.category}</Pill>
-              <Pill tone={viewNotice.priority === "High" ? "danger" : "neutral"}>{viewNotice.priority} priority</Pill>
+              <Pill tone={CAT_TONE[viewNotice.type] ?? "neutral"} dot>{viewNotice.type}</Pill>
+              {(viewNotice.pinned || viewNotice.type === "Emergency") && <Pill tone="danger">High priority</Pill>}
             </div>
-            {viewNotice.attachment && (
-              <div className="flex items-center justify-between rounded-xl border border-border/60 bg-accent/30 px-4 py-2.5 text-sm">
-                <span className="flex items-center gap-2 text-foreground"><Paperclip className="size-4" /> {viewNotice.attachment}</span>
-                <Button size="sm" variant="ghost" onClick={() => toast.success(`Downloading ${viewNotice.attachment}`)}>Download</Button>
-              </div>
-            )}
             <div className="flex justify-end">
               <Button variant="ghost" onClick={() => setViewNotice(null)}>Close</Button>
             </div>

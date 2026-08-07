@@ -6,6 +6,7 @@ from api.routers import auth_router
 from api.routers import admin
 from api.routers import hod
 from api.routers import teacher
+from api.routers import student
 
 Base.metadata.create_all(bind=engine)
 
@@ -25,6 +26,7 @@ app.include_router(auth_router.router)
 app.include_router(admin.router)
 app.include_router(hod.router)
 app.include_router(teacher.router)
+app.include_router(student.router)
 
 
 @app.get("/")

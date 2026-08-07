@@ -10,7 +10,7 @@ from api.schemas import (
     HodCourseOut, CreateCourseRequest, UpdateCourseRequest, HodTeacherOut, HodCourseRosterStudent,
     EnrollStudentRequest, FIELD_MAX, HodMarksOverview, HodCourseAverage, HodMarkDistributionBucket,
     HodTeacherMarkStatus, HodResultsOverview, HodCoursePassFail, HodRankedStudent,
-    NoticeOut, CreateNoticeRequest, UpdateNoticeRequest,
+    NoticeOut, CreateNoticeRequest, UpdateNoticeRequest, HodListingOut,
 )
 from api.auth import hash_password, generate_default_password, require_role
 from api.database import get_db
@@ -35,6 +35,19 @@ def _course_out(db: Session, course: Course) -> HodCourseOut:
         teacher_id=teacher.id if teacher else None,
         teacher_name=teacher.name if teacher else None,
         enrolled=enrolled,
+    )
+
+@router.get("/me", response_model=HodListingOut)
+def my_profile(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    hod = _current_hod(db, current_user)
+    dept = db.query(Department).filter(Department.id == hod.department_id).first()
+    return HodListingOut(
+        id=str(hod.id), name=hod.name, department=dept.name if dept else "",
+        email=hod.email or "", phone=hod.phone, qualification=hod.qualification,
+        experience=hod.experience, photo=hod.photo,
     )
 
 @router.get("/students", response_model=list[HodStudentOut])

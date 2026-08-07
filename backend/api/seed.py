@@ -33,6 +33,20 @@ for a course ("Deepak Raj Aryal/Purna Pd Sharma"), that's the college's
 shorthand for "different sections, different teachers" — split across
 m1/m2/d rather than treated as co-teaching, since one teacher can cover
 multiple sections but a Course row only ever has one teacher_id.
+
+This is a single-department showcase (IT only), so every legacy "ce"
+placeholder row and every @ssms.edu demo login (admin/hod/teacher/student)
+is retired below rather than preserved. There is exactly one non-personal
+login left after this runs: ADMIN_EMAIL. Everyone else — students,
+teachers, and the HOD — gets their own real ncit.edu.np account. Mahesh
+Neupane is both a teaching faculty member (see TEACHERS/COURSE_TEMPLATES)
+and the department HOD; since one User row = one role (see RoleEnum +
+require_role), he ends up with two logins for two dashboards: his personal
+teacher address, and the role-based HOD_EMAIL mailbox below. That mirrors
+how the college itself would issue accounts (a person keeps their personal
+address for their personal role, and the office/role gets its own mailbox
+when the same person also holds it), not a case of one person having two
+personal emails.
 """
 import os
 from api.database import SessionLocal, engine, Base
@@ -439,19 +453,21 @@ PHOTO_ENROLLED_CRNS = {
     "234111",  # Pushparanjan Bishwakarma
 }
 
-# demo, non-student staff accounts (unchanged from before). hod@ssms.edu and
-# teacher@ssms.edu are also documented in backend/README.md as the logins
-# graders use to test those roles, so — unlike the CS-601 placeholder this
-# replaces — they're linked below to a real HOD/Teacher profile with real
-# courses, instead of being left to 400 on "no profile linked to this account".
-DEMO_ACCOUNTS = [
-    ("admin@ssms.edu", "123456", RoleEnum.admin),
-    ("hod@ssms.edu", "123456", RoleEnum.hod),
-    ("teacher@ssms.edu", "123456", RoleEnum.teacher),
-    ("student@ssms.edu", "123456", RoleEnum.student),
-]
+# Single admin login — replaces every admin/hod/teacher/student @ssms.edu
+# demo account. There's no real "admin" person in the source roster (the
+# college roster only lists faculty who teach), so this is one generic
+# institutional login rather than an invented name. must_change_password=True
+# so it isn't left on the seeded default in a real deployment.
+ADMIN_EMAIL = "admin@ncit.edu.np"
+DEFAULT_ADMIN_PASSWORD = "admin123"
 
 DEFAULT_TEACHER_PASSWORD = "teacher123"
+DEFAULT_HOD_PASSWORD = "hod123"
+
+# Every @ssms.edu demo login this seed used to create or preserve. All of
+# these — and any Teacher/HOD profile hanging off them — are retired in the
+# cleanup pass below.
+LEGACY_DEMO_EMAILS = ("admin@ssms.edu", "hod@ssms.edu", "teacher@ssms.edu", "student@ssms.edu")
 
 # (name, title, specialization, qualification, experience) — specialization
 # follows from what each person actually teaches below; title/qualification/
@@ -520,12 +536,22 @@ COURSE_TEMPLATES = [
     ("CT 316", "Elective I", 6, 3, None),
 ]
 
-# HOD isn't in the faculty roster at all (department-level, not a
-# per-course entry) — name/qualification/experience are invented.
+# Real HOD: Mahesh Neupane, who also teaches (see TEACHERS/COURSE_TEMPLATES
+# above — "Microprocessor and Computer Architecture" and half of "Computer
+# Networks"). Qualification/experience reuse his TEACHERS entry since it's
+# the same person; phone/office are invented HOD-office-specific values,
+# following the same convention as the rest of the invented contact fields
+# in this file.
+#
+# One User account = one role (see RoleEnum + require_role), so he needs a
+# second login distinct from his teacher one (mahesh.neupane@ncit.edu.np) to
+# reach the HOD dashboard — HOD_EMAIL below, a role-based mailbox rather than
+# a second personal address, matching how the college itself would issue it.
+HOD_EMAIL = "hod.it@ncit.edu.np"
 HOD_PROFILE = dict(
-    name="Dr. Sudarshan Karki",
+    name="Dr. Mahesh Neupane",
     qualification="Ph.D. in Computer Engineering, Pokhara University",
-    experience="20 years",
+    experience="16 years",
     phone="+977 98-5100-2200",
     office="IT Block — Room 501 (HOD Chamber)",
 )
@@ -535,7 +561,9 @@ def seed():
     db = SessionLocal()
     try:
         # --- wipe the old CE placeholder data (dept, section, course, the
-        # 14 first-name dummy students, their enrollments and user logins) ---
+        # 14 first-name dummy students, their enrollments, teachers, HOD,
+        # and every login attached to any of it — nothing from the old demo
+        # design is preserved anymore) ---
         old_student_ids = [s.id for s in db.query(Student).filter(Student.department_id == "ce").all()]
         if old_student_ids:
             # AttendanceRecord and InternalMark both FK to students.id with no
@@ -561,18 +589,35 @@ def seed():
             ]
             db.query(Teacher).filter(Teacher.id.in_(old_teacher_ids)).delete(synchronize_session=False)
             db.query(HOD).filter(HOD.id.in_(old_hod_ids)).delete(synchronize_session=False)
-            # the two documented demo logins (hod@ssms.edu / teacher@ssms.edu) are
-            # re-linked to real profiles further down — never delete those Users
-            keep_emails = {"hod@ssms.edu", "teacher@ssms.edu"}
-            deletable_user_ids = [
-                uid for uid in old_staff_user_ids
-                if not db.query(User).filter(User.id == uid, User.email.in_(keep_emails)).first()
-            ]
-            if deletable_user_ids:
-                db.query(User).filter(User.id.in_(deletable_user_ids)).delete(synchronize_session=False)
+            if old_staff_user_ids:
+                db.query(User).filter(User.id.in_(old_staff_user_ids)).delete(synchronize_session=False)
 
         db.query(Department).filter(Department.id == "ce").delete(synchronize_session=False)
         db.commit()
+
+        # --- migrate away from every @ssms.edu demo login (admin/hod/
+        # teacher/student) from any earlier seed run, including whatever
+        # Teacher/HOD profile is still attached to them ---
+        legacy_users = db.query(User).filter(User.email.in_(LEGACY_DEMO_EMAILS)).all()
+        if legacy_users:
+            legacy_user_ids = [u.id for u in legacy_users]
+            db.query(Teacher).filter(Teacher.user_id.in_(legacy_user_ids)).delete(synchronize_session=False)
+            db.query(HOD).filter(HOD.user_id.in_(legacy_user_ids)).delete(synchronize_session=False)
+            db.query(Student).filter(Student.user_id.in_(legacy_user_ids)).delete(synchronize_session=False)
+            db.query(User).filter(User.id.in_(legacy_user_ids)).delete(synchronize_session=False)
+            db.commit()
+
+        # legacy fictional HOD from an even earlier iteration of this seed
+        legacy_hod = db.query(HOD).filter(
+            HOD.department_id == DEPARTMENT_ID, HOD.name == "Dr. Sudarshan Karki"
+        ).first()
+        if legacy_hod:
+            legacy_hod_user_id = legacy_hod.user_id
+            db.delete(legacy_hod)
+            db.commit()
+            if legacy_hod_user_id:
+                db.query(User).filter(User.id == legacy_hod_user_id).delete(synchronize_session=False)
+                db.commit()
 
         # --- department + sections ---
         if not db.query(Department).filter(Department.id == DEPARTMENT_ID).first():
@@ -615,13 +660,9 @@ def seed():
             created_students += 1
         db.commit()
 
-        # --- teachers + their login accounts ---
-        # Manil Vaidhya piggybacks on the documented teacher@ssms.edu demo
-        # login (password 123456) instead of getting a separate ncit.edu.np
-        # one, so that account opens onto a real course + roster rather than
-        # a 400 "no teacher profile linked to this account". Everyone else
-        # gets their own firstname.lastname@ncit.edu.np / teacher123 login,
-        # same pattern as the student accounts above.
+        # --- teachers + their login accounts — every teacher, including
+        # Manil Vaidhya, gets their own firstname.lastname@ncit.edu.np /
+        # teacher123 login, same pattern, no special cases ---
         teacher_id_by_name = {}
         for i, (name, title, specialization, qualification, experience) in enumerate(TEACHERS):
             existing = db.query(Teacher).filter(
@@ -631,27 +672,16 @@ def seed():
                 teacher_id_by_name[name] = existing.id
                 continue
 
-            if name == "Manil Vaidhya":
-                user = db.query(User).filter(User.email == "teacher@ssms.edu").first()
-                if not user:
-                    user = User(
-                        email="teacher@ssms.edu", hashed_password=hash_password("123456"),
-                        role=RoleEnum.teacher, must_change_password=False,
-                    )
-                    db.add(user)
-                    db.commit()
-                    db.refresh(user)
-            else:
-                email = _teacher_email(name)
-                user = db.query(User).filter(User.email == email).first()
-                if not user:
-                    user = User(
-                        email=email, hashed_password=hash_password(DEFAULT_TEACHER_PASSWORD),
-                        role=RoleEnum.teacher, must_change_password=True,
-                    )
-                    db.add(user)
-                    db.commit()
-                    db.refresh(user)
+            email = _teacher_email(name)
+            user = db.query(User).filter(User.email == email).first()
+            if not user:
+                user = User(
+                    email=email, hashed_password=hash_password(DEFAULT_TEACHER_PASSWORD),
+                    role=RoleEnum.teacher, must_change_password=True,
+                )
+                db.add(user)
+                db.commit()
+                db.refresh(user)
 
             teacher = Teacher(
                 user_id=user.id, name=name, title=title, department_id=DEPARTMENT_ID,
@@ -711,12 +741,12 @@ def seed():
                         enrollment_count += 1
         db.commit()
 
-        # --- HOD profile, linked to the documented hod@ssms.edu demo login ---
-        hod_user = db.query(User).filter(User.email == "hod@ssms.edu").first()
+        # --- HOD profile — Mahesh Neupane's second login, at HOD_EMAIL ---
+        hod_user = db.query(User).filter(User.email == HOD_EMAIL).first()
         if not hod_user:
             hod_user = User(
-                email="hod@ssms.edu", hashed_password=hash_password("123456"),
-                role=RoleEnum.hod, must_change_password=False,
+                email=HOD_EMAIL, hashed_password=hash_password(DEFAULT_HOD_PASSWORD),
+                role=RoleEnum.hod, must_change_password=True,
             )
             db.add(hod_user)
             db.commit()
@@ -729,22 +759,19 @@ def seed():
             ))
             db.commit()
 
-        # --- demo staff accounts (admin@ssms.edu / student@ssms.edu land
-        # here; hod@ssms.edu / teacher@ssms.edu already exist by this point
-        # so this is just an idempotent safety net for a partial re-run) ---
-        for email, password, role in DEMO_ACCOUNTS:
-            if not db.query(User).filter(User.email == email).first():
-                db.add(User(
-                    email=email,
-                    hashed_password=hash_password(password),
-                    role=role,
-                    must_change_password=False,
-                ))
+        # --- single admin account (replaces every @ssms.edu demo login) ---
+        if not db.query(User).filter(User.email == ADMIN_EMAIL).first():
+            db.add(User(
+                email=ADMIN_EMAIL,
+                hashed_password=hash_password(DEFAULT_ADMIN_PASSWORD),
+                role=RoleEnum.admin,
+                must_change_password=True,
+            ))
         db.commit()
 
         print(f"Seeded {created_students} IT students, {len(TEACHERS)} teachers, "
               f"{created_courses} courses, {enrollment_count} enrollments, "
-              f"1 HOD profile, {len(DEMO_ACCOUNTS)} demo staff accounts.")
+              f"1 HOD profile, 1 admin account.")
         print(f"{len(PHOTO_ENROLLED_CRNS)} students still need their enrollment_photos folder renamed to their CRN.")
 
     finally:

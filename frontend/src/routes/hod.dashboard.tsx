@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Users, GraduationCap, BookOpen, CalendarRange, Megaphone, ArrowRight,
   ChevronRight, Mail, Phone, LayoutGrid, ArrowLeft,
@@ -11,23 +11,107 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 import { StatCard } from "@/features/HoD/components/StatCard";
-import {
-  hod, teachers, hodStudents, hodCourses, semesters, sections,
-  getStudentsBySemesterSection, type Section,
-} from "@/features/HoD/lib/hod-mock-data";
+import { authHeader } from "@/lib/auth";
 
 export const Route = createFileRoute("/hod/dashboard")({
   head: () => ({ meta: [{ title: "HOD Dashboard · Comp. Engg." }] }),
   component: HodDashboard,
 });
 
+const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+type Section = string;
+
+type HodProfile = {
+  id: string;
+  name: string;
+  department: string;
+  email: string;
+  phone?: string | null;
+};
+
+type StudentRow = {
+  id: string;
+  name: string;
+  enrollment: string;
+  semester: number;
+  section: string;
+  department: string;
+  photo?: string | null;
+  email?: string | null;
+  phone?: string | null;
+};
+
+type CourseRow = {
+  id: string;
+  code: string;
+  name: string;
+  sem: number;
+  section: string;
+  teacher_id: number | null;
+};
+
+type TeacherRow = {
+  id: number;
+  name: string;
+};
+
+const SEMESTER_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8];
+
+function getStudentsBySemesterSection(list: StudentRow[], semester: number, section: Section) {
+  return list.filter((s) => s.semester === semester && s.section === section);
+}
+
 function HodDashboard() {
   const today = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+
+  const [profile, setProfile] = useState<HodProfile | null>(null);
+  const [students, setStudents] = useState<StudentRow[]>([]);
+  const [courses, setCourses] = useState<CourseRow[]>([]);
+  const [teachers, setTeachers] = useState<TeacherRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [selectedSem, setSelectedSem] = useState<number | null>(null);
   const [selectedSection, setSelectedSection] = useState<Section | null>(null);
   const [semModalOpen, setSemModalOpen] = useState(false);
   const semOverviewRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const [meRes, studentsRes, coursesRes, teachersRes] = await Promise.all([
+          fetch(`${API_URL}/api/hod/me`, { headers: { ...authHeader() } }),
+          fetch(`${API_URL}/api/hod/students`, { headers: { ...authHeader() } }),
+          fetch(`${API_URL}/api/hod/courses`, { headers: { ...authHeader() } }),
+          fetch(`${API_URL}/api/hod/teachers`, { headers: { ...authHeader() } }),
+        ]);
+        if (!meRes.ok) throw new Error(`Failed to load profile (${meRes.status})`);
+        if (!studentsRes.ok) throw new Error(`Failed to load students (${studentsRes.status})`);
+        if (!coursesRes.ok) throw new Error(`Failed to load courses (${coursesRes.status})`);
+        if (!teachersRes.ok) throw new Error(`Failed to load teachers (${teachersRes.status})`);
+
+        const [meData, studentsData, coursesData, teachersData] = await Promise.all([
+          meRes.json(), studentsRes.json(), coursesRes.json(), teachersRes.json(),
+        ]);
+
+        if (!cancelled) {
+          setProfile(meData);
+          setStudents(studentsData);
+          setCourses(coursesData);
+          setTeachers(teachersData);
+        }
+      } catch (err) {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load dashboard data.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   function scrollToOverview() {
     setTimeout(() => semOverviewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
@@ -44,16 +128,50 @@ function HodDashboard() {
     scrollToOverview();
   }
 
+  // Sections are derived from real data so the drilldown always matches what's
+  // actually in the department, rather than a hardcoded list.
+  const sections = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of students) if (s.section) set.add(s.section);
+    for (const c of courses) if (c.section) set.add(c.section);
+    return set.size > 0 ? Array.from(set).sort() : ["D", "M1", "M2"];
+  }, [students, courses]);
+
+  const semesterCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const s of students) counts.set(s.semester, (counts.get(s.semester) ?? 0) + 1);
+    return counts;
+  }, [students]);
+
+  const unassignedCourses = courses.filter((c) => !c.teacher_id).length;
+
   const statCards = [
     { key: "teachers", label: "Total Teachers", value: teachers.length, delta: "active faculty", tone: "primary", icon: Users },
-    { key: "students", label: "Total Students", value: hodStudents.length, delta: "across 8 semesters", tone: "accent", icon: GraduationCap },
-    { key: "courses", label: "Total Courses", value: hodCourses.length, delta: "this session", tone: "info", icon: BookOpen },
-    { key: "semesters", label: "Total Semesters", value: semesters.length, delta: "Sem 1 – 8", tone: "success", icon: CalendarRange },
+    { key: "students", label: "Total Students", value: students.length, delta: "across 8 semesters", tone: "accent", icon: GraduationCap },
+    { key: "courses", label: "Total Courses", value: courses.length, delta: "this session", tone: "info", icon: BookOpen },
+    { key: "semesters", label: "Total Semesters", value: SEMESTER_NUMBERS.length, delta: "Sem 1 – 8", tone: "success", icon: CalendarRange },
   ] as const;
 
   const sectionStudents = selectedSem && selectedSection
-    ? getStudentsBySemesterSection(hodStudents, selectedSem, selectedSection)
+    ? getStudentsBySemesterSection(students, selectedSem, selectedSection)
     : [];
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
+        Loading dashboard…
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 text-center">
+        <p className="text-sm text-destructive">{loadError}</p>
+        <Button size="sm" variant="outline" onClick={() => window.location.reload()}>Retry</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -64,10 +182,10 @@ function HodDashboard() {
           <div>
             <div className="text-xs font-medium uppercase tracking-widest text-white/80">{today}</div>
             <h1 className="mt-1 font-display text-2xl font-bold md:text-3xl">
-              Welcome back, {hod.title} {hod.name.split(" ").slice(-1)[0]} 👋
+              Welcome back, {profile?.name?.split(" ").slice(-1)[0] ?? "there"} 👋
             </h1>
             <p className="mt-1.5 max-w-xl text-sm text-white/80">
-              Head of <b className="text-white">{hod.department}</b> · {hod.session}. You have <b className="text-white">{hodCourses.filter(c => !c.teacher).length} courses</b> without an assigned teacher.
+              Head of <b className="text-white">{profile?.department ?? "—"}</b>. You have <b className="text-white">{unassignedCourses} courses</b> without an assigned teacher.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Link to="/hod/notices">
@@ -82,9 +200,9 @@ function HodDashboard() {
               <div className="text-[11px] uppercase tracking-widest text-white/70">Department Snapshot</div>
               <ul className="mt-2 space-y-1.5 text-sm">
                 <li className="flex items-center justify-between gap-6"><span>Teachers</span><b>{teachers.length}</b></li>
-                <li className="flex items-center justify-between gap-6"><span>Students</span><b>{hodStudents.length}</b></li>
-                <li className="flex items-center justify-between gap-6"><span>Active Courses</span><b>{hodCourses.length}</b></li>
-                <li className="flex items-center justify-between gap-6"><span>Semesters</span><b>{semesters.length}</b></li>
+                <li className="flex items-center justify-between gap-6"><span>Students</span><b>{students.length}</b></li>
+                <li className="flex items-center justify-between gap-6"><span>Active Courses</span><b>{courses.length}</b></li>
+                <li className="flex items-center justify-between gap-6"><span>Semesters</span><b>{SEMESTER_NUMBERS.length}</b></li>
               </ul>
             </div>
           </div>
@@ -161,17 +279,17 @@ function HodDashboard() {
           <CardContent>
             {selectedSem === null && (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
-                {semesters.map((s) => (
+                {SEMESTER_NUMBERS.map((n) => (
                   <button
-                    key={s.id}
-                    onClick={() => pickSemester(s.number)}
+                    key={n}
+                    onClick={() => pickSemester(n)}
                     className="group flex flex-col items-center gap-2 rounded-xl border border-border bg-background/50 p-4 text-center transition hover:-translate-y-0.5 hover:border-primary/40 hover:bg-background hover:shadow-soft"
                   >
                     <div className="grid h-11 w-11 place-items-center rounded-xl gradient-brand text-white shadow-soft">
                       <CalendarRange className="h-5 w-5" />
                     </div>
-                    <div className="font-display text-sm font-bold">Semester {s.number}</div>
-                    <div className="text-[11px] text-muted-foreground">{s.students} students</div>
+                    <div className="font-display text-sm font-bold">Semester {n}</div>
+                    <div className="text-[11px] text-muted-foreground">{semesterCounts.get(n) ?? 0} students</div>
                   </button>
                 ))}
               </div>
@@ -180,7 +298,7 @@ function HodDashboard() {
             {selectedSem !== null && selectedSection === null && (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 {sections.map((sec) => {
-                  const count = getStudentsBySemesterSection(hodStudents, selectedSem, sec).length;
+                  const count = getStudentsBySemesterSection(students, selectedSem, sec).length;
                   return (
                     <button
                       key={sec}
@@ -217,7 +335,7 @@ function HodDashboard() {
                       <tr key={s.id} className="border-t border-border/60 hover:bg-muted/30">
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3">
-                            <Avatar className="h-9 w-9"><AvatarImage src={s.photo} /><AvatarFallback>{s.name[0]}</AvatarFallback></Avatar>
+                            <Avatar className="h-9 w-9"><AvatarImage src={s.photo ?? undefined} /><AvatarFallback>{s.name[0]}</AvatarFallback></Avatar>
                             <div className="font-semibold">{s.name}</div>
                           </div>
                         </td>
@@ -245,14 +363,14 @@ function HodDashboard() {
             <DialogDescription>Select a semester to view its sections and students.</DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-4 gap-2 pt-2">
-            {semesters.map((s) => (
+            {SEMESTER_NUMBERS.map((n) => (
               <Button
-                key={s.id}
+                key={n}
                 variant="outline"
                 className="h-14 flex-col gap-0.5 rounded-xl text-xs"
-                onClick={() => pickSemesterFromModal(s.number)}
+                onClick={() => pickSemesterFromModal(n)}
               >
-                <span className="font-display text-base font-bold">{s.number}</span>
+                <span className="font-display text-base font-bold">{n}</span>
                 <span className="text-[10px] text-muted-foreground">Sem</span>
               </Button>
             ))}

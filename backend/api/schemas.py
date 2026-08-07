@@ -198,6 +198,32 @@ class AttendanceTodayResponse(BaseModel):
     date: str
     records: list[AttendanceTodayItem]
 
+class StudentCourseAttendanceOut(BaseModel):
+    course_id: str
+    code: str
+    name: str
+    teacher: str
+    present: int
+    absent: int
+    total: int
+    percentage: float
+    status: str  # "Excellent" | "Good" | "Warning"
+
+class StudentAttendanceDay(BaseModel):
+    date: str        # ISO date, e.g. "2026-08-05"
+    status: str       # "present" | "absent" — day is "present" if present in >=1 class that day
+
+class StudentAttendanceSummary(BaseModel):
+    overall: float
+    total_classes: int
+    present: int
+    absent: int
+
+class StudentAttendanceResponse(BaseModel):
+    summary: StudentAttendanceSummary
+    courses: list[StudentCourseAttendanceOut]
+    calendar: list[StudentAttendanceDay]
+
 class HodCourseOut(BaseModel):
     id: str
     code: str

@@ -19,10 +19,27 @@ attendance (see PHOTO_ENROLLED_CRNS below) — everyone else gets a full
 student + login record with photo=None; the frontend's placeholder avatar
 and the attendance recognizer's "not enrolled in known_embeddings" path
 both already handle that.
+
+Teachers and courses (below the student block) come from the same
+department roster, "Name of Faculty" column, BEIT Spring 2026 — restricted
+to semesters II/IV/VI since those are the only ones with a seeded student
+roster. Only teacher names and the course-per-semester list were available
+(confidentiality); course codes, credits, section splits, and every
+teacher's contact/profile fields beyond their name are invented to fill
+out the schema, following the numbering and title conventions visible in
+the wider Pokhara University curriculum (see COURSE_TEMPLATES/TEACHERS
+comments below for specifics). Where the roster listed more than one name
+for a course ("Deepak Raj Aryal/Purna Pd Sharma"), that's the college's
+shorthand for "different sections, different teachers" — split across
+m1/m2/d rather than treated as co-teaching, since one teacher can cover
+multiple sections but a Course row only ever has one teacher_id.
 """
 import os
 from api.database import SessionLocal, engine, Base
-from api.models import Department, Section, Course, Student, Enrollment, User, RoleEnum, AttendanceRecord, InternalMark
+from api.models import (
+    Department, Section, Course, Student, Enrollment, User, RoleEnum,
+    AttendanceRecord, InternalMark, Teacher, HOD,
+)
 from api.auth import hash_password
 
 Base.metadata.create_all(bind=engine)
@@ -422,13 +439,96 @@ PHOTO_ENROLLED_CRNS = {
     "234111",  # Pushparanjan Bishwakarma
 }
 
-# demo, non-student staff accounts (unchanged from before)
+# demo, non-student staff accounts (unchanged from before). hod@ssms.edu and
+# teacher@ssms.edu are also documented in backend/README.md as the logins
+# graders use to test those roles, so — unlike the CS-601 placeholder this
+# replaces — they're linked below to a real HOD/Teacher profile with real
+# courses, instead of being left to 400 on "no profile linked to this account".
 DEMO_ACCOUNTS = [
     ("admin@ssms.edu", "123456", RoleEnum.admin),
     ("hod@ssms.edu", "123456", RoleEnum.hod),
     ("teacher@ssms.edu", "123456", RoleEnum.teacher),
     ("student@ssms.edu", "123456", RoleEnum.student),
 ]
+
+DEFAULT_TEACHER_PASSWORD = "teacher123"
+
+# (name, title, specialization, qualification, experience) — specialization
+# follows from what each person actually teaches below; title/qualification/
+# experience are invented (Er. is the standard title for BE-affiliated
+# engineering faculty in Nepal, Dr. for the two with the most course load).
+TEACHERS = [
+    ("Himalaya Ghimire", "Er.", "Engineering Mathematics", "M.Sc. in Mathematics, Tribhuvan University", "9 years"),
+    ("Deepak Raj Aryal", "Er.", "Applied Mathematics", "M.Sc. in Mathematics, Tribhuvan University", "11 years"),
+    ("Purna Pd Sharma", "Er.", "Engineering Mathematics", "M.Sc. in Mathematics, Tribhuvan University", "14 years"),
+    ("Bibek Pudashaini", "Er.", "Engineering Drawing & Design", "M.Sc. in Mechanical Engineering, Pokhara University", "7 years"),
+    ("Tirtha Raj Bhatta", "Er.", "Technical Communication", "M.A. in English, Tribhuvan University", "10 years"),
+    ("Shivahari Acharya", "Er.", "Digital Logic & Electronics", "M.Sc. in Electronics & Communication, Pokhara University", "8 years"),
+    ("Yogesh Deo", "Er.", "Computer Networks & Digital Systems", "M.Sc. in Computer Engineering, Pokhara University", "6 years"),
+    ("Ankit Kharel", "Er.", "Discrete Mathematics & Programming", "M.Sc. in Computer Science, Tribhuvan University", "5 years"),
+    ("Nirdsoh Adhikari", "Er.", "Object-Oriented Programming", "M.Sc. in Computer Engineering, Pokhara University", "6 years"),
+    ("Shree Krishna Yadav", "Er.", "Software Engineering", "M.Sc. in Software Engineering, Pokhara University", "9 years"),
+    ("Amit K Shrivastava", "Er.", "Operating Systems", "M.Sc. in Computer Engineering, Pokhara University", "8 years"),
+    ("Manil Vaidhya", "Er.", "Database Systems & Algorithms", "M.Sc. in Computer Engineering, Pokhara University", "7 years"),
+    ("Mahesh Neupane", "Dr.", "Computer Architecture & Networks", "Ph.D. in Computer Engineering, Pokhara University", "16 years"),
+    ("Kumar Pudashine", "Er.", "IT Infrastructure & Systems Administration", "M.Sc. in Information Technology, Pokhara University", "10 years"),
+    ("Simanta Kasaju", "Er.", "Web Technologies", "M.Sc. in Computer Engineering, Pokhara University", "5 years"),
+    ("Himal Acharya", "Er.", "Data Communication", "M.Sc. in Electronics & Communication, Pokhara University", "9 years"),
+    ("Ashim Khadka", "Dr.", "Data Science & Analytics", "Ph.D. in Data Science, Pokhara University", "8 years"),
+    ("Deependra Banskota", "Er.", "Engineering Management", "MBA, Pokhara University", "12 years"),
+    ("Rishi Kant Marseni", "Er.", "Internet of Things", "M.Sc. in Computer Engineering, Pokhara University", "6 years"),
+]
+
+# name with any single-letter middle initial dropped -> firstname.lastname@ncit.edu.np
+def _teacher_email(name: str) -> str:
+    parts = [p for p in name.replace(".", "").split(" ") if len(p) > 1]
+    return f"{parts[0].lower()}.{parts[-1].lower()}@ncit.edu.np"
+
+# (code, name, sem, credits, teacher) — teacher is either one name (that
+# person covers all three sections) or a {section_id: name} dict when the
+# roster listed multiple names, or None for the two sem-VI rows the real
+# sheet itself leaves blank (Project I, Elective I — supervisor/choice
+# driven, not lecture-assigned). Codes follow the PREFIX NNN convention
+# visible elsewhere in the college's own course list (ENG 111, CMP 109,
+# MTH 112, ...): shared first-year subjects reuse the real shared code
+# (ENG 111 - Communication Techniques is the same course under any
+# programme), IT-major subjects get an unused CMP/CT/ELX/MTH number.
+# CMP 360 for Data Science and Analytics is the one already-known real code.
+COURSE_TEMPLATES = [
+    # --- Semester II ---
+    ("MTH 116", "Algebra and Geometry", 2, 3, {"m1": "Himalaya Ghimire", "m2": "Deepak Raj Aryal", "d": "Purna Pd Sharma"}),
+    ("MEC 115", "Basic Engineering Drawing", 2, 1, "Bibek Pudashaini"),
+    ("ENG 111", "Communication Techniques", 2, 2, "Tirtha Raj Bhatta"),
+    ("ELX 112", "Digital Logic", 2, 3, {"m1": "Shivahari Acharya", "d": "Shivahari Acharya", "m2": "Yogesh Deo"}),
+    ("CMP 116", "Discrete Structure", 2, 3, "Ankit Kharel"),
+    ("CMP 117", "Object Oriented Programming in C++", 2, 3, "Nirdsoh Adhikari"),
+    ("CMP 118", "Computer Workshop", 2, 1, "Shree Krishna Yadav"),
+    # --- Semester IV ---
+    ("MTH 214", "Applied Mathematics", 4, 3, "Deepak Raj Aryal"),
+    ("CMP 214", "Applied Operating Systems", 4, 3, "Amit K Shrivastava"),
+    ("CMP 215", "Database Management System", 4, 3, "Manil Vaidhya"),
+    ("ELX 213", "Microprocessor and Computer Architecture", 4, 3, "Mahesh Neupane"),
+    ("CT 214", "System Administration and IT Infrastructure Services", 4, 3, "Kumar Pudashine"),
+    ("CT 215", "Web Technology", 4, 3, "Simanta Kasaju"),
+    # --- Semester VI ---
+    ("CT 311", "Computer Networks", 6, 3, {"d": "Mahesh Neupane", "m1": "Mahesh Neupane", "m2": "Yogesh Deo"}),
+    ("CMP 312", "Data Communication", 6, 3, "Himal Acharya"),
+    ("CMP 360", "Data Science and Analytics", 6, 3, "Ashim Khadka"),
+    ("MGT 313", "Engineering Management", 6, 2, "Deependra Banskota"),
+    ("CT 314", "Internet of Things", 6, 3, "Rishi Kant Marseni"),
+    ("CT 315", "Project I", 6, 2, None),
+    ("CT 316", "Elective I", 6, 3, None),
+]
+
+# HOD isn't in the faculty roster at all (department-level, not a
+# per-course entry) — name/qualification/experience are invented.
+HOD_PROFILE = dict(
+    name="Dr. Sudarshan Karki",
+    qualification="Ph.D. in Computer Engineering, Pokhara University",
+    experience="20 years",
+    phone="+977 98-5100-2200",
+    office="IT Block — Room 501 (HOD Chamber)",
+)
 
 
 def seed():
@@ -450,6 +550,27 @@ def seed():
             if old_user_ids:
                 db.query(User).filter(User.id.in_(old_user_ids)).delete(synchronize_session=False)
         db.query(Course).filter(Course.department_id == "ce").delete(synchronize_session=False)
+
+        old_teacher_ids = [t.id for t in db.query(Teacher).filter(Teacher.department_id == "ce").all()]
+        old_hod_ids = [h.id for h in db.query(HOD).filter(HOD.department_id == "ce").all()]
+        if old_teacher_ids or old_hod_ids:
+            old_staff_user_ids = [
+                t.user_id for t in db.query(Teacher).filter(Teacher.id.in_(old_teacher_ids)).all() if t.user_id
+            ] + [
+                h.user_id for h in db.query(HOD).filter(HOD.id.in_(old_hod_ids)).all() if h.user_id
+            ]
+            db.query(Teacher).filter(Teacher.id.in_(old_teacher_ids)).delete(synchronize_session=False)
+            db.query(HOD).filter(HOD.id.in_(old_hod_ids)).delete(synchronize_session=False)
+            # the two documented demo logins (hod@ssms.edu / teacher@ssms.edu) are
+            # re-linked to real profiles further down — never delete those Users
+            keep_emails = {"hod@ssms.edu", "teacher@ssms.edu"}
+            deletable_user_ids = [
+                uid for uid in old_staff_user_ids
+                if not db.query(User).filter(User.id == uid, User.email.in_(keep_emails)).first()
+            ]
+            if deletable_user_ids:
+                db.query(User).filter(User.id.in_(deletable_user_ids)).delete(synchronize_session=False)
+
         db.query(Department).filter(Department.id == "ce").delete(synchronize_session=False)
         db.commit()
 
@@ -494,38 +615,123 @@ def seed():
             created_students += 1
         db.commit()
 
-        # --- one test course per section that the 14 photo-enrolled
-        # students actually sit in (sem 6 / d and sem 6 / m2), so the
-        # teacher attendance module has a real roster to recognize against ---
-        test_courses = [
-            (f"{DEPARTMENT_ID}-6-d-cs601", "CS-601", "Software Engineering", 6, "d"),
-            (f"{DEPARTMENT_ID}-6-m2-cs601", "CS-601", "Software Engineering", 6, "m2"),
-        ]
-        enrollment_count = 0
-        for course_id, code, name, sem, section_id in test_courses:
-            if not db.query(Course).filter(Course.id == course_id).first():
-                db.add(Course(
-                    id=course_id, code=code, name=name, credits=3,
-                    sem=sem, department_id=DEPARTMENT_ID, section_id=section_id,
-                    teacher_id=None,
-                ))
-                db.commit()
+        # --- teachers + their login accounts ---
+        # Manil Vaidhya piggybacks on the documented teacher@ssms.edu demo
+        # login (password 123456) instead of getting a separate ncit.edu.np
+        # one, so that account opens onto a real course + roster rather than
+        # a 400 "no teacher profile linked to this account". Everyone else
+        # gets their own firstname.lastname@ncit.edu.np / teacher123 login,
+        # same pattern as the student accounts above.
+        teacher_id_by_name = {}
+        for i, (name, title, specialization, qualification, experience) in enumerate(TEACHERS):
+            existing = db.query(Teacher).filter(
+                Teacher.name == name, Teacher.department_id == DEPARTMENT_ID
+            ).first()
+            if existing:
+                teacher_id_by_name[name] = existing.id
+                continue
 
-            roster = db.query(Student).filter(
-                Student.department_id == DEPARTMENT_ID,
-                Student.sem == sem,
-                Student.section_id == section_id,
-            ).all()
-            for s in roster:
-                exists = db.query(Enrollment).filter(
-                    Enrollment.student_id == s.id, Enrollment.course_id == course_id
-                ).first()
-                if not exists:
-                    db.add(Enrollment(student_id=s.id, course_id=course_id))
-                    enrollment_count += 1
+            if name == "Manil Vaidhya":
+                user = db.query(User).filter(User.email == "teacher@ssms.edu").first()
+                if not user:
+                    user = User(
+                        email="teacher@ssms.edu", hashed_password=hash_password("123456"),
+                        role=RoleEnum.teacher, must_change_password=False,
+                    )
+                    db.add(user)
+                    db.commit()
+                    db.refresh(user)
+            else:
+                email = _teacher_email(name)
+                user = db.query(User).filter(User.email == email).first()
+                if not user:
+                    user = User(
+                        email=email, hashed_password=hash_password(DEFAULT_TEACHER_PASSWORD),
+                        role=RoleEnum.teacher, must_change_password=True,
+                    )
+                    db.add(user)
+                    db.commit()
+                    db.refresh(user)
+
+            teacher = Teacher(
+                user_id=user.id, name=name, title=title, department_id=DEPARTMENT_ID,
+                specialization=specialization, qualification=qualification,
+                email=user.email, phone=f"+977 98-{4100 + i}-{6200 + i}",
+                office=f"IT Block — Room {201 + i}",
+                office_hours=f"Sun–Thu · {1 + (i % 4)}:00 – {3 + (i % 4)}:00 PM",
+                experience=experience,
+                photo=f"https://i.pravatar.cc/160?img={(i * 4 + 11) % 70}",
+            )
+            db.add(teacher)
+            db.commit()
+            db.refresh(teacher)
+            teacher_id_by_name[name] = teacher.id
+
+        # --- courses — one row per section per template, matching the
+        # frontend's "dept-sem-section-code" composite id scheme, enrolling
+        # every currently-seeded student whose sem/section matches ---
+        created_courses = 0
+        enrollment_count = 0
+        for code, name, sem, credits, teacher_spec in COURSE_TEMPLATES:
+            code_slug = code.lower().replace(" ", "").replace("-", "")
+            for section_id, _ in SECTIONS:
+                course_id = f"{DEPARTMENT_ID}-{sem}-{section_id}-{code_slug}"
+
+                if isinstance(teacher_spec, dict):
+                    teacher_name = teacher_spec.get(section_id)
+                else:
+                    teacher_name = teacher_spec  # a name (all sections) or None (unassigned)
+                teacher_id = teacher_id_by_name.get(teacher_name) if teacher_name else None
+
+                course = db.query(Course).filter(Course.id == course_id).first()
+                if not course:
+                    course = Course(
+                        id=course_id, code=code, name=name, credits=credits,
+                        sem=sem, department_id=DEPARTMENT_ID, section_id=section_id,
+                        teacher_id=teacher_id,
+                    )
+                    db.add(course)
+                    db.commit()
+                    created_courses += 1
+                elif course.teacher_id != teacher_id:
+                    course.teacher_id = teacher_id
+                    db.commit()
+
+                roster = db.query(Student).filter(
+                    Student.department_id == DEPARTMENT_ID,
+                    Student.sem == sem,
+                    Student.section_id == section_id,
+                ).all()
+                for s in roster:
+                    exists = db.query(Enrollment).filter(
+                        Enrollment.student_id == s.id, Enrollment.course_id == course_id
+                    ).first()
+                    if not exists:
+                        db.add(Enrollment(student_id=s.id, course_id=course_id))
+                        enrollment_count += 1
         db.commit()
 
-        # --- demo staff accounts (unchanged) ---
+        # --- HOD profile, linked to the documented hod@ssms.edu demo login ---
+        hod_user = db.query(User).filter(User.email == "hod@ssms.edu").first()
+        if not hod_user:
+            hod_user = User(
+                email="hod@ssms.edu", hashed_password=hash_password("123456"),
+                role=RoleEnum.hod, must_change_password=False,
+            )
+            db.add(hod_user)
+            db.commit()
+            db.refresh(hod_user)
+        if not db.query(HOD).filter(HOD.user_id == hod_user.id).first():
+            db.add(HOD(
+                user_id=hod_user.id, name=HOD_PROFILE["name"], email=hod_user.email,
+                phone=HOD_PROFILE["phone"], qualification=HOD_PROFILE["qualification"],
+                experience=HOD_PROFILE["experience"], department_id=DEPARTMENT_ID,
+            ))
+            db.commit()
+
+        # --- demo staff accounts (admin@ssms.edu / student@ssms.edu land
+        # here; hod@ssms.edu / teacher@ssms.edu already exist by this point
+        # so this is just an idempotent safety net for a partial re-run) ---
         for email, password, role in DEMO_ACCOUNTS:
             if not db.query(User).filter(User.email == email).first():
                 db.add(User(
@@ -536,8 +742,9 @@ def seed():
                 ))
         db.commit()
 
-        print(f"Seeded {created_students} IT students, {len(test_courses)} test courses, "
-              f"{enrollment_count} enrollments, {len(DEMO_ACCOUNTS)} demo staff accounts.")
+        print(f"Seeded {created_students} IT students, {len(TEACHERS)} teachers, "
+              f"{created_courses} courses, {enrollment_count} enrollments, "
+              f"1 HOD profile, {len(DEMO_ACCOUNTS)} demo staff accounts.")
         print(f"{len(PHOTO_ENROLLED_CRNS)} students still need their enrollment_photos folder renamed to their CRN.")
 
     finally:

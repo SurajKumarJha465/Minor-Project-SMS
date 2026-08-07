@@ -1,5 +1,5 @@
 import os
-from recognition import enroll_student_from_folder
+from src.recognition import enroll_student_from_folder
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(BASE_DIR)

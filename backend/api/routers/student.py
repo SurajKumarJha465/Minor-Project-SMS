@@ -8,13 +8,14 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 
 from api.database import get_db
-from api.models import User, RoleEnum, Student, Section, Department, Notice, Enrollment, AttendanceRecord, AttendanceStatus, Course, Teacher
+from api.models import User, RoleEnum, Student, Section, Department, Notice, Enrollment, AttendanceRecord, AttendanceStatus, Course, Teacher, InternalMark, MarkStatus
 from api.auth import require_role
 from api.schemas import (
     NoticeOut,
     StudentAttendanceResponse,
     StudentAttendanceSummary,
     StudentCourseAttendanceOut,
+    StudentCourseOut,
     StudentAttendanceDay,
     StudentMeOut,
     UpdateMyProfileRequest,
@@ -187,6 +188,79 @@ def list_my_notices(
         )
         for n in notices
     ]
+
+
+@router.get("/courses", response_model=list[StudentCourseOut])
+def list_my_courses(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.student)),
+):
+    """Courses the student is enrolled in, with attendance % and published internal marks.
+    Note: there's no "syllabus progress" or course description concept in the data
+    model yet, so the frontend card for real courses drops those fields (they were
+    mock-only)."""
+    student = _current_student(db, current_user)
+
+    enrollments = db.query(Enrollment).filter(Enrollment.student_id == student.id).all()
+    course_ids = [e.course_id for e in enrollments]
+    if not course_ids:
+        return []
+
+    courses = db.query(Course).filter(Course.id.in_(course_ids)).all()
+    teacher_ids = {c.teacher_id for c in courses if c.teacher_id}
+    teachers = (
+        {t.id: t.name for t in db.query(Teacher).filter(Teacher.id.in_(teacher_ids)).all()}
+        if teacher_ids else {}
+    )
+
+    records = (
+        db.query(AttendanceRecord)
+        .filter(AttendanceRecord.student_id == student.id, AttendanceRecord.course_id.in_(course_ids))
+        .all()
+    )
+    by_course_att = defaultdict(list)
+    for r in records:
+        if r.status != AttendanceStatus.pending:
+            by_course_att[r.course_id].append(r.status)
+
+    # Only published marks count towards what a student can see — drafts are
+    # the teacher's working copy, same rule the HOD/teacher views follow.
+    marks = {
+        m.course_id: m
+        for m in db.query(InternalMark)
+        .filter(
+            InternalMark.student_id == student.id,
+            InternalMark.course_id.in_(course_ids),
+            InternalMark.status == MarkStatus.published,
+        )
+        .all()
+    }
+
+    rows: list[StudentCourseOut] = []
+    for c in courses:
+        statuses = by_course_att.get(c.id, [])
+        present = sum(1 for s in statuses if s == AttendanceStatus.present)
+        total = len(statuses)
+        pct = round((present / total) * 100, 1) if total else 0.0
+
+        m = marks.get(c.id)
+        internal_total = (
+            m.p_att + m.p_lab + m.p_exam + m.p_viva + m.t_att + m.t_assign + m.t_present + m.t_assess
+            if m else 0
+        )
+
+        rows.append(
+            StudentCourseOut(
+                id=c.id,
+                code=c.code,
+                name=c.name,
+                credits=c.credits or 0,
+                teacher=teachers.get(c.teacher_id, "Unassigned"),
+                attendance=pct,
+                internal=internal_total,
+            )
+        )
+    return rows
 
 
 def _attendance_status_label(pct: float) -> str:

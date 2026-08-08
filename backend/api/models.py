@@ -55,10 +55,12 @@ class Admin(Base):
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+
     name = Column(String, nullable=False)
     title = Column(String)
     email = Column(String)
     phone = Column(String)
+    institution = Column(String)
     qualification = Column(String)
     experience = Column(String)
     photo = Column(String)

@@ -50,6 +50,20 @@ class Section(Base):
     label = Column(String, nullable=False)
 
 
+class Admin(Base):
+    __tablename__ = "admins"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
+    name = Column(String, nullable=False)
+    title = Column(String)
+    email = Column(String)
+    phone = Column(String)
+    qualification = Column(String)
+    experience = Column(String)
+    photo = Column(String)
+
+
 class Teacher(Base):
     __tablename__ = "teachers"
     id = Column(Integer, primary_key=True)

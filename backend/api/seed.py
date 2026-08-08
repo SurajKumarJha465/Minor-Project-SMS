@@ -52,7 +52,7 @@ import os
 from api.database import SessionLocal, engine, Base
 from api.models import (
     Department, Section, Course, Student, Enrollment, User, RoleEnum,
-    AttendanceRecord, InternalMark, Teacher, HOD,
+    AttendanceRecord, InternalMark, Teacher, HOD, Admin,
 )
 from api.auth import hash_password
 
@@ -460,6 +460,14 @@ PHOTO_ENROLLED_CRNS = {
 # so it isn't left on the seeded default in a real deployment.
 ADMIN_EMAIL = "admin@ncit.edu.np"
 DEFAULT_ADMIN_PASSWORD = "admin123"
+ADMIN_PROFILE = dict(
+    name="Er. Niranjan Khakurel",
+    title="Principal",
+    email=ADMIN_EMAIL,
+    phone="+977 9851198517",
+    qualification="ME in Computer Engineering, NCIT, Pokhara University; PhD Scholar, Tribhuvan University",
+    experience="18+ years in academia, teaching, research, and projects",
+)
 
 DEFAULT_TEACHER_PASSWORD = "teacher123"
 DEFAULT_HOD_PASSWORD = "hod123"
@@ -759,20 +767,50 @@ def seed():
             ))
             db.commit()
 
-        # --- single admin account (replaces every @ssms.edu demo login) ---
-        if not db.query(User).filter(User.email == ADMIN_EMAIL).first():
-            db.add(User(
+        # --- admin account + profile ---
+        admin_user = db.query(User).filter(User.email == ADMIN_EMAIL).first()
+
+        if not admin_user:
+            admin_user = User(
                 email=ADMIN_EMAIL,
                 hashed_password=hash_password(DEFAULT_ADMIN_PASSWORD),
                 role=RoleEnum.admin,
                 must_change_password=True,
-            ))
+            )
+            db.add(admin_user)
+            db.commit()
+            db.refresh(admin_user)
+
+        # Update the existing admin profile on every seed run.
+        # This deliberately does NOT create duplicate profiles.
+        admin_profile = db.query(Admin).filter(
+            Admin.user_id == admin_user.id
+        ).first()
+
+        if not admin_profile:
+            admin_profile = Admin(
+                user_id=admin_user.id,
+                name=ADMIN_PROFILE["name"],
+                title=ADMIN_PROFILE["title"],
+                email=ADMIN_PROFILE["email"],
+                phone=ADMIN_PROFILE["phone"],
+                qualification=ADMIN_PROFILE["qualification"],
+                experience=ADMIN_PROFILE["experience"],
+            )
+            db.add(admin_profile)
+        else:
+            admin_profile.name = ADMIN_PROFILE["name"]
+            admin_profile.title = ADMIN_PROFILE["title"]
+            admin_profile.email = ADMIN_PROFILE["email"]
+            admin_profile.phone = ADMIN_PROFILE["phone"]
+            admin_profile.qualification = ADMIN_PROFILE["qualification"]
+            admin_profile.experience = ADMIN_PROFILE["experience"]
+
         db.commit()
 
         print(f"Seeded {created_students} IT students, {len(TEACHERS)} teachers, "
               f"{created_courses} courses, {enrollment_count} enrollments, "
-              f"1 HOD profile, 1 admin account.")
-        print(f"{len(PHOTO_ENROLLED_CRNS)} students still need their enrollment_photos folder renamed to their CRN.")
+              f"1 HOD profile, 1 admin profile.")
 
     finally:
         db.close()

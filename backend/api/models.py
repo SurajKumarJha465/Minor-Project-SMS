@@ -33,8 +33,6 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     role = Column(SqlEnum(RoleEnum), nullable=False)
     must_change_password = Column(Boolean, nullable=False, default=True)
-    totp_secret = Column(String, nullable=True)       # base32 TOTP secret, set on 2FA setup
-    totp_enabled = Column(Boolean, nullable=False, default=False)
 
 
 class Department(Base):
@@ -172,3 +170,22 @@ class Notice(Base):
     author_name = Column(String, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     scheduled_for = Column(DateTime, nullable=True)  # null = published immediately
+
+
+class EventType(str, enum.Enum):
+    exam = "Exam"
+    deadline = "Deadline"
+    meeting = "Meeting"
+    event = "Event"
+    holiday = "Holiday"
+    result = "Result"
+
+
+class CalendarEvent(Base):
+    __tablename__ = "calendar_events"
+    id = Column(Integer, primary_key=True)
+    department_id = Column(String, ForeignKey("departments.id"))
+    title = Column(String, nullable=False)
+    type = Column(SqlEnum(EventType), nullable=False, default=EventType.event)
+    date = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

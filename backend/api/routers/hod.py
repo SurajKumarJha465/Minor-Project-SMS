@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from api.models import (
     User, RoleEnum, HOD, Student, Section, Department, Enrollment, Course, Teacher, department_slug,
-    InternalMark, MarkStatus, Notice, NoticeType,
+    InternalMark, MarkStatus, Notice, NoticeType, CalendarEvent, EventType,
 )
 from api.schemas import (
     CreateStudentRequest, CreateStudentResponse, HodStudentOut, UpdateStudentRequest,
@@ -11,6 +11,7 @@ from api.schemas import (
     EnrollStudentRequest, FIELD_MAX, HodMarksOverview, HodCourseAverage, HodMarkDistributionBucket,
     HodTeacherMarkStatus, HodResultsOverview, HodCoursePassFail, HodRankedStudent,
     NoticeOut, CreateNoticeRequest, UpdateNoticeRequest, HodListingOut,
+    EventOut, CreateEventRequest, UpdateEventRequest,
 )
 from api.auth import hash_password, generate_default_password, require_role
 from api.database import get_db
@@ -667,3 +668,89 @@ def delete_notice(
     db.delete(notice)
     db.commit()
     return {"deleted": notice_id}
+
+
+def _event_out(e: CalendarEvent) -> EventOut:
+    return EventOut(
+        id=e.id, title=e.title, type=e.type.value,
+        date=e.date.isoformat(), display_date=e.date.strftime("%b %d, %Y"),
+    )
+
+
+@router.get("/events", response_model=list[EventOut])
+def list_events(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    hod = _current_hod(db, current_user)
+    events = (
+        db.query(CalendarEvent)
+        .filter(CalendarEvent.department_id == hod.department_id)
+        .order_by(CalendarEvent.date.asc())
+        .all()
+    )
+    return [_event_out(e) for e in events]
+
+
+@router.post("/events", response_model=EventOut)
+def create_event(
+    payload: CreateEventRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    hod = _current_hod(db, current_user)
+    try:
+        event_type = EventType(payload.type)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid event type: {payload.type}")
+
+    event = CalendarEvent(
+        department_id=hod.department_id, title=payload.title,
+        type=event_type, date=payload.date,
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+    return _event_out(event)
+
+
+@router.patch("/events/{event_id}", response_model=EventOut)
+def update_event(
+    event_id: int,
+    payload: UpdateEventRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    hod = _current_hod(db, current_user)
+    event = db.query(CalendarEvent).filter(CalendarEvent.id == event_id, CalendarEvent.department_id == hod.department_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found in your department")
+
+    if payload.title is not None:
+        event.title = payload.title
+    if payload.type is not None:
+        try:
+            event.type = EventType(payload.type)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid event type: {payload.type}")
+    if payload.date is not None:
+        event.date = payload.date
+
+    db.commit()
+    db.refresh(event)
+    return _event_out(event)
+
+
+@router.delete("/events/{event_id}")
+def delete_event(
+    event_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    hod = _current_hod(db, current_user)
+    event = db.query(CalendarEvent).filter(CalendarEvent.id == event_id, CalendarEvent.department_id == hod.department_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found in your department")
+    db.delete(event)
+    db.commit()
+    return {"deleted": event_id}

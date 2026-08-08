@@ -211,6 +211,26 @@ class AdminOverviewOut(BaseModel):
     students: int
     dept_teacher_counts: list[AdminDeptTeacherCount]
 
+
+class AdminStudentOut(BaseModel):
+    id: str
+    name: str
+    enrollment: str
+    department: str
+    semester: int
+    section: str
+    batch: str
+    photo: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    guardian_name: Optional[str] = None
+    guardian_phone: Optional[str] = None
+    courses_enrolled: list[str] = []
+
+    class Config:
+        from_attributes = True
+
 class CreateStudentRequest(BaseModel):
     name: str
     enrollment: str

@@ -1,15 +1,21 @@
+import re
+from collections import defaultdict
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from api.database import get_db
-from api.models import User, RoleEnum, Teacher, Course, HOD, Department, department_slug, Admin, Student
+from api.models import (
+    User, RoleEnum, Teacher, Course, HOD, Department, department_slug, Admin, Student,
+    Section, Enrollment,
+)
 from api.schemas import (
     CreateUserRequest, CreateUserResponse, ChangePasswordRequest,
     CreateTeacherRequest, CreateTeacherResponse,
     CreateHodRequest, CreateHodResponse,
     HodListingOut, UpdateHodRequest,
     TeacherListingOut, UpdateTeacherRequest,
-    AdminMeOut, AdminOverviewOut, AdminDeptTeacherCount,
+    AdminMeOut, AdminOverviewOut, AdminDeptTeacherCount, AdminStudentOut,
 )
 from api.auth import (
     hash_password, verify_password, generate_default_password,
@@ -17,6 +23,21 @@ from api.auth import (
 )
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+# Student ids / enrollment numbers start with a 2-digit enrollment year,
+# e.g. "251401" -> enrolled 20{25} = 2025. Batch spans the standard 4-year
+# programme from that year. Mirrors the same helper in routers/student.py.
+_ENROLLMENT_YEAR_RE = re.compile(r"^(\d{2})\d{4,}")
+
+
+def _derive_batch(student: Student) -> str:
+    source = student.id or student.enrollment or ""
+    match = _ENROLLMENT_YEAR_RE.match(source)
+    if not match:
+        return "—"
+    year = 2000 + int(match.group(1))
+    return f"{year}-{year + 4}"
+
 
 @router.get("/me", response_model=AdminMeOut)
 def my_profile(
@@ -56,6 +77,43 @@ def overview(
             for name, count in teacher_counts.items()
         ],
     )
+
+
+@router.get("/students", response_model=list[AdminStudentOut])
+def list_students(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.admin)),
+):
+    students = db.query(Student).all()
+    dept_map = {d.id: d.name for d in db.query(Department).all()}
+    section_map = {s.id: s.label for s in db.query(Section).all()}
+    course_code_map = {c.id: c.code for c in db.query(Course).all()}
+
+    courses_by_student: dict[str, list[str]] = defaultdict(list)
+    for e in db.query(Enrollment).all():
+        code = course_code_map.get(e.course_id)
+        if code:
+            courses_by_student[e.student_id].append(code)
+
+    return [
+        AdminStudentOut(
+            id=s.id,
+            name=s.name,
+            enrollment=s.enrollment or "",
+            department=dept_map.get(s.department_id, s.department_id or ""),
+            semester=s.sem or 0,
+            section=section_map.get(s.section_id, (s.section_id or "").upper()),
+            batch=_derive_batch(s),
+            photo=s.photo,
+            email=s.email,
+            phone=s.phone,
+            address=s.address,
+            guardian_name=s.guardian_name,
+            guardian_phone=s.guardian_phone,
+            courses_enrolled=courses_by_student.get(s.id, []),
+        )
+        for s in students
+    ]
 
 
 @router.post("/users", response_model=CreateUserResponse)

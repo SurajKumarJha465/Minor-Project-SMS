@@ -46,6 +46,14 @@ type Teacher = {
   photo: string | null;
 };
 
+type GroupedCourse = {
+  code: string;
+  name: string;
+  credits: number;
+  sem: number;
+  sections: Course[];
+};
+
 const SEMESTER_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8];
 
 function mapCourse(c: any): Course {
@@ -56,6 +64,20 @@ function mapCourse(c: any): Course {
   };
 }
 
+// The same subject is offered as a separate Course row per section (e.g. "CS-301"
+// exists once for Section D and once for Section M1). Group by code so the browse
+// view shows one card per unique subject instead of one per section.
+function groupByCode(list: Course[]): GroupedCourse[] {
+  const map = new Map<string, GroupedCourse>();
+  for (const c of list) {
+    if (!map.has(c.code)) {
+      map.set(c.code, { code: c.code, name: c.name, credits: c.credits, sem: c.sem, sections: [] });
+    }
+    map.get(c.code)!.sections.push(c);
+  }
+  return Array.from(map.values()).sort((a, b) => a.code.localeCompare(b.code));
+}
+
 function TeacherManagement() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
@@ -63,15 +85,16 @@ function TeacherManagement() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedSem, setSelectedSem] = useState<number | null>(null);
 
-  // Assign-teacher wizard state
+  // Assign-teacher wizard state — Semester -> Section -> Course -> Teacher
   const [wizardOpen, setWizardOpen] = useState(false);
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [wizSem, setWizSem] = useState<number | null>(null);
+  const [wizSection, setWizSection] = useState<string | null>(null);
   const [wizCourseId, setWizCourseId] = useState<string | null>(null);
   const [wizTeacherId, setWizTeacherId] = useState<number | null>(null);
   const [assigning, setAssigning] = useState(false);
 
-  // View / remove dialogs
+  // View / remove dialogs — act on a specific section-instance course row
   const [viewCourse, setViewCourse] = useState<Course | null>(null);
   const [removeCourse, setRemoveCourse] = useState<Course | null>(null);
   const [removing, setRemoving] = useState(false);
@@ -104,28 +127,51 @@ function TeacherManagement() {
     return () => { cancelled = true; };
   }, []);
 
+  // Unique-subject count per semester (not raw section-row count), matching the
+  // grouped browse view below.
   const semesterCourseCounts = useMemo(() => {
+    const bySem = new Map<number, Set<string>>();
+    for (const c of courses) {
+      if (!bySem.has(c.sem)) bySem.set(c.sem, new Set());
+      bySem.get(c.sem)!.add(c.code);
+    }
     const counts = new Map<number, number>();
-    for (const c of courses) counts.set(c.sem, (counts.get(c.sem) ?? 0) + 1);
+    for (const [sem, codes] of bySem) counts.set(sem, codes.size);
     return counts;
   }, [courses]);
 
   const semCourses = selectedSem ? courses.filter((c) => c.sem === selectedSem) : [];
-  const wizCourses = wizSem ? courses.filter((c) => c.sem === wizSem) : [];
+  const groupedSemCourses = useMemo(() => groupByCode(semCourses), [semCourses]);
+
+  const wizSections = useMemo(() => {
+    if (!wizSem) return [];
+    const set = new Set<string>();
+    for (const c of courses) if (c.sem === wizSem) set.add(c.section);
+    return Array.from(set).sort();
+  }, [courses, wizSem]);
+
+  const wizCoursesInSection = wizSem && wizSection
+    ? courses.filter((c) => c.sem === wizSem && c.section === wizSection)
+    : [];
   const wizCourse = courses.find((c) => c.id === wizCourseId) || null;
   const wizTeacher = teachers.find((t) => t.id === wizTeacherId) || null;
 
-  function teacherPhoto(id: number | null) {
-    return teachers.find((t) => t.id === id)?.photo ?? undefined;
-  }
-
-  function openAssignWizard(courseToEdit?: Course) {
+  // courseToEdit: jump straight to the Teacher step for one specific section-instance.
+  // semHint: start the wizard pre-filled to a semester, at the Section step.
+  function openAssignWizard(courseToEdit?: Course, semHint?: number) {
     if (courseToEdit) {
       setWizSem(courseToEdit.sem);
+      setWizSection(courseToEdit.section);
       setWizCourseId(courseToEdit.id);
-      setStep(3);
+      setStep(4);
+    } else if (semHint) {
+      setWizSem(semHint);
+      setWizSection(null);
+      setWizCourseId(null);
+      setStep(2);
     } else {
       setWizSem(selectedSem ?? null);
+      setWizSection(null);
       setWizCourseId(null);
       setStep(selectedSem ? 2 : 1);
     }
@@ -149,7 +195,7 @@ function TeacherManagement() {
       }
       const data = await res.json();
       setCourses((prev) => prev.map((c) => (c.id === data.id ? mapCourse(data) : c)));
-      setStep(4);
+      setStep(5);
     } catch {
       toast.error("Could not reach the server. Try again.");
     } finally {
@@ -161,6 +207,7 @@ function TeacherManagement() {
     setWizardOpen(false);
     setStep(1);
     setWizSem(null);
+    setWizSection(null);
     setWizCourseId(null);
     setWizTeacherId(null);
   }
@@ -266,51 +313,63 @@ function TeacherManagement() {
 
           {selectedSem && (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {semCourses.map((c) => (
-                <Card key={c.id} className="rounded-2xl shadow-soft">
-                  <CardContent className="space-y-3 p-5">
-                    <div className="flex items-start justify-between">
-                      <div className="grid h-11 w-11 place-items-center rounded-xl gradient-brand text-white shadow-soft">
-                        <BookOpen className="h-5 w-5" />
+              {groupedSemCourses.map((g) => {
+                const assignedCount = g.sections.filter((s) => s.teacherName).length;
+                const totalCount = g.sections.length;
+                return (
+                  <Card key={g.code} className="rounded-2xl shadow-soft">
+                    <CardContent className="space-y-3 p-5">
+                      <div className="flex items-start justify-between">
+                        <div className="grid h-11 w-11 place-items-center rounded-xl gradient-brand text-white shadow-soft">
+                          <BookOpen className="h-5 w-5" />
+                        </div>
+                        {assignedCount === totalCount ? (
+                          <Badge className="rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">All Assigned</Badge>
+                        ) : assignedCount === 0 ? (
+                          <Badge className="rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300">Unassigned</Badge>
+                        ) : (
+                          <Badge variant="secondary" className="rounded-lg">{assignedCount}/{totalCount} Assigned</Badge>
+                        )}
                       </div>
-                      {c.teacherName ? (
-                        <Badge className="rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">Assigned</Badge>
-                      ) : (
-                        <Badge className="rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300">Unassigned</Badge>
-                      )}
-                    </div>
-                    <div>
-                      <div className="text-xs font-mono text-muted-foreground">{c.code}</div>
-                      <div className="font-display text-base font-bold leading-tight">{c.name}</div>
-                    </div>
-                    <div className="text-xs text-muted-foreground">{c.credits} Credit Hours</div>
-                    <div className="flex items-center gap-2 border-t border-border/60 pt-3 text-sm">
-                      {c.teacherName ? (
-                        <>
-                          <Avatar className="h-7 w-7"><AvatarImage src={teacherPhoto(c.teacherId)} /><AvatarFallback>{c.teacherName[0]}</AvatarFallback></Avatar>
-                          <span className="truncate">{c.teacherName}</span>
-                        </>
-                      ) : (
-                        <span className="text-muted-foreground">No teacher assigned</span>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      <Button size="sm" variant="ghost" className="h-8 rounded-lg text-xs" onClick={() => setViewCourse(c)}>
-                        <Eye className="mr-1 h-3 w-3" /> View
-                      </Button>
-                      <Button size="sm" variant="outline" className="h-8 rounded-lg text-xs" onClick={() => openAssignWizard(c)}>
-                        <Pencil className="mr-1 h-3 w-3" /> Edit
-                      </Button>
-                      {c.teacherName && (
-                        <Button size="sm" variant="ghost" className="h-8 rounded-lg text-xs text-destructive" onClick={() => setRemoveCourse(c)}>
-                          <UserX className="mr-1 h-3 w-3" /> Remove Teacher
-                        </Button>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-              {semCourses.length === 0 && (
+                      <div>
+                        <div className="text-xs font-mono text-muted-foreground">{g.code}</div>
+                        <div className="font-display text-base font-bold leading-tight">{g.name}</div>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {g.credits} Credit Hours · {totalCount} section{totalCount === 1 ? "" : "s"}
+                      </div>
+                      <div className="space-y-1.5 border-t border-border/60 pt-3">
+                        {g.sections.map((c) => (
+                          <div key={c.id} className="flex items-center justify-between gap-2 text-xs">
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              <Badge variant="outline" className="shrink-0 rounded-md px-1.5 py-0 text-[10px]">{c.section}</Badge>
+                              {c.teacherName ? (
+                                <span className="truncate">{c.teacherName}</span>
+                              ) : (
+                                <span className="text-muted-foreground">Unassigned</span>
+                              )}
+                            </div>
+                            <div className="flex shrink-0 gap-0.5">
+                              <button onClick={() => setViewCourse(c)} aria-label="View" className="rounded p-1 text-muted-foreground hover:bg-muted">
+                                <Eye className="h-3 w-3" />
+                              </button>
+                              <button onClick={() => openAssignWizard(c)} aria-label="Edit" className="rounded p-1 text-muted-foreground hover:bg-muted">
+                                <Pencil className="h-3 w-3" />
+                              </button>
+                              {c.teacherName && (
+                                <button onClick={() => setRemoveCourse(c)} aria-label="Remove teacher" className="rounded p-1 text-destructive hover:bg-destructive/10">
+                                  <UserX className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+              {groupedSemCourses.length === 0 && (
                 <div className="col-span-full py-6 text-center text-sm text-muted-foreground">No courses in this semester.</div>
               )}
             </div>
@@ -325,7 +384,7 @@ function TeacherManagement() {
             <>
               <DialogHeader>
                 <DialogTitle>{viewCourse.name}</DialogTitle>
-                <DialogDescription>{viewCourse.code} · Semester {viewCourse.sem}</DialogDescription>
+                <DialogDescription>{viewCourse.code} · Semester {viewCourse.sem} · Section {viewCourse.section}</DialogDescription>
               </DialogHeader>
               <div className="space-y-2 text-sm">
                 <Row label="Assigned Teacher" value={viewCourse.teacherName ?? "Unassigned"} />
@@ -346,7 +405,7 @@ function TeacherManagement() {
           <AlertDialogHeader>
             <AlertDialogTitle>Remove teacher?</AlertDialogTitle>
             <AlertDialogDescription>
-              {removeCourse ? `${removeCourse.teacherName} will be unassigned from ${removeCourse.name}.` : ""}
+              {removeCourse ? `${removeCourse.teacherName} will be unassigned from ${removeCourse.name} (Section ${removeCourse.section}).` : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -362,16 +421,17 @@ function TeacherManagement() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Assign Teacher wizard */}
+      {/* Assign Teacher wizard: Semester -> Section -> Course -> Teacher */}
       <Dialog open={wizardOpen} onOpenChange={(o) => !o && closeWizard()}>
         <DialogContent className="rounded-2xl sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Assign Teacher</DialogTitle>
             <DialogDescription>
-              {step === 1 && "Step 1 of 3 · Select a semester"}
-              {step === 2 && "Step 2 of 3 · Select a course"}
-              {step === 3 && "Step 3 of 3 · Select an available teacher"}
-              {step === 4 && "Assignment confirmed"}
+              {step === 1 && "Step 1 of 4 · Select a semester"}
+              {step === 2 && "Step 2 of 4 · Select a section"}
+              {step === 3 && "Step 3 of 4 · Select a course"}
+              {step === 4 && "Step 4 of 4 · Select an available teacher"}
+              {step === 5 && "Assignment confirmed"}
             </DialogDescription>
           </DialogHeader>
 
@@ -379,7 +439,7 @@ function TeacherManagement() {
             <div className="grid grid-cols-4 gap-2">
               {SEMESTER_NUMBERS.map((n) => (
                 <Button key={n} variant="outline" className="h-14 flex-col gap-0.5 rounded-xl text-xs"
-                  onClick={() => { setWizSem(n); setStep(2); }}>
+                  onClick={() => { setWizSem(n); setWizSection(null); setStep(2); }}>
                   <span className="font-display text-base font-bold">{n}</span>
                   <span className="text-[10px] text-muted-foreground">Sem</span>
                 </Button>
@@ -388,11 +448,40 @@ function TeacherManagement() {
           )}
 
           {step === 2 && (
+            <div className="space-y-2">
+              <div className="grid grid-cols-3 gap-2">
+                {wizSections.map((sec) => {
+                  const count = courses.filter((c) => c.sem === wizSem && c.section === sec).length;
+                  return (
+                    <button
+                      key={sec}
+                      onClick={() => { setWizSection(sec); setStep(3); }}
+                      className="flex flex-col items-center gap-1 rounded-xl border border-border p-3 text-center transition hover:border-primary/40 hover:bg-muted/40"
+                    >
+                      <div className="grid h-9 w-9 place-items-center rounded-lg gradient-brand text-white text-sm font-bold">{sec}</div>
+                      <div className="text-[11px] text-muted-foreground">{count} course{count === 1 ? "" : "s"}</div>
+                    </button>
+                  );
+                })}
+                {wizSections.length === 0 && (
+                  <div className="col-span-full py-4 text-center text-sm text-muted-foreground">No sections in this semester.</div>
+                )}
+              </div>
+              <Button variant="ghost" size="sm" className="rounded-lg text-xs" onClick={() => setStep(1)}>
+                <ArrowLeft className="mr-1 h-3 w-3" /> Back
+              </Button>
+            </div>
+          )}
+
+          {step === 3 && (
             <div className="max-h-80 space-y-2 overflow-y-auto">
-              {wizCourses.map((c) => (
+              <div className="rounded-xl bg-muted/40 p-2.5 text-xs">
+                Semester {wizSem} · Section {wizSection}
+              </div>
+              {wizCoursesInSection.map((c) => (
                 <button
                   key={c.id}
-                  onClick={() => { setWizCourseId(c.id); setStep(3); }}
+                  onClick={() => { setWizCourseId(c.id); setStep(4); }}
                   className="flex w-full items-center justify-between rounded-xl border border-border p-3 text-left text-sm transition hover:border-primary/40 hover:bg-muted/40"
                 >
                   <div>
@@ -402,19 +491,19 @@ function TeacherManagement() {
                   {c.teacherName ? <Badge variant="secondary" className="rounded-lg">Reassign</Badge> : <Badge className="rounded-lg bg-amber-500/15 text-amber-700">Unassigned</Badge>}
                 </button>
               ))}
-              {wizCourses.length === 0 && (
-                <div className="py-4 text-center text-sm text-muted-foreground">No courses in this semester.</div>
+              {wizCoursesInSection.length === 0 && (
+                <div className="py-4 text-center text-sm text-muted-foreground">No courses in this section.</div>
               )}
-              <Button variant="ghost" size="sm" className="rounded-lg text-xs" onClick={() => setStep(1)}>
+              <Button variant="ghost" size="sm" className="rounded-lg text-xs" onClick={() => setStep(2)}>
                 <ArrowLeft className="mr-1 h-3 w-3" /> Back
               </Button>
             </div>
           )}
 
-          {step === 3 && wizCourse && (
+          {step === 4 && wizCourse && (
             <div className="space-y-3">
               <div className="rounded-xl bg-muted/40 p-3 text-xs">
-                Assigning teacher for <b>{wizCourse.name}</b> ({wizCourse.code}) · Semester {wizCourse.sem}
+                Assigning teacher for <b>{wizCourse.name}</b> ({wizCourse.code}) · Semester {wizCourse.sem} · Section {wizCourse.section}
               </div>
               <div className="grid max-h-72 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
                 {teachers.map((t) => (
@@ -437,7 +526,7 @@ function TeacherManagement() {
                 )}
               </div>
               <div className="flex items-center justify-between pt-1">
-                <Button variant="ghost" size="sm" className="rounded-lg text-xs" onClick={() => setStep(wizSem ? 2 : 1)}>
+                <Button variant="ghost" size="sm" className="rounded-lg text-xs" onClick={() => setStep(3)}>
                   <ArrowLeft className="mr-1 h-3 w-3" /> Back
                 </Button>
                 <Button className="rounded-xl gradient-brand text-white" disabled={!wizTeacherId || assigning} onClick={confirmAssign}>
@@ -447,14 +536,14 @@ function TeacherManagement() {
             </div>
           )}
 
-          {step === 4 && (
+          {step === 5 && (
             <div className="flex flex-col items-center gap-3 py-4 text-center">
               <div className="grid h-14 w-14 place-items-center rounded-full bg-emerald-500/15 text-emerald-600">
                 <CheckCircle2 className="h-7 w-7" />
               </div>
               <div className="font-semibold">Teacher assigned successfully.</div>
               <p className="text-sm text-muted-foreground">
-                {wizTeacher?.name} has been assigned to {wizCourse?.name}.
+                {wizTeacher?.name} has been assigned to {wizCourse?.name} (Section {wizCourse?.section}).
               </p>
               <Button className="mt-1 rounded-xl gradient-brand text-white" onClick={closeWizard}>Done</Button>
             </div>

@@ -1,10 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException
+import csv
+import io
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 
 from api.models import (
     User, RoleEnum, HOD, Student, Section, Department, Enrollment, Course, Teacher, department_slug,
-    InternalMark, MarkStatus, Notice, NoticeType, CalendarEvent, EventType,
+    InternalMark, MarkStatus, Notice, NoticeType, CalendarEvent, EventType, CourseGrade,
 )
+from api.grading import VALID_GRADES
 from api.schemas import (
     CreateStudentRequest, CreateStudentResponse, HodStudentOut, UpdateStudentRequest,
     HodCourseOut, CreateCourseRequest, UpdateCourseRequest, HodTeacherOut, HodCourseRosterStudent,
@@ -12,6 +16,7 @@ from api.schemas import (
     HodTeacherMarkStatus, HodResultsOverview, HodCoursePassFail, HodRankedStudent,
     NoticeOut, CreateNoticeRequest, UpdateNoticeRequest, HodListingOut,
     EventOut, CreateEventRequest, UpdateEventRequest,
+    HodGradeRow, SaveGradesRequest,
 )
 from api.auth import hash_password, generate_default_password, require_role
 from api.database import get_db
@@ -24,6 +29,12 @@ def _current_hod(db: Session, current_user: User) -> HOD:
     if not hod:
         raise HTTPException(status_code=400, detail="No HOD profile linked to this account")
     return hod
+
+def _get_department_course(db: Session, hod: HOD, course_id: str) -> Course:
+    course = db.query(Course).filter(Course.id == course_id, Course.department_id == hod.department_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found in your department")
+    return course
 
 def _course_out(db: Session, course: Course) -> HodCourseOut:
     section_row = db.query(Section).filter(Section.id == course.section_id).first()
@@ -464,6 +475,142 @@ def unenroll_student(
     ).delete()
     db.commit()
     return {"unenrolled": student_id}
+
+
+# --- Final results (CourseGrade) ---
+# Unlike internal marks (teacher-entered, per-assessment), final results come
+# from the university exam office as a results sheet and are the HOD's to
+# enter/import and publish — teachers never touch this. Manual row entry
+# (get/put) and bulk CSV import both write drafts; publish is a separate,
+# explicit step, same lifecycle InternalMark already follows.
+
+@router.get("/courses/{course_id}/grades", response_model=list[HodGradeRow])
+def get_grades(
+    course_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    hod = _current_hod(db, current_user)
+    _get_department_course(db, hod, course_id)
+
+    student_ids = [e.student_id for e in db.query(Enrollment).filter(Enrollment.course_id == course_id).all()]
+    students = db.query(Student).filter(Student.id.in_(student_ids)).order_by(Student.enrollment.asc()).all()
+    grades_by_student = {
+        g.student_id: g for g in db.query(CourseGrade).filter(CourseGrade.course_id == course_id).all()
+    }
+
+    result = []
+    for s in students:
+        g = grades_by_student.get(s.id)
+        result.append(HodGradeRow(
+            student_id=s.id, name=s.name, enrollment=s.enrollment,
+            grade=g.grade if g else "", status=g.status.value if g else "draft",
+        ))
+    return result
+
+
+@router.put("/courses/{course_id}/grades")
+def save_grades(
+    course_id: str,
+    payload: SaveGradesRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    hod = _current_hod(db, current_user)
+    _get_department_course(db, hod, course_id)
+    enrolled_ids = {e.student_id for e in db.query(Enrollment).filter(Enrollment.course_id == course_id).all()}
+
+    for row in payload.rows:
+        if row.student_id not in enrolled_ids:
+            raise HTTPException(status_code=400, detail=f"Student {row.student_id} is not enrolled in this course")
+        grade = row.grade.strip().upper()
+        if grade and grade not in VALID_GRADES:
+            raise HTTPException(status_code=400, detail=f"'{grade}' is not a recognized grade")
+        record = db.query(CourseGrade).filter(
+            CourseGrade.course_id == course_id, CourseGrade.student_id == row.student_id
+        ).first()
+        if not record:
+            record = CourseGrade(course_id=course_id, student_id=row.student_id)
+            db.add(record)
+        record.grade = grade
+        # status untouched here on purpose — same rule as internal marks:
+        # saving a draft never un-publishes; publish is a separate step below
+
+    db.commit()
+    return {"saved": len(payload.rows)}
+
+
+@router.post("/courses/{course_id}/grades/import-csv")
+async def import_grades_csv(
+    course_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    """Bulk-load final grades from the results CSV the exam office sends.
+    Expected columns: 'enrollment' (matches Student.enrollment, e.g.
+    'CE-2023-001') and 'grade'. Rows for students not enrolled in this
+    course, or with an unrecognized grade, are skipped and reported back
+    rather than failing the whole import — this is what lets you import a
+    sheet where you only have confirmed results for a handful of students
+    rather than the full class."""
+    hod = _current_hod(db, current_user)
+    _get_department_course(db, hod, course_id)
+
+    raw = (await file.read()).decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(raw))
+    headers = {f.strip().lower() for f in (reader.fieldnames or [])}
+    if not {"enrollment", "grade"}.issubset(headers):
+        raise HTTPException(status_code=400, detail="CSV must have 'enrollment' and 'grade' columns")
+
+    enrolled_ids = {e.student_id for e in db.query(Enrollment).filter(Enrollment.course_id == course_id).all()}
+    students_by_enrollment = {
+        s.enrollment: s for s in db.query(Student).filter(Student.id.in_(enrolled_ids)).all()
+    }
+
+    saved, skipped = 0, []
+    for row in reader:
+        row = {k.strip().lower(): v for k, v in row.items()}
+        enrollment = (row.get("enrollment") or "").strip()
+        grade = (row.get("grade") or "").strip().upper()
+
+        student = students_by_enrollment.get(enrollment)
+        if not student:
+            skipped.append({"enrollment": enrollment, "reason": "not enrolled in this course"})
+            continue
+        if grade not in VALID_GRADES:
+            skipped.append({"enrollment": enrollment, "reason": f"unrecognized grade '{grade}'"})
+            continue
+
+        record = db.query(CourseGrade).filter(
+            CourseGrade.course_id == course_id, CourseGrade.student_id == student.id
+        ).first()
+        if not record:
+            record = CourseGrade(course_id=course_id, student_id=student.id)
+            db.add(record)
+        record.grade = grade
+        saved += 1
+
+    db.commit()
+    return {"saved": saved, "skipped": skipped}
+
+
+@router.post("/courses/{course_id}/grades/publish")
+def publish_grades(
+    course_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    hod = _current_hod(db, current_user)
+    _get_department_course(db, hod, course_id)
+    updated = (
+        db.query(CourseGrade)
+        .filter(CourseGrade.course_id == course_id)
+        .update({CourseGrade.status: MarkStatus.published})
+    )
+    db.commit()
+    return {"published": updated}
+
 
 TOTAL_MARKS = sum(FIELD_MAX.values())  # 50
 PASS_THRESHOLD_PCT = 50.0  # adjust if your programme's actual internal-pass cutoff differs

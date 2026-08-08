@@ -34,6 +34,24 @@ function LoginPage() {
   const [forgotOpen, setForgotOpen] = useState(false);
   const [err, setErr] = useState<{ email?: string; password?: string; form?: string }>({});
 
+  // Two-factor step: entered once the password check succeeds for an
+  // account with 2FA enabled. pendingToken is short-lived and only
+  // redeemable at /api/auth/2fa/verify — it cannot be used as a real
+  // access token.
+  const [step, setStep] = useState<"credentials" | "2fa">("credentials");
+  const [pendingToken, setPendingToken] = useState("");
+  const [twoFaCode, setTwoFaCode] = useState("");
+  const [twoFaLoading, setTwoFaLoading] = useState(false);
+  const [twoFaError, setTwoFaError] = useState("");
+
+  const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+  function completeLogin(data: any) {
+    setSession({ role: data.role as Role, email: email.trim().toLowerCase(), token: data.access_token });
+    toast.success(`Login Successful — opening ${String(data.role).toUpperCase()} dashboard`);
+    navigate({ to: ROLE_ROUTES[data.role as Role] });
+  }
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const errs: typeof err = {};
@@ -48,7 +66,6 @@ function LoginPage() {
       form.append("username", email.trim().toLowerCase());
       form.append("password", password);
 
-      const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
       const res = await fetch(`${API_URL}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -63,9 +80,13 @@ function LoginPage() {
       }
 
       const data = await res.json();
-      setSession({ role: data.role as Role, email: email.trim().toLowerCase(), token: data.access_token });
-      toast.success(`Login Successful — opening ${String(data.role).toUpperCase()} dashboard`);
-      navigate({ to: ROLE_ROUTES[data.role as Role] });
+      if (data.requires_2fa) {
+        setPendingToken(data.pending_token);
+        setStep("2fa");
+        setLoading(false);
+        return;
+      }
+      completeLogin(data);
     } catch {
       setErr({ form: "Could not reach the server. Try again." });
       toast.error("Could not reach the server.");
@@ -73,6 +94,41 @@ function LoginPage() {
       setLoading(false);
     }
   };
+
+  const verifyTwoFa = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (twoFaCode.trim().length !== 6) {
+      setTwoFaError("Enter the 6-digit code from your authenticator app.");
+      return;
+    }
+    setTwoFaError("");
+    setTwoFaLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/auth/2fa/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pending_token: pendingToken, code: twoFaCode.trim() }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setTwoFaError(body.detail ?? "Invalid or expired code.");
+        return;
+      }
+      const data = await res.json();
+      completeLogin(data);
+    } catch {
+      setTwoFaError("Could not reach the server. Try again.");
+    } finally {
+      setTwoFaLoading(false);
+    }
+  };
+
+  function backToCredentials() {
+    setStep("credentials");
+    setPendingToken("");
+    setTwoFaCode("");
+    setTwoFaError("");
+  }
 
   return (
     <div className="relative min-h-screen overflow-hidden">
@@ -134,9 +190,12 @@ function LoginPage() {
                 <h2 className="mt-4 font-display text-xl font-bold tracking-tight">Smart Student Management System</h2>
                 <p className="mt-1 text-xs text-muted-foreground">An Intelligent Platform for Academic Management</p>
                 <div className="mt-3 h-px w-16 bg-border" />
-                <p className="mt-3 text-sm font-medium">Please sign in to continue</p>
+                <p className="mt-3 text-sm font-medium">
+                  {step === "credentials" ? "Please sign in to continue" : "Enter your verification code"}
+                </p>
               </div>
 
+              {step === "credentials" ? (
               <form onSubmit={submit} className="mt-6 space-y-4">
                 <div>
                   <label className="mb-1.5 block text-xs font-semibold text-foreground/80">Email Address</label>
@@ -212,7 +271,54 @@ function LoginPage() {
                   Your dashboard will be opened automatically based on your account role.
                 </p>
               </form>
+              ) : (
+              <form onSubmit={verifyTwoFa} className="mt-6 space-y-4">
+                <div className="flex flex-col items-center gap-2 text-center">
+                  <div className="grid h-11 w-11 place-items-center rounded-2xl bg-primary/10 text-primary">
+                    <ShieldCheck className="h-5 w-5" />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Two-factor authentication is enabled for <span className="font-medium text-foreground">{email.trim().toLowerCase()}</span>.
+                    Enter the 6-digit code from your authenticator app.
+                  </p>
+                </div>
 
+                <Input
+                  value={twoFaCode}
+                  onChange={(e) => setTwoFaCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="123456"
+                  inputMode="numeric"
+                  autoFocus
+                  className="h-12 rounded-xl bg-background/70 text-center text-lg font-semibold tracking-[0.5em]"
+                />
+
+                {twoFaError && (
+                  <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive">
+                    {twoFaError}
+                  </div>
+                )}
+
+                <Button
+                  type="submit"
+                  disabled={twoFaLoading}
+                  className="h-11 w-full rounded-xl gradient-brand text-white shadow-soft transition hover:opacity-95 hover:shadow-glass"
+                >
+                  {twoFaLoading ? (
+                    <span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Verifying…</span>
+                  ) : "Verify & Sign In"}
+                </Button>
+
+                <button
+                  type="button"
+                  onClick={backToCredentials}
+                  className="w-full text-center text-xs font-semibold text-primary hover:underline"
+                >
+                  Back to login
+                </button>
+              </form>
+              )}
+
+              {step === "credentials" && (
               <div className="mt-5 rounded-2xl border border-dashed border-border bg-background/40 p-3">
                 <div className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Demo accounts</div>
                 <div className="mt-1.5 grid grid-cols-2 gap-1.5 text-[11px] text-foreground/80">
@@ -223,6 +329,7 @@ function LoginPage() {
                 </div>
                 <div className="mt-1 text-[11px] text-muted-foreground">Password: <code>123456</code></div>
               </div>
+              )}
             </div>
 
             <div className="mt-6 flex flex-col items-center gap-1 text-center text-[11px] text-muted-foreground">

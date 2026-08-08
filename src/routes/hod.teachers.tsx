@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { authHeader } from "@/lib/auth";
 import {
   Eye, Pencil, UserX, BookOpen, UserPlus, ArrowLeft,
   CalendarRange, CheckCircle2, GraduationCap, Award, Clock, ChevronRight,
@@ -15,17 +17,50 @@ import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
 } from "@/components/ui/alert-dialog";
-import { hodCourses as initialCourses, teachers, semesters } from "@/features/HoD/lib/hod-mock-data";
 
 export const Route = createFileRoute("/hod/teachers")({
   head: () => ({ meta: [{ title: "Teacher Management · HOD" }] }),
   component: TeacherManagement,
 });
 
-type Course = (typeof initialCourses)[number];
+const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+type Course = {
+  id: string;
+  code: string;
+  name: string;
+  credits: number;
+  sem: number;
+  section: string;
+  teacherId: number | null;
+  teacherName: string | null;
+  enrolled: number;
+};
+
+type Teacher = {
+  id: number;
+  name: string;
+  specialization: string | null;
+  qualification: string | null;
+  experience: string | null;
+  photo: string | null;
+};
+
+const SEMESTER_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8];
+
+function mapCourse(c: any): Course {
+  return {
+    id: c.id, code: c.code, name: c.name, credits: c.credits, sem: c.sem,
+    section: c.section, teacherId: c.teacher_id, teacherName: c.teacher_name,
+    enrolled: c.enrolled ?? 0,
+  };
+}
 
 function TeacherManagement() {
-  const [courses, setCourses] = useState<Course[]>(initialCourses);
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedSem, setSelectedSem] = useState<number | null>(null);
 
   // Assign-teacher wizard state
@@ -33,18 +68,55 @@ function TeacherManagement() {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [wizSem, setWizSem] = useState<number | null>(null);
   const [wizCourseId, setWizCourseId] = useState<string | null>(null);
-  const [wizTeacherName, setWizTeacherName] = useState<string | null>(null);
+  const [wizTeacherId, setWizTeacherId] = useState<number | null>(null);
+  const [assigning, setAssigning] = useState(false);
 
   // View / remove dialogs
   const [viewCourse, setViewCourse] = useState<Course | null>(null);
   const [removeCourse, setRemoveCourse] = useState<Course | null>(null);
+  const [removing, setRemoving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const [cRes, tRes] = await Promise.all([
+          fetch(`${API_URL}/api/hod/courses`, { headers: { ...authHeader() } }),
+          fetch(`${API_URL}/api/hod/teachers`, { headers: { ...authHeader() } }),
+        ]);
+        if (!cRes.ok) throw new Error(`Failed to load courses (${cRes.status})`);
+        if (!tRes.ok) throw new Error(`Failed to load teachers (${tRes.status})`);
+        const cData = await cRes.json();
+        const tData = await tRes.json();
+        if (!cancelled) {
+          setCourses(cData.map(mapCourse));
+          setTeachers(tData);
+        }
+      } catch (err) {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load teachers.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  const semesterCourseCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const c of courses) counts.set(c.sem, (counts.get(c.sem) ?? 0) + 1);
+    return counts;
+  }, [courses]);
 
   const semCourses = selectedSem ? courses.filter((c) => c.sem === selectedSem) : [];
   const wizCourses = wizSem ? courses.filter((c) => c.sem === wizSem) : [];
   const wizCourse = courses.find((c) => c.id === wizCourseId) || null;
+  const wizTeacher = teachers.find((t) => t.id === wizTeacherId) || null;
 
-  function teacherPhoto(name: string | null) {
-    return teachers.find((t) => t.name === name)?.photo;
+  function teacherPhoto(id: number | null) {
+    return teachers.find((t) => t.id === id)?.photo ?? undefined;
   }
 
   function openAssignWizard(courseToEdit?: Course) {
@@ -57,14 +129,32 @@ function TeacherManagement() {
       setWizCourseId(null);
       setStep(selectedSem ? 2 : 1);
     }
-    setWizTeacherName(null);
+    setWizTeacherId(null);
     setWizardOpen(true);
   }
 
-  function confirmAssign() {
-    if (!wizCourseId || !wizTeacherName) return;
-    setCourses((prev) => prev.map((c) => (c.id === wizCourseId ? { ...c, teacher: wizTeacherName } : c)));
-    setStep(4);
+  async function confirmAssign() {
+    if (!wizCourseId || !wizTeacherId) return;
+    setAssigning(true);
+    try {
+      const res = await fetch(`${API_URL}/api/hod/courses/${wizCourseId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ teacher_id: wizTeacherId }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail ?? "Failed to assign teacher");
+        return;
+      }
+      const data = await res.json();
+      setCourses((prev) => prev.map((c) => (c.id === data.id ? mapCourse(data) : c)));
+      setStep(4);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    } finally {
+      setAssigning(false);
+    }
   }
 
   function closeWizard() {
@@ -72,13 +162,48 @@ function TeacherManagement() {
     setStep(1);
     setWizSem(null);
     setWizCourseId(null);
-    setWizTeacherName(null);
+    setWizTeacherId(null);
   }
 
-  function doRemoveTeacher() {
+  async function doRemoveTeacher() {
     if (!removeCourse) return;
-    setCourses((prev) => prev.map((c) => (c.id === removeCourse.id ? { ...c, teacher: null } : c)));
-    setRemoveCourse(null);
+    setRemoving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/hod/courses/${removeCourse.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ unassign_teacher: true }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail ?? "Failed to remove teacher");
+        return;
+      }
+      const data = await res.json();
+      setCourses((prev) => prev.map((c) => (c.id === data.id ? mapCourse(data) : c)));
+      setRemoveCourse(null);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    } finally {
+      setRemoving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
+        Loading teachers…
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 text-center">
+        <p className="text-sm text-destructive">{loadError}</p>
+        <Button size="sm" variant="outline" onClick={() => window.location.reload()}>Retry</Button>
+      </div>
+    );
   }
 
   return (
@@ -123,17 +248,17 @@ function TeacherManagement() {
         <CardContent>
           {!selectedSem && (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
-              {semesters.map((s) => (
+              {SEMESTER_NUMBERS.map((n) => (
                 <button
-                  key={s.id}
-                  onClick={() => setSelectedSem(s.number)}
+                  key={n}
+                  onClick={() => setSelectedSem(n)}
                   className="group flex flex-col items-center gap-2 rounded-xl border border-border bg-background/50 p-4 text-center transition hover:-translate-y-0.5 hover:border-primary/40 hover:bg-background hover:shadow-soft"
                 >
                   <div className="grid h-11 w-11 place-items-center rounded-xl gradient-brand text-white shadow-soft">
                     <CalendarRange className="h-5 w-5" />
                   </div>
-                  <div className="font-display text-sm font-bold">Semester {s.number}</div>
-                  <div className="text-[11px] text-muted-foreground">{s.courses} courses</div>
+                  <div className="font-display text-sm font-bold">Semester {n}</div>
+                  <div className="text-[11px] text-muted-foreground">{semesterCourseCounts.get(n) ?? 0} courses</div>
                 </button>
               ))}
             </div>
@@ -148,7 +273,7 @@ function TeacherManagement() {
                       <div className="grid h-11 w-11 place-items-center rounded-xl gradient-brand text-white shadow-soft">
                         <BookOpen className="h-5 w-5" />
                       </div>
-                      {c.teacher ? (
+                      {c.teacherName ? (
                         <Badge className="rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">Assigned</Badge>
                       ) : (
                         <Badge className="rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300">Unassigned</Badge>
@@ -160,10 +285,10 @@ function TeacherManagement() {
                     </div>
                     <div className="text-xs text-muted-foreground">{c.credits} Credit Hours</div>
                     <div className="flex items-center gap-2 border-t border-border/60 pt-3 text-sm">
-                      {c.teacher ? (
+                      {c.teacherName ? (
                         <>
-                          <Avatar className="h-7 w-7"><AvatarImage src={teacherPhoto(c.teacher)} /><AvatarFallback>{c.teacher[0]}</AvatarFallback></Avatar>
-                          <span className="truncate">{c.teacher}</span>
+                          <Avatar className="h-7 w-7"><AvatarImage src={teacherPhoto(c.teacherId)} /><AvatarFallback>{c.teacherName[0]}</AvatarFallback></Avatar>
+                          <span className="truncate">{c.teacherName}</span>
                         </>
                       ) : (
                         <span className="text-muted-foreground">No teacher assigned</span>
@@ -176,7 +301,7 @@ function TeacherManagement() {
                       <Button size="sm" variant="outline" className="h-8 rounded-lg text-xs" onClick={() => openAssignWizard(c)}>
                         <Pencil className="mr-1 h-3 w-3" /> Edit
                       </Button>
-                      {c.teacher && (
+                      {c.teacherName && (
                         <Button size="sm" variant="ghost" className="h-8 rounded-lg text-xs text-destructive" onClick={() => setRemoveCourse(c)}>
                           <UserX className="mr-1 h-3 w-3" /> Remove Teacher
                         </Button>
@@ -185,6 +310,9 @@ function TeacherManagement() {
                   </CardContent>
                 </Card>
               ))}
+              {semCourses.length === 0 && (
+                <div className="col-span-full py-6 text-center text-sm text-muted-foreground">No courses in this semester.</div>
+              )}
             </div>
           )}
         </CardContent>
@@ -200,7 +328,7 @@ function TeacherManagement() {
                 <DialogDescription>{viewCourse.code} · Semester {viewCourse.sem}</DialogDescription>
               </DialogHeader>
               <div className="space-y-2 text-sm">
-                <Row label="Assigned Teacher" value={viewCourse.teacher ?? "Unassigned"} />
+                <Row label="Assigned Teacher" value={viewCourse.teacherName ?? "Unassigned"} />
                 <Row label="Credit Hours" value={String(viewCourse.credits)} />
                 <Row label="Students Enrolled" value={String(viewCourse.enrolled)} />
               </div>
@@ -218,13 +346,17 @@ function TeacherManagement() {
           <AlertDialogHeader>
             <AlertDialogTitle>Remove teacher?</AlertDialogTitle>
             <AlertDialogDescription>
-              {removeCourse ? `${removeCourse.teacher} will be unassigned from ${removeCourse.name}.` : ""}
+              {removeCourse ? `${removeCourse.teacherName} will be unassigned from ${removeCourse.name}.` : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel className="rounded-xl">Cancel</AlertDialogCancel>
-            <AlertDialogAction className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={doRemoveTeacher}>
-              Remove
+            <AlertDialogAction
+              className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={doRemoveTeacher}
+              disabled={removing}
+            >
+              {removing ? "Removing…" : "Remove"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -245,10 +377,10 @@ function TeacherManagement() {
 
           {step === 1 && (
             <div className="grid grid-cols-4 gap-2">
-              {semesters.map((s) => (
-                <Button key={s.id} variant="outline" className="h-14 flex-col gap-0.5 rounded-xl text-xs"
-                  onClick={() => { setWizSem(s.number); setStep(2); }}>
-                  <span className="font-display text-base font-bold">{s.number}</span>
+              {SEMESTER_NUMBERS.map((n) => (
+                <Button key={n} variant="outline" className="h-14 flex-col gap-0.5 rounded-xl text-xs"
+                  onClick={() => { setWizSem(n); setStep(2); }}>
+                  <span className="font-display text-base font-bold">{n}</span>
                   <span className="text-[10px] text-muted-foreground">Sem</span>
                 </Button>
               ))}
@@ -267,9 +399,12 @@ function TeacherManagement() {
                     <div className="font-semibold">{c.name}</div>
                     <div className="text-xs text-muted-foreground">{c.code} · {c.credits} credit hrs</div>
                   </div>
-                  {c.teacher ? <Badge variant="secondary" className="rounded-lg">Reassign</Badge> : <Badge className="rounded-lg bg-amber-500/15 text-amber-700">Unassigned</Badge>}
+                  {c.teacherName ? <Badge variant="secondary" className="rounded-lg">Reassign</Badge> : <Badge className="rounded-lg bg-amber-500/15 text-amber-700">Unassigned</Badge>}
                 </button>
               ))}
+              {wizCourses.length === 0 && (
+                <div className="py-4 text-center text-sm text-muted-foreground">No courses in this semester.</div>
+              )}
               <Button variant="ghost" size="sm" className="rounded-lg text-xs" onClick={() => setStep(1)}>
                 <ArrowLeft className="mr-1 h-3 w-3" /> Back
               </Button>
@@ -282,13 +417,13 @@ function TeacherManagement() {
                 Assigning teacher for <b>{wizCourse.name}</b> ({wizCourse.code}) · Semester {wizCourse.sem}
               </div>
               <div className="grid max-h-72 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
-                {teachers.filter((t) => t.status === "active").map((t) => (
+                {teachers.map((t) => (
                   <button
                     key={t.id}
-                    onClick={() => setWizTeacherName(t.name)}
-                    className={`flex items-center gap-3 rounded-xl border p-3 text-left transition hover:border-primary/40 hover:bg-muted/40 ${wizTeacherName === t.name ? "border-primary bg-primary/5" : "border-border"}`}
+                    onClick={() => setWizTeacherId(t.id)}
+                    className={`flex items-center gap-3 rounded-xl border p-3 text-left transition hover:border-primary/40 hover:bg-muted/40 ${wizTeacherId === t.id ? "border-primary bg-primary/5" : "border-border"}`}
                   >
-                    <Avatar className="h-10 w-10"><AvatarImage src={t.photo} /><AvatarFallback>{t.name[0]}</AvatarFallback></Avatar>
+                    <Avatar className="h-10 w-10"><AvatarImage src={t.photo ?? undefined} /><AvatarFallback>{t.name[0]}</AvatarFallback></Avatar>
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold">{t.name}</div>
                       <div className="flex items-center gap-1 truncate text-[11px] text-muted-foreground"><GraduationCap className="h-3 w-3" /> {t.qualification}</div>
@@ -297,13 +432,16 @@ function TeacherManagement() {
                     </div>
                   </button>
                 ))}
+                {teachers.length === 0 && (
+                  <div className="col-span-full py-4 text-center text-sm text-muted-foreground">No teachers in this department.</div>
+                )}
               </div>
               <div className="flex items-center justify-between pt-1">
                 <Button variant="ghost" size="sm" className="rounded-lg text-xs" onClick={() => setStep(wizSem ? 2 : 1)}>
                   <ArrowLeft className="mr-1 h-3 w-3" /> Back
                 </Button>
-                <Button className="rounded-xl gradient-brand text-white" disabled={!wizTeacherName} onClick={confirmAssign}>
-                  Assign Teacher
+                <Button className="rounded-xl gradient-brand text-white" disabled={!wizTeacherId || assigning} onClick={confirmAssign}>
+                  {assigning ? "Assigning…" : "Assign Teacher"}
                 </Button>
               </div>
             </div>
@@ -316,7 +454,7 @@ function TeacherManagement() {
               </div>
               <div className="font-semibold">Teacher assigned successfully.</div>
               <p className="text-sm text-muted-foreground">
-                {wizTeacherName} has been assigned to {wizCourse?.name}.
+                {wizTeacher?.name} has been assigned to {wizCourse?.name}.
               </p>
               <Button className="mt-1 rounded-xl gradient-brand text-white" onClick={closeWizard}>Done</Button>
             </div>

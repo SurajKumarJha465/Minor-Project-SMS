@@ -1,41 +1,77 @@
-import { useState } from "react";
-import { toast } from "sonner";
-import { BookOpen, Download, FileText, FolderOpen, GraduationCap, Layers, UserRound } from "lucide-react";
+import { useEffect, useState } from "react";
+import { BookOpen, FolderOpen, GraduationCap, UserRound } from "lucide-react";
 
-import SectionCard from "@/features/Student/ui/SectionCard";
 import ProgressBar from "@/features/Student/ui/ProgressBar";
 import Pill from "@/features/Student/ui/Pill";
 import Button from "@/features/Student/ui/Button";
 import FloatingModal from "@/features/Student/ui/FloatingModal";
-import { courses } from "@/features/Student/data/mock/student";
+import { authHeader } from "@/lib/auth";
 
-const COLOR_TONE = { primary: "primary", info: "info", success: "success", warning: "warning" };
-const RESOURCE_ICON = { PDF: FileText, Slides: Layers, Document: FolderOpen };
+const API_URL = import.meta.env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+// Course model has no "color" concept — cycle a fixed palette by position
+// so cards stay visually distinct, same as the old mock data did.
+const COLOR_CYCLE = ["primary", "info", "success", "warning"];
 
 export default function Courses() {
+  const [courses, setCourses] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [viewCourse, setViewCourse] = useState(null);
-  const [resourceCourse, setResourceCourse] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`${API_URL}/api/student/courses`, { headers: { ...authHeader() } });
+        if (!res.ok) throw new Error(`Failed to load courses (${res.status})`);
+        const data = await res.json();
+        if (!cancelled) setCourses(data);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load courses.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  const totalCredits = courses.reduce((a, c) => a + c.credits, 0);
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">My Courses</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {courses.length} courses enrolled this semester · {courses.reduce((a, c) => a + c.credits, 0)} total credits
+          {loading ? "Loading…" : `${courses.length} courses enrolled this semester · ${totalCredits} total credits`}
         </p>
       </div>
 
+      {error && (
+        <p className="rounded-2xl border border-destructive/40 bg-destructive/5 p-8 text-center text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      {!error && !loading && courses.length === 0 && (
+        <p className="rounded-2xl border border-border/60 bg-card p-8 text-center text-sm text-muted-foreground">
+          You aren't enrolled in any courses yet.
+        </p>
+      )}
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {courses.map((c) => (
+        {courses.map((c, i) => (
           <div
-            key={c.code}
+            key={c.id}
             className="flex flex-col rounded-2xl border border-border/60 bg-card p-5 shadow-soft transition-all duration-300 hover:-translate-y-1 hover:border-primary/40 hover:shadow-elevated"
           >
             <div className="flex items-start justify-between gap-3">
               <span className="grid size-11 place-items-center rounded-xl gradient-mist text-primary">
                 <BookOpen className="size-5" />
               </span>
-              <Pill tone={COLOR_TONE[c.color]} dot>{c.credits} credits</Pill>
+              <Pill tone={COLOR_CYCLE[i % COLOR_CYCLE.length]} dot>{c.credits} credits</Pill>
             </div>
             <h3 className="mt-3 font-display text-base font-semibold text-foreground">{c.name}</h3>
             <p className="text-xs text-muted-foreground">{c.code}</p>
@@ -50,16 +86,15 @@ export default function Courses() {
                 <span className="flex items-center gap-1.5 text-muted-foreground">
                   <GraduationCap className="size-3.5" /> Internal Marks
                 </span>
-                <span className="font-semibold text-foreground">{c.internal}/50</span>
+                <span className="font-semibold text-foreground">{c.internal}/{c.internal_max}</span>
               </div>
-              <ProgressBar value={c.progress} tone="primary" size="sm" label="Course Progress" />
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
               <Button size="sm" variant="outline" className="flex-1" onClick={() => setViewCourse(c)}>
                 View Details
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => setResourceCourse(c)}>
+              <Button size="sm" variant="ghost" disabled title="Resources coming soon">
                 <FolderOpen className="size-4" />
               </Button>
             </div>
@@ -85,55 +120,24 @@ export default function Courses() {
                 <p className="text-xs text-muted-foreground">Credit Hours</p>
                 <p className="font-semibold text-foreground">{viewCourse.credits}</p>
               </div>
+              <div className="rounded-xl border border-border/60 bg-card p-3">
+                <p className="text-xs text-muted-foreground">Attendance</p>
+                <p className="font-semibold text-foreground">{viewCourse.attendance}%</p>
+              </div>
+              <div className="rounded-xl border border-border/60 bg-card p-3">
+                <p className="text-xs text-muted-foreground">Internal Marks</p>
+                <p className="font-semibold text-foreground">{viewCourse.internal}/{viewCourse.internal_max}</p>
+              </div>
               <div className="col-span-2 rounded-xl border border-border/60 bg-card p-3">
                 <p className="text-xs text-muted-foreground">Teacher</p>
                 <p className="font-semibold text-foreground">{viewCourse.teacher}</p>
               </div>
             </div>
-            <div>
-              <p className="mb-1 text-xs font-medium text-muted-foreground">Course Description</p>
-              <p className="text-sm text-foreground">{viewCourse.description}</p>
-            </div>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => { setResourceCourse(viewCourse); setViewCourse(null); }}>
+              <Button variant="outline" disabled title="Resources coming soon">
                 <FolderOpen className="size-4" /> View Resources
               </Button>
               <Button variant="ghost" onClick={() => setViewCourse(null)}>Close</Button>
-            </div>
-          </div>
-        )}
-      </FloatingModal>
-
-      {/* Course materials / resources */}
-      <FloatingModal
-        open={!!resourceCourse}
-        onClose={() => setResourceCourse(null)}
-        title={`${resourceCourse?.name ?? ""} Materials`}
-        description="Course materials shared by your teacher."
-      >
-        {resourceCourse && (
-          <div className="space-y-2">
-            {resourceCourse.resources.map((r) => {
-              const Icon = RESOURCE_ICON[r.type] ?? FileText;
-              return (
-                <div key={r.name} className="flex items-center justify-between rounded-xl border border-border/60 bg-card p-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-                      <Icon className="size-4" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-foreground">{r.name}</p>
-                      <p className="text-xs text-muted-foreground">{r.type}</p>
-                    </div>
-                  </div>
-                  <Button size="sm" variant="ghost" onClick={() => toast.success(`Downloading ${r.name}`)}>
-                    <Download className="size-4" />
-                  </Button>
-                </div>
-              );
-            })}
-            <div className="flex justify-end pt-2">
-              <Button variant="ghost" onClick={() => setResourceCourse(null)}>Close</Button>
             </div>
           </div>
         )}

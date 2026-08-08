@@ -57,6 +57,50 @@ class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
 
+
+class StudentMeOut(BaseModel):
+    id: str
+    name: str
+    enrollment: str
+    email: str
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    guardian_name: Optional[str] = None
+    guardian_phone: Optional[str] = None
+    department: str
+    section: str
+    semester: int
+    batch: str             # derived from the enrollment year encoded in the id, e.g. "2023-2027"
+    photo: Optional[str] = None
+    username: str
+    must_change_password: bool
+    two_factor_enabled: bool
+
+    class Config:
+        from_attributes = True
+
+
+class UpdateMyProfileRequest(BaseModel):
+    # Deliberately excludes email, enrollment, department, semester and
+    # section — those are administrative fields a student cannot self-edit.
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    guardian_name: Optional[str] = None
+    guardian_phone: Optional[str] = None
+
+
+class TwoFactorSetupResponse(BaseModel):
+    secret: str
+    otpauth_url: str
+
+
+class TwoFactorVerifyRequest(BaseModel):
+    code: str
+
+
+class TwoFactorStatusResponse(BaseModel):
+    enabled: bool
+
 class CourseSelection(BaseModel):
     code: str
     name: str
@@ -197,6 +241,42 @@ class AttendanceTodayResponse(BaseModel):
     course_id: str
     date: str
     records: list[AttendanceTodayItem]
+
+class StudentCourseOut(BaseModel):
+    id: str
+    code: str
+    name: str
+    credits: int
+    teacher: str
+    attendance: float          # percentage, same calc as /api/student/attendance
+    internal: int              # published total only; 0 if not yet published
+    internal_max: int = 50
+
+class StudentCourseAttendanceOut(BaseModel):
+    course_id: str
+    code: str
+    name: str
+    teacher: str
+    present: int
+    absent: int
+    total: int
+    percentage: float
+    status: str  # "Excellent" | "Good" | "Warning"
+
+class StudentAttendanceDay(BaseModel):
+    date: str        # ISO date, e.g. "2026-08-05"
+    status: str       # "present" | "absent" — day is "present" if present in >=1 class that day
+
+class StudentAttendanceSummary(BaseModel):
+    overall: float
+    total_classes: int
+    present: int
+    absent: int
+
+class StudentAttendanceResponse(BaseModel):
+    summary: StudentAttendanceSummary
+    courses: list[StudentCourseAttendanceOut]
+    calendar: list[StudentAttendanceDay]
 
 class HodCourseOut(BaseModel):
     id: str
@@ -380,6 +460,9 @@ class UpdateNoticeRequest(BaseModel):
     audience: Optional[str] = None
     pinned: Optional[bool] = None
 
+class TwoFactorLoginRequest(BaseModel):
+    pending_token: str
+    code: str
 
 class EventOut(BaseModel):
     id: int

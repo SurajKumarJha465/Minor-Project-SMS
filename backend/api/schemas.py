@@ -531,3 +531,52 @@ class UpdateEventRequest(BaseModel):
     title: Optional[str] = None
     type: Optional[str] = None
     date: Optional[datetime] = None
+
+
+class SettingsOut(BaseModel):
+    institution_name: str
+    academic_year: str
+    current_semester_label: str
+    contact_email: str
+    require_2fa: bool
+    session_timeout_enabled: bool
+    password_rotation_enabled: bool
+    audit_logs_enabled: bool
+    email_notifications: bool
+    sms_alerts: bool
+    weekly_summary: bool
+    auto_backup_enabled: bool
+    last_backup_at: Optional[datetime] = None
+    dark_mode_default: bool
+    compact_tables: bool
+
+    class Config:
+        from_attributes = True
+
+
+class UpdateSettingsRequest(BaseModel):
+    institution_name: Optional[str] = None
+    academic_year: Optional[str] = None
+    current_semester_label: Optional[str] = None
+    contact_email: Optional[str] = None
+    require_2fa: Optional[bool] = None
+    session_timeout_enabled: Optional[bool] = None
+    password_rotation_enabled: Optional[bool] = None
+    audit_logs_enabled: Optional[bool] = None
+    email_notifications: Optional[bool] = None
+    sms_alerts: Optional[bool] = None
+    weekly_summary: Optional[bool] = None
+    auto_backup_enabled: Optional[bool] = None
+    dark_mode_default: Optional[bool] = None
+    compact_tables: Optional[bool] = None
+
+
+class BackupTriggerResponse(BaseModel):
+    last_backup_at: datetime
+
+
+class SystemInfoOut(BaseModel):
+    version: str
+    environment: str
+    database: str
+    uptime_seconds: int

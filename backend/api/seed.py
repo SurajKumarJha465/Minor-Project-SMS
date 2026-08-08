@@ -52,7 +52,7 @@ import os
 from api.database import SessionLocal, engine, Base
 from api.models import (
     Department, Section, Course, Student, Enrollment, User, RoleEnum,
-    AttendanceRecord, InternalMark, Teacher, HOD, Admin,
+    AttendanceRecord, InternalMark, Teacher, HOD, Admin, SystemSettings,
 )
 from api.auth import hash_password
 
@@ -810,6 +810,29 @@ def seed():
             admin_profile.experience = ADMIN_PROFILE["experience"]
 
         db.commit()
+
+        # --- system settings (singleton row) ---
+        # Only created once, with sensible defaults — never overwritten on
+        # subsequent seed runs, so an admin's saved changes always survive a reseed.
+        if not db.query(SystemSettings).filter(SystemSettings.id == 1).first():
+            db.add(SystemSettings(
+                id=1,
+                institution_name=ADMIN_PROFILE["institution"],
+                academic_year="AY 2026-27",
+                current_semester_label="Fall 2026",
+                contact_email=ADMIN_EMAIL,
+                require_2fa=False,
+                session_timeout_enabled=True,
+                password_rotation_enabled=False,
+                audit_logs_enabled=True,
+                email_notifications=True,
+                sms_alerts=False,
+                weekly_summary=True,
+                auto_backup_enabled=False,
+                dark_mode_default=False,
+                compact_tables=False,
+            ))
+            db.commit()
 
         print(f"Seeded {created_students} IT students, {len(TEACHERS)} teachers, "
               f"{created_courses} courses, {enrollment_count} enrollments, "

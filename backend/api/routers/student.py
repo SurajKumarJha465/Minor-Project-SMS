@@ -1,12 +1,14 @@
+import re
 from collections import defaultdict
 
+import pyotp
 from sqlalchemy import or_
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime
 
 from api.database import get_db
-from api.models import User, RoleEnum, Student, Notice, Enrollment, AttendanceRecord, AttendanceStatus, Course, Teacher
+from api.models import User, RoleEnum, Student, Section, Department, Notice, Enrollment, AttendanceRecord, AttendanceStatus, Course, Teacher
 from api.auth import require_role
 from api.schemas import (
     NoticeOut,
@@ -14,6 +16,11 @@ from api.schemas import (
     StudentAttendanceSummary,
     StudentCourseAttendanceOut,
     StudentAttendanceDay,
+    StudentMeOut,
+    UpdateMyProfileRequest,
+    TwoFactorSetupResponse,
+    TwoFactorVerifyRequest,
+    TwoFactorStatusResponse,
 )
 
 router = APIRouter(prefix="/api/student", tags=["student"])
@@ -24,6 +31,131 @@ def _current_student(db: Session, current_user: User) -> Student:
     if not student:
         raise HTTPException(status_code=400, detail="No student profile linked to this account")
     return student
+
+
+# Student ids / enrollment numbers start with a 2-digit enrollment year,
+# e.g. "251401" -> enrolled 20{25} = 2025, "231512" -> 2023. Batch spans
+# the standard 4-year programme from that year.
+_ENROLLMENT_YEAR_RE = re.compile(r"^(\d{2})\d{4,}")
+
+
+def _derive_batch(student: Student) -> str:
+    source = student.id or student.enrollment or ""
+    match = _ENROLLMENT_YEAR_RE.match(source)
+    if not match:
+        return "—"
+    year = 2000 + int(match.group(1))
+    return f"{year}-{year + 4}"
+
+
+def _build_student_me(db: Session, student: Student, user: User) -> StudentMeOut:
+    dept = db.query(Department).filter(Department.id == student.department_id).first()
+    section = db.query(Section).filter(Section.id == student.section_id).first()
+    return StudentMeOut(
+        id=student.id,
+        name=student.name,
+        enrollment=student.enrollment,
+        email=user.email,  # canonical login email lives on User, not the Student copy
+        phone=student.phone,
+        address=student.address,
+        guardian_name=student.guardian_name,
+        guardian_phone=student.guardian_phone,
+        department=dept.name if dept else (student.department_id or ""),
+        section=section.label if section else (student.section_id or "").upper(),
+        semester=student.sem or 0,
+        batch=_derive_batch(student),
+        photo=student.photo,
+        username=user.email.split("@")[0] if user.email else student.id,
+        must_change_password=user.must_change_password,
+        two_factor_enabled=user.totp_enabled,
+    )
+
+
+@router.get("/me", response_model=StudentMeOut)
+def my_profile(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.student)),
+):
+    student = _current_student(db, current_user)
+    return _build_student_me(db, student, current_user)
+
+
+@router.patch("/me", response_model=StudentMeOut)
+def update_my_profile(
+    payload: UpdateMyProfileRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.student)),
+):
+    student = _current_student(db, current_user)
+
+    if payload.phone is not None:
+        student.phone = payload.phone
+    if payload.address is not None:
+        student.address = payload.address
+    if payload.guardian_name is not None:
+        student.guardian_name = payload.guardian_name
+    if payload.guardian_phone is not None:
+        student.guardian_phone = payload.guardian_phone
+
+    db.commit()
+    db.refresh(student)
+    return _build_student_me(db, student, current_user)
+
+
+@router.post("/2fa/setup", response_model=TwoFactorSetupResponse)
+def setup_two_factor(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.student)),
+):
+    """Generates (or regenerates, if setup was abandoned) a TOTP secret.
+    The secret isn't active until /2fa/enable confirms a code from it."""
+    if current_user.totp_enabled:
+        raise HTTPException(status_code=400, detail="Two-factor authentication is already enabled")
+
+    secret = pyotp.random_base32()
+    current_user.totp_secret = secret
+    db.commit()
+
+    totp = pyotp.TOTP(secret)
+    uri = totp.provisioning_uri(name=current_user.email, issuer_name="Smart Student Management System")
+    return TwoFactorSetupResponse(secret=secret, otpauth_url=uri)
+
+
+@router.post("/2fa/enable", response_model=TwoFactorStatusResponse)
+def enable_two_factor(
+    payload: TwoFactorVerifyRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.student)),
+):
+    if not current_user.totp_secret:
+        raise HTTPException(status_code=400, detail="Start 2FA setup first")
+
+    totp = pyotp.TOTP(current_user.totp_secret)
+    if not totp.verify(payload.code.strip(), valid_window=1):
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+
+    current_user.totp_enabled = True
+    db.commit()
+    return TwoFactorStatusResponse(enabled=True)
+
+
+@router.post("/2fa/disable", response_model=TwoFactorStatusResponse)
+def disable_two_factor(
+    payload: TwoFactorVerifyRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.student)),
+):
+    if not current_user.totp_enabled:
+        raise HTTPException(status_code=400, detail="Two-factor authentication is not enabled")
+
+    totp = pyotp.TOTP(current_user.totp_secret or "")
+    if not totp.verify(payload.code.strip(), valid_window=1):
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+
+    current_user.totp_enabled = False
+    current_user.totp_secret = None
+    db.commit()
+    return TwoFactorStatusResponse(enabled=False)
 
 
 @router.get("/notices", response_model=list[NoticeOut])

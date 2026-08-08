@@ -57,6 +57,50 @@ class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
 
+
+class StudentMeOut(BaseModel):
+    id: str
+    name: str
+    enrollment: str
+    email: str
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    guardian_name: Optional[str] = None
+    guardian_phone: Optional[str] = None
+    department: str
+    section: str
+    semester: int
+    batch: str             # derived from the enrollment year encoded in the id, e.g. "2023-2027"
+    photo: Optional[str] = None
+    username: str
+    must_change_password: bool
+    two_factor_enabled: bool
+
+    class Config:
+        from_attributes = True
+
+
+class UpdateMyProfileRequest(BaseModel):
+    # Deliberately excludes email, enrollment, department, semester and
+    # section — those are administrative fields a student cannot self-edit.
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    guardian_name: Optional[str] = None
+    guardian_phone: Optional[str] = None
+
+
+class TwoFactorSetupResponse(BaseModel):
+    secret: str
+    otpauth_url: str
+
+
+class TwoFactorVerifyRequest(BaseModel):
+    code: str
+
+
+class TwoFactorStatusResponse(BaseModel):
+    enabled: bool
+
 class CourseSelection(BaseModel):
     code: str
     name: str
@@ -405,3 +449,7 @@ class UpdateNoticeRequest(BaseModel):
     type: Optional[str] = None
     audience: Optional[str] = None
     pinned: Optional[bool] = None
+
+class TwoFactorLoginRequest(BaseModel):
+    pending_token: str
+    code: str

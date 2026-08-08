@@ -16,6 +16,7 @@ from api.models import User, RoleEnum
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-only-change-this-before-any-real-deployment")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 8  # 8 hours — a school day
+PENDING_2FA_EXPIRE_MINUTES = 5        # window to submit a TOTP code after password check
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
@@ -62,6 +63,9 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
 
     user = db.query(User).filter(User.id == int(user_id)).first()
     if user is None:
+        # A pending-2FA token must never be usable as a real access token.
+        if payload.get("purpose") == "2fa_pending":
+            raise credentials_exception
         raise credentials_exception
     return user
 
@@ -76,3 +80,30 @@ def require_role(*allowed_roles: RoleEnum):
             )
         return current_user
     return checker
+
+def create_pending_2fa_token(user_id: int) -> str:
+    """Issued after a correct password when the account has 2FA enabled.
+    Deliberately NOT a usable access token — carries purpose=2fa_pending so
+    get_current_user rejects it, and only /api/auth/2fa/verify accepts it."""
+    return create_access_token(
+        data={"sub": str(user_id), "purpose": "2fa_pending"},
+        expires_delta=timedelta(minutes=PENDING_2FA_EXPIRE_MINUTES),
+    )
+
+
+def decode_pending_2fa_token(token: str) -> int:
+    """Returns the user id encoded in a pending-2FA token, or raises 401."""
+    pending_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Your 2FA session has expired — please log in again",
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        raise pending_exception
+    if payload.get("purpose") != "2fa_pending":
+        raise pending_exception
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise pending_exception
+    return int(user_id)

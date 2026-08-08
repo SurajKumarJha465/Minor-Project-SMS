@@ -33,6 +33,8 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     role = Column(SqlEnum(RoleEnum), nullable=False)
     must_change_password = Column(Boolean, nullable=False, default=True)
+    totp_secret = Column(String, nullable=True)       # base32 TOTP secret, set on 2FA setup
+    totp_enabled = Column(Boolean, nullable=False, default=False)
 
 
 class Department(Base):

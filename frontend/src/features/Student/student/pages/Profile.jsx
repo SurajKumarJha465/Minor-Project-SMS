@@ -1,19 +1,23 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
+  AlertTriangle,
   Building2,
   CalendarDays,
   Camera,
+  Copy,
   Eye,
   EyeOff,
   GraduationCap,
   KeyRound,
   Layers,
+  Lock,
   Mail,
   MapPin,
   Pencil,
   Phone,
   ShieldCheck,
+  ShieldOff,
   UserRound,
   Users,
 } from "lucide-react";
@@ -22,9 +26,21 @@ import SectionCard from "@/features/Student/ui/SectionCard";
 import Button from "@/features/Student/ui/Button";
 import Pill from "@/features/Student/ui/Pill";
 import FloatingModal from "@/features/Student/ui/FloatingModal";
-import { studentProfile } from "@/features/Student/data/mock/student";
+import { authHeader } from "@/lib/auth";
 
-function Field({ icon: Icon, label, value }) {
+const API_URL = import.meta.env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+function initials(name) {
+  if (!name) return "??";
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase())
+    .join("");
+}
+
+function Field({ icon: Icon, label, value, hint }) {
   return (
     <div className="flex items-start gap-3 rounded-xl border border-border/60 bg-card p-4">
       <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
@@ -33,6 +49,7 @@ function Field({ icon: Icon, label, value }) {
       <div className="min-w-0">
         <p className="text-xs text-muted-foreground">{label}</p>
         <p className="truncate text-sm font-medium text-foreground">{value}</p>
+        {hint && <p className="mt-0.5 text-[11px] text-muted-foreground">{hint}</p>}
       </div>
     </div>
   );
@@ -48,6 +65,7 @@ function PasswordInput({ label, value, onChange }) {
           type={show ? "text" : "password"}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          autoComplete="off"
           className="h-10 w-full rounded-xl border border-border bg-card px-3 pr-10 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-ring"
         />
         <button
@@ -80,19 +98,108 @@ function passwordStrength(pw) {
 }
 
 export default function Profile() {
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
+
   const [editOpen, setEditOpen] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [phoneField, setPhoneField] = useState("");
+  const [addressField, setAddressField] = useState("");
+  const [guardianNameField, setGuardianNameField] = useState("");
+  const [guardianPhoneField, setGuardianPhoneField] = useState("");
+
   const [pwOpen, setPwOpen] = useState(false);
   const [pwSuccessOpen, setPwSuccessOpen] = useState(false);
-  const p = studentProfile;
-
-  // Photo upload preview state (in-memory only, no backend).
-  const [photoPreview, setPhotoPreview] = useState(null);
-
-  // Password form state.
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
+  const [savingPw, setSavingPw] = useState(false);
   const strength = passwordStrength(newPw);
+
+  // Photo upload preview state (in-memory only, no backend endpoint yet).
+  const [photoPreview, setPhotoPreview] = useState(null);
+
+  // 2FA setup flow.
+  const [twoFaOpen, setTwoFaOpen] = useState(false);
+  const [twoFaStep, setTwoFaStep] = useState("start"); // start | verify
+  const [twoFaSecret, setTwoFaSecret] = useState("");
+  const [twoFaUri, setTwoFaUri] = useState("");
+  const [twoFaCode, setTwoFaCode] = useState("");
+  const [twoFaBusy, setTwoFaBusy] = useState(false);
+  const [disableOpen, setDisableOpen] = useState(false);
+  const [disableCode, setDisableCode] = useState("");
+  const [disableBusy, setDisableBusy] = useState(false);
+
+  async function loadProfile({ silent = false } = {}) {
+    if (!silent) setLoading(true);
+    setLoadError(null);
+    try {
+      const res = await fetch(`${API_URL}/api/student/me`, { headers: { ...authHeader() } });
+      if (!res.ok) throw new Error(`Failed to load profile (${res.status})`);
+      const data = await res.json();
+      setProfile(data);
+      return data;
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Could not load your profile.");
+      return null;
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
+  // Nudge the student the moment we know their password needs changing.
+  useEffect(() => {
+    if (profile?.must_change_password) {
+      toast.warning("Your account requires a password change.", {
+        description: "Please update your password to keep your account secure.",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.must_change_password]);
+
+  function openEdit() {
+    if (!profile) return;
+    setPhoneField(profile.phone ?? "");
+    setAddressField(profile.address ?? "");
+    setGuardianNameField(profile.guardian_name ?? "");
+    setGuardianPhoneField(profile.guardian_phone ?? "");
+    setEditOpen(true);
+  }
+
+  async function submitEdit(e) {
+    e.preventDefault();
+    setSavingProfile(true);
+    try {
+      const res = await fetch(`${API_URL}/api/student/me`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({
+          phone: phoneField,
+          address: addressField,
+          guardian_name: guardianNameField,
+          guardian_phone: guardianPhoneField,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail ?? "Failed to update profile");
+        return;
+      }
+      const data = await res.json();
+      setProfile(data);
+      setEditOpen(false);
+      toast.success("Profile updated successfully");
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    } finally {
+      setSavingProfile(false);
+    }
+  }
 
   function handlePhotoChange(e) {
     const file = e.target.files?.[0];
@@ -101,7 +208,14 @@ export default function Profile() {
     setPhotoPreview(url);
   }
 
-  function submitPasswordChange(e) {
+  function closePasswordDialog() {
+    setPwOpen(false);
+    setCurrentPw("");
+    setNewPw("");
+    setConfirmPw("");
+  }
+
+  async function submitPasswordChange(e) {
     e.preventDefault();
     if (!currentPw) {
       toast.error("Please enter your current password");
@@ -115,13 +229,158 @@ export default function Profile() {
       toast.error("New password and confirmation do not match");
       return;
     }
-    setPwOpen(false);
-    setCurrentPw(""); setNewPw(""); setConfirmPw("");
-    setPwSuccessOpen(true);
+    setSavingPw(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/change-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ current_password: currentPw, new_password: newPw }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail ?? "Failed to update password");
+        return;
+      }
+      closePasswordDialog();
+      setPwSuccessOpen(true);
+      // Reflect the cleared must_change_password flag immediately.
+      setProfile((p) => (p ? { ...p, must_change_password: false } : p));
+      loadProfile({ silent: true });
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    } finally {
+      setSavingPw(false);
+    }
   }
+
+  async function startTwoFaSetup() {
+    setTwoFaBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/api/student/2fa/setup`, {
+        method: "POST",
+        headers: { ...authHeader() },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail ?? "Could not start 2FA setup");
+        return;
+      }
+      const data = await res.json();
+      setTwoFaSecret(data.secret);
+      setTwoFaUri(data.otpauth_url);
+      setTwoFaStep("verify");
+      setTwoFaOpen(true);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    } finally {
+      setTwoFaBusy(false);
+    }
+  }
+
+  function closeTwoFaModal() {
+    setTwoFaOpen(false);
+    setTwoFaStep("start");
+    setTwoFaSecret("");
+    setTwoFaUri("");
+    setTwoFaCode("");
+  }
+
+  async function confirmTwoFa(e) {
+    e.preventDefault();
+    if (twoFaCode.trim().length !== 6) {
+      toast.error("Enter the 6-digit code from your authenticator app");
+      return;
+    }
+    setTwoFaBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/api/student/2fa/enable`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ code: twoFaCode.trim() }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail ?? "Invalid code, try again");
+        return;
+      }
+      toast.success("Two-factor authentication enabled");
+      closeTwoFaModal();
+      setProfile((p) => (p ? { ...p, two_factor_enabled: true } : p));
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    } finally {
+      setTwoFaBusy(false);
+    }
+  }
+
+  async function confirmDisableTwoFa(e) {
+    e.preventDefault();
+    if (disableCode.trim().length !== 6) {
+      toast.error("Enter the 6-digit code from your authenticator app");
+      return;
+    }
+    setDisableBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/api/student/2fa/disable`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ code: disableCode.trim() }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail ?? "Invalid code, try again");
+        return;
+      }
+      toast.success("Two-factor authentication disabled");
+      setDisableOpen(false);
+      setDisableCode("");
+      setProfile((p) => (p ? { ...p, two_factor_enabled: false } : p));
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    } finally {
+      setDisableBusy(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
+        Loading profile…
+      </div>
+    );
+  }
+
+  if (loadError || !profile) {
+    return (
+      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 text-center">
+        <p className="text-sm text-destructive">{loadError ?? "Profile unavailable."}</p>
+        <Button size="sm" variant="outline" onClick={() => loadProfile()}>Retry</Button>
+      </div>
+    );
+  }
+
+  const p = profile;
 
   return (
     <div className="space-y-6">
+      {/* Must-change-password reminder */}
+      {p.must_change_password && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-warning/40 bg-warning/10 px-5 py-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-warning-foreground" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">Please update your password</p>
+              <p className="text-xs text-muted-foreground">
+                Your account is still using a temporary password. Change it now to keep your account secure.
+              </p>
+            </div>
+          </div>
+          <Button size="sm" onClick={() => setPwOpen(true)}>
+            <KeyRound className="size-4" /> Update Password Now
+          </Button>
+        </div>
+      )}
+
       {/* Identity header */}
       <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card shadow-soft">
         <div className="h-28 gradient-brand" />
@@ -130,17 +389,19 @@ export default function Profile() {
             <div className="-mt-12 grid size-24 shrink-0 place-items-center overflow-hidden rounded-2xl gradient-primary font-display text-3xl font-bold text-primary-foreground shadow-glow ring-4 ring-card">
               {photoPreview ? (
                 <img src={photoPreview} alt={p.name} className="size-full object-cover" />
+              ) : p.photo ? (
+                <img src={p.photo} alt={p.name} className="size-full object-cover" />
               ) : (
-                p.avatar
+                initials(p.name)
               )}
             </div>
             <div className="min-w-0">
               <h1 className="font-display text-2xl font-bold text-foreground">{p.name}</h1>
-              <p className="text-sm text-muted-foreground">{p.enrollment} · {p.departmentCode}</p>
+              <p className="text-sm text-muted-foreground">{p.enrollment} · {p.department}</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 <Pill tone="primary" dot>Semester {p.semester}</Pill>
                 <Pill tone="info" dot>Section {p.section}</Pill>
-                <Pill tone="success" dot>CGPA {p.cgpa}</Pill>
+                <Pill tone="success" dot>Batch {p.batch}</Pill>
               </div>
             </div>
           </div>
@@ -148,7 +409,7 @@ export default function Profile() {
             <Button variant="outline" size="sm" onClick={() => setPwOpen(true)}>
               <KeyRound className="size-4" /> Change Password
             </Button>
-            <Button size="sm" onClick={() => setEditOpen(true)}>
+            <Button size="sm" onClick={openEdit}>
               <Pencil className="size-4" /> Edit Profile
             </Button>
           </div>
@@ -164,11 +425,11 @@ export default function Profile() {
           <Field icon={Layers} label="Semester" value={`Semester ${p.semester}`} />
           <Field icon={Layers} label="Section" value={p.section} />
           <Field icon={CalendarDays} label="Batch" value={p.batch} />
-          <Field icon={Mail} label="Email" value={p.email} />
-          <Field icon={Phone} label="Phone" value={p.phone} />
-          <Field icon={MapPin} label="Address" value={p.address} />
-          <Field icon={Users} label="Guardian Name" value={p.guardianName} />
-          <Field icon={Phone} label="Guardian Contact" value={p.guardianContact} />
+          <Field icon={Mail} label="Email" value={p.email} hint="Contact your department to change this" />
+          <Field icon={Phone} label="Phone" value={p.phone || "—"} />
+          <Field icon={MapPin} label="Address" value={p.address || "—"} />
+          <Field icon={Users} label="Guardian Name" value={p.guardian_name || "—"} />
+          <Field icon={Phone} label="Guardian Contact" value={p.guardian_phone || "—"} />
           <Field icon={ShieldCheck} label="Username" value={p.username} />
         </div>
       </SectionCard>
@@ -177,27 +438,33 @@ export default function Profile() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm font-medium text-foreground">Two-factor authentication</p>
-            <p className="text-xs text-muted-foreground">Add an extra layer of protection to your account.</p>
+            <p className="text-xs text-muted-foreground">
+              {p.two_factor_enabled
+                ? "Enabled — your account requires an authenticator code at login."
+                : "Add an extra layer of protection to your account."}
+            </p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => toast.success("2FA setup coming soon")}>
-            Enable 2FA
-          </Button>
+          {p.two_factor_enabled ? (
+            <div className="flex items-center gap-2">
+              <Pill tone="success" dot>Enabled</Pill>
+              <Button variant="outline" size="sm" onClick={() => setDisableOpen(true)}>
+                <ShieldOff className="size-4" /> Disable 2FA
+              </Button>
+            </div>
+          ) : (
+            <Button variant="outline" size="sm" onClick={startTwoFaSetup} disabled={twoFaBusy}>
+              <ShieldCheck className="size-4" /> {twoFaBusy ? "Preparing…" : "Enable 2FA"}
+            </Button>
+          )}
         </div>
       </SectionCard>
 
       {/* Edit modal */}
       <FloatingModal open={editOpen} onClose={() => setEditOpen(false)} title="Edit Profile" description="Update your contact and guardian details.">
-        <form
-          className="space-y-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setEditOpen(false);
-            toast.success("Profile updated successfully");
-          }}
-        >
+        <form className="space-y-4" onSubmit={submitEdit}>
           <div className="flex items-center gap-4">
             <div className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-2xl gradient-primary font-display text-xl font-bold text-primary-foreground">
-              {photoPreview ? <img src={photoPreview} alt="" className="size-full object-cover" /> : p.avatar}
+              {photoPreview ? <img src={photoPreview} alt="" className="size-full object-cover" /> : initials(p.name)}
             </div>
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-foreground hover:bg-accent">
               <Camera className="size-4" /> Upload Photo
@@ -207,36 +474,60 @@ export default function Profile() {
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-sm">
               <span className="mb-1 block text-xs font-medium text-muted-foreground">Phone</span>
-              <input defaultValue={p.phone} className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-ring" />
+              <input
+                value={phoneField}
+                onChange={(e) => setPhoneField(e.target.value)}
+                className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-ring"
+              />
             </label>
             <label className="text-sm">
-              <span className="mb-1 block text-xs font-medium text-muted-foreground">Email</span>
-              <input defaultValue={p.email} className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-ring" />
+              <span className="mb-1 flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                <Lock className="size-3" /> Email
+              </span>
+              <input
+                value={p.email}
+                disabled
+                readOnly
+                title="Email cannot be changed here — contact your department to update it."
+                className="h-10 w-full cursor-not-allowed rounded-xl border border-border bg-muted px-3 text-sm text-muted-foreground outline-none"
+              />
             </label>
           </div>
           <label className="block text-sm">
             <span className="mb-1 block text-xs font-medium text-muted-foreground">Address</span>
-            <input defaultValue={p.address} className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-ring" />
+            <input
+              value={addressField}
+              onChange={(e) => setAddressField(e.target.value)}
+              className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-ring"
+            />
           </label>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-sm">
               <span className="mb-1 block text-xs font-medium text-muted-foreground">Guardian Name</span>
-              <input defaultValue={p.guardianName} className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-ring" />
+              <input
+                value={guardianNameField}
+                onChange={(e) => setGuardianNameField(e.target.value)}
+                className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-ring"
+              />
             </label>
             <label className="text-sm">
               <span className="mb-1 block text-xs font-medium text-muted-foreground">Guardian Contact</span>
-              <input defaultValue={p.guardianContact} className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-ring" />
+              <input
+                value={guardianPhoneField}
+                onChange={(e) => setGuardianPhoneField(e.target.value)}
+                className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-primary/50 focus:ring-2 focus:ring-ring"
+              />
             </label>
           </div>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => setEditOpen(false)}>Cancel</Button>
-            <Button type="submit">Save Changes</Button>
+            <Button type="submit" disabled={savingProfile}>{savingProfile ? "Saving…" : "Save Changes"}</Button>
           </div>
         </form>
       </FloatingModal>
 
       {/* Password modal */}
-      <FloatingModal open={pwOpen} onClose={() => setPwOpen(false)} title="Change Password" description="Choose a strong new password.">
+      <FloatingModal open={pwOpen} onClose={closePasswordDialog} title="Change Password" description="Choose a strong new password.">
         <form className="space-y-4" onSubmit={submitPasswordChange}>
           <PasswordInput label="Current Password" value={currentPw} onChange={setCurrentPw} />
           <PasswordInput label="New Password" value={newPw} onChange={setNewPw} />
@@ -257,8 +548,8 @@ export default function Profile() {
           )}
           <PasswordInput label="Confirm New Password" value={confirmPw} onChange={setConfirmPw} />
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setPwOpen(false)}>Cancel</Button>
-            <Button type="submit">Update Password</Button>
+            <Button type="button" variant="ghost" onClick={closePasswordDialog}>Cancel</Button>
+            <Button type="submit" disabled={savingPw}>{savingPw ? "Updating…" : "Update Password"}</Button>
           </div>
         </form>
       </FloatingModal>
@@ -268,6 +559,80 @@ export default function Profile() {
         <div className="flex justify-end">
           <Button onClick={() => setPwSuccessOpen(false)}>Done</Button>
         </div>
+      </FloatingModal>
+
+      {/* 2FA setup modal */}
+      <FloatingModal
+        open={twoFaOpen}
+        onClose={closeTwoFaModal}
+        title="Enable Two-Factor Authentication"
+        description="Scan or enter this key in your authenticator app, then confirm with a code."
+      >
+        <form className="space-y-4" onSubmit={confirmTwoFa}>
+          <div className="rounded-xl border border-border/60 bg-muted/40 p-4">
+            <p className="text-xs text-muted-foreground">Setup key (enter manually in Google Authenticator, Authy, etc.)</p>
+            <div className="mt-2 flex items-center gap-2">
+              <code className="flex-1 truncate rounded-lg bg-card px-3 py-2 text-sm font-semibold tracking-wider text-foreground">
+                {twoFaSecret}
+              </code>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(twoFaSecret);
+                    toast.success("Copied to clipboard");
+                  } catch {
+                    toast.error("Could not copy — copy it manually");
+                  }
+                }}
+                aria-label="Copy setup key"
+              >
+                <Copy className="size-4" />
+              </Button>
+            </div>
+          </div>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">6-digit code</span>
+            <input
+              value={twoFaCode}
+              onChange={(e) => setTwoFaCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="123456"
+              inputMode="numeric"
+              className="h-10 w-full rounded-xl border border-border bg-card px-3 text-center text-lg font-semibold tracking-[0.5em] outline-none focus:border-primary/50 focus:ring-2 focus:ring-ring"
+            />
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={closeTwoFaModal}>Cancel</Button>
+            <Button type="submit" disabled={twoFaBusy}>{twoFaBusy ? "Verifying…" : "Verify & Enable"}</Button>
+          </div>
+        </form>
+      </FloatingModal>
+
+      {/* 2FA disable modal */}
+      <FloatingModal
+        open={disableOpen}
+        onClose={() => { setDisableOpen(false); setDisableCode(""); }}
+        title="Disable Two-Factor Authentication"
+        description="Enter a current code from your authenticator app to confirm."
+      >
+        <form className="space-y-4" onSubmit={confirmDisableTwoFa}>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">6-digit code</span>
+            <input
+              value={disableCode}
+              onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="123456"
+              inputMode="numeric"
+              className="h-10 w-full rounded-xl border border-border bg-card px-3 text-center text-lg font-semibold tracking-[0.5em] outline-none focus:border-primary/50 focus:ring-2 focus:ring-ring"
+            />
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => { setDisableOpen(false); setDisableCode(""); }}>Cancel</Button>
+            <Button type="submit" variant="danger" disabled={disableBusy}>{disableBusy ? "Disabling…" : "Disable"}</Button>
+          </div>
+        </form>
       </FloatingModal>
     </div>
   );

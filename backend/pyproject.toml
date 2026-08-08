@@ -13,6 +13,7 @@ dependencies = [
     "bcrypt==4.0.1",
     "passlib[bcrypt]>=1.7.4",
     "python-jose[cryptography]>=3.5.0",
+    "pyotp>=2.9.0",
     # Config / validation
     "python-dotenv>=1.2.2",
     "pydantic>=2.0",

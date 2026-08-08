@@ -277,6 +277,23 @@ def create_course(
     db.add(course)
     db.commit()
     db.refresh(course)
+
+    # Auto-enroll every student already in this department/semester/section —
+    # a new course's roster should start populated with the class it's for.
+    matching_students = (
+        db.query(Student)
+        .filter(
+            Student.department_id == hod.department_id,
+            Student.sem == payload.sem,
+            Student.section_id == section_id,
+        )
+        .all()
+    )
+    for student in matching_students:
+        db.add(Enrollment(student_id=student.id, course_id=course.id))
+    if matching_students:
+        db.commit()
+
     return _course_out(db, course)
 
 

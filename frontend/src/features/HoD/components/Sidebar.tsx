@@ -2,7 +2,7 @@ import { Link, useLocation } from "@tanstack/react-router";
 import { logout } from "@/lib/auth";
 import {
   LayoutDashboard, Building2, Users, GraduationCap, CalendarRange,
-  Bell, User, Settings, LogOut, X, BookOpen, ClipboardCheck,
+  Bell, User, Settings, LogOut, X, BookOpen, ClipboardCheck, Award,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -13,6 +13,7 @@ const nav = [
   { to: "/hod/teachers", label: "Teacher Management", icon: Users },
   { to: "/hod/students", label: "Student Management", icon: GraduationCap },
   { to: "/hod/enrollments", label: "Enrollments", icon: ClipboardCheck },
+  { to: "/hod/final-results", label: "Final Results", icon: Award },
   { to: "/hod/semesters", label: "Semester Management", icon: CalendarRange },
   { to: "/hod/notices", label: "Department Notices", icon: Bell },
   { to: "/hod/profile", label: "Profile", icon: User },

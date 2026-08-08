@@ -207,3 +207,29 @@ class CalendarEvent(Base):
     type = Column(SqlEnum(EventType), nullable=False, default=EventType.event)
     date = Column(DateTime, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class SystemSettings(Base):
+    """Singleton row (id is always 1) holding institution-wide settings."""
+    __tablename__ = "system_settings"
+    id = Column(Integer, primary_key=True)
+
+    institution_name = Column(String, nullable=False, default="")
+    academic_year = Column(String, nullable=False, default="")
+    current_semester_label = Column(String, nullable=False, default="")
+    contact_email = Column(String, nullable=False, default="")
+
+    require_2fa = Column(Boolean, nullable=False, default=False)
+    session_timeout_enabled = Column(Boolean, nullable=False, default=True)
+    password_rotation_enabled = Column(Boolean, nullable=False, default=False)
+    audit_logs_enabled = Column(Boolean, nullable=False, default=True)
+
+    email_notifications = Column(Boolean, nullable=False, default=True)
+    sms_alerts = Column(Boolean, nullable=False, default=False)
+    weekly_summary = Column(Boolean, nullable=False, default=True)
+
+    auto_backup_enabled = Column(Boolean, nullable=False, default=False)
+    last_backup_at = Column(DateTime, nullable=True)
+
+    dark_mode_default = Column(Boolean, nullable=False, default=False)
+    compact_tables = Column(Boolean, nullable=False, default=False)

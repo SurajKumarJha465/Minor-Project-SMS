@@ -1,13 +1,15 @@
+import os
 import re
 from collections import defaultdict
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from api.database import get_db
+from api.database import get_db, engine
 from api.models import (
     User, RoleEnum, Teacher, Course, HOD, Department, department_slug, Admin, Student,
-    Section, Enrollment,
+    Section, Enrollment, SystemSettings,
 )
 from api.schemas import (
     CreateUserRequest, CreateUserResponse, ChangePasswordRequest,
@@ -16,6 +18,7 @@ from api.schemas import (
     HodListingOut, UpdateHodRequest,
     TeacherListingOut, UpdateTeacherRequest,
     AdminMeOut, AdminOverviewOut, AdminDeptTeacherCount, AdminStudentOut,
+    SettingsOut, UpdateSettingsRequest, BackupTriggerResponse, SystemInfoOut,
 )
 from api.auth import (
     hash_password, verify_password, generate_default_password,
@@ -37,6 +40,69 @@ def _derive_batch(student: Student) -> str:
         return "—"
     year = 2000 + int(match.group(1))
     return f"{year}-{year + 4}"
+
+
+APP_VERSION = "Minor-Project-SMS v0.1.0"
+_APP_START_TIME = datetime.utcnow()  # process start, used for the System Info uptime figure
+
+
+def _get_or_create_settings(db: Session) -> SystemSettings:
+    settings = db.query(SystemSettings).filter(SystemSettings.id == 1).first()
+    if not settings:
+        settings = SystemSettings(id=1)
+        db.add(settings)
+        db.commit()
+        db.refresh(settings)
+    return settings
+
+
+@router.get("/settings", response_model=SettingsOut)
+def get_settings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.admin)),
+):
+    return _get_or_create_settings(db)
+
+
+@router.patch("/settings", response_model=SettingsOut)
+def update_settings(
+    payload: UpdateSettingsRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.admin)),
+):
+    settings = _get_or_create_settings(db)
+    for field, value in payload.dict(exclude_unset=True).items():
+        setattr(settings, field, value)
+    db.commit()
+    db.refresh(settings)
+    return settings
+
+
+@router.post("/settings/backup", response_model=BackupTriggerResponse)
+def trigger_backup(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.admin)),
+):
+    # No real backup job exists yet — this just records when one was
+    # requested, so the UI shows a real timestamp instead of a fabricated one.
+    settings = _get_or_create_settings(db)
+    settings.last_backup_at = datetime.utcnow()
+    db.commit()
+    db.refresh(settings)
+    return BackupTriggerResponse(last_backup_at=settings.last_backup_at)
+
+
+@router.get("/settings/system-info", response_model=SystemInfoOut)
+def system_info(
+    current_user: User = Depends(require_role(RoleEnum.admin)),
+):
+    uptime = int((datetime.utcnow() - _APP_START_TIME).total_seconds())
+    return SystemInfoOut(
+        version=APP_VERSION,
+        environment=os.getenv("APP_ENV", "development"),
+        database=engine.dialect.name,
+        uptime_seconds=uptime,
+    )
 
 
 @router.get("/me", response_model=AdminMeOut)

@@ -108,7 +108,11 @@ function Courses() {
       setCourses((prev) => [mapCourse(data), ...prev]);
       setAddOpen(false);
       setForm({ ...emptyForm });
-      toast.success("Course created");
+      toast.success(
+        data.enrolled > 0
+          ? `Course created — ${data.enrolled} student${data.enrolled === 1 ? "" : "s"} from Sem ${data.sem} Sec ${data.section} auto-enrolled.`
+          : "Course created",
+      );
     } catch {
       toast.error("Could not reach the server. Try again.");
     }

@@ -242,6 +242,16 @@ class AttendanceTodayResponse(BaseModel):
     date: str
     records: list[AttendanceTodayItem]
 
+class StudentCourseOut(BaseModel):
+    id: str
+    code: str
+    name: str
+    credits: int
+    teacher: str
+    attendance: float          # percentage, same calc as /api/student/attendance
+    internal: int              # published total only; 0 if not yet published
+    internal_max: int = 50
+
 class StudentCourseAttendanceOut(BaseModel):
     course_id: str
     code: str

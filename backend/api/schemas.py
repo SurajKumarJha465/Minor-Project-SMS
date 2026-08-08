@@ -185,6 +185,32 @@ class UpdateHodRequest(BaseModel):
     experience: Optional[str] = None
     department_name: Optional[str] = None
 
+class AdminMeOut(BaseModel):
+    name: str
+    title: Optional[str] = None
+    email: str
+    phone: Optional[str] = None
+    institution: Optional[str] = None
+    qualification: Optional[str] = None
+    experience: Optional[str] = None
+    photo: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AdminDeptTeacherCount(BaseModel):
+    department: str
+    teachers: int
+
+
+class AdminOverviewOut(BaseModel):
+    departments: int
+    hods: int
+    teachers: int
+    students: int
+    dept_teacher_counts: list[AdminDeptTeacherCount]
+
 class CreateStudentRequest(BaseModel):
     name: str
     enrollment: str

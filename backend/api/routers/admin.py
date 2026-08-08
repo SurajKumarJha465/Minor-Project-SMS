@@ -2,13 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from api.database import get_db
-from api.models import User, RoleEnum, Teacher, Course, HOD, Department, department_slug
+from api.models import User, RoleEnum, Teacher, Course, HOD, Department, department_slug, Admin, Student
 from api.schemas import (
     CreateUserRequest, CreateUserResponse, ChangePasswordRequest,
     CreateTeacherRequest, CreateTeacherResponse,
     CreateHodRequest, CreateHodResponse,
     HodListingOut, UpdateHodRequest,
     TeacherListingOut, UpdateTeacherRequest,
+    AdminMeOut, AdminOverviewOut, AdminDeptTeacherCount,
 )
 from api.auth import (
     hash_password, verify_password, generate_default_password,
@@ -16,6 +17,45 @@ from api.auth import (
 )
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+@router.get("/me", response_model=AdminMeOut)
+def my_profile(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.admin)),
+):
+    admin = db.query(Admin).filter(Admin.user_id == current_user.id).first()
+    if not admin:
+        raise HTTPException(status_code=400, detail="No admin profile linked to this account")
+    return AdminMeOut(
+        name=admin.name, title=admin.title, email=admin.email or current_user.email,
+        phone=admin.phone, institution=admin.institution,
+        qualification=admin.qualification, experience=admin.experience, photo=admin.photo,
+    )
+
+
+@router.get("/overview", response_model=AdminOverviewOut)
+def overview(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.admin)),
+):
+    dept_map = {d.id: d.name for d in db.query(Department).all()}
+
+    # Teachers per department, keyed by display name — drives the dashboard's bar chart.
+    teacher_counts: dict[str, int] = {}
+    for t in db.query(Teacher).all():
+        name = dept_map.get(t.department_id, t.department_id)
+        teacher_counts[name] = teacher_counts.get(name, 0) + 1
+
+    return AdminOverviewOut(
+        departments=len(dept_map),
+        hods=db.query(HOD).count(),
+        teachers=db.query(Teacher).count(),
+        students=db.query(Student).count(),
+        dept_teacher_counts=[
+            AdminDeptTeacherCount(department=name, teachers=count)
+            for name, count in teacher_counts.items()
+        ],
+    )
 
 
 @router.post("/users", response_model=CreateUserResponse)

@@ -465,6 +465,7 @@ ADMIN_PROFILE = dict(
     title="Principal",
     email=ADMIN_EMAIL,
     phone="+977 9851198517",
+    institution="Nepal College of Information Technology (NCIT)",
     qualification="ME in Computer Engineering, NCIT, Pokhara University; PhD Scholar, Tribhuvan University",
     experience="18+ years in academia, teaching, research, and projects",
 )
@@ -794,6 +795,7 @@ def seed():
                 title=ADMIN_PROFILE["title"],
                 email=ADMIN_PROFILE["email"],
                 phone=ADMIN_PROFILE["phone"],
+                institution=ADMIN_PROFILE["institution"],
                 qualification=ADMIN_PROFILE["qualification"],
                 experience=ADMIN_PROFILE["experience"],
             )
@@ -803,6 +805,7 @@ def seed():
             admin_profile.title = ADMIN_PROFILE["title"]
             admin_profile.email = ADMIN_PROFILE["email"]
             admin_profile.phone = ADMIN_PROFILE["phone"]
+            admin_profile.institution = ADMIN_PROFILE["institution"]
             admin_profile.qualification = ADMIN_PROFILE["qualification"]
             admin_profile.experience = ADMIN_PROFILE["experience"]
 

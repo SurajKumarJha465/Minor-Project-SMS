@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { authHeader } from "@/lib/auth";
-import { Plus, BookOpen, Users, Pencil, Trash2, UserPlus, UserX } from "lucide-react";
+import { Plus, BookOpen, Users, Pencil, Trash2, UserPlus, UserX, Search, X } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -81,6 +81,7 @@ function Courses() {
 
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState({ ...emptyForm });
+  const [search, setSearch] = useState("");
 
   const [editCourse, setEditCourse] = useState<Course | null>(null);
   const [editForm, setEditForm] = useState({ code: "", name: "", credits: 0, section: "D" as Section });
@@ -144,14 +145,15 @@ function Courses() {
     setAssignTeacherId(c.teacherId ? String(c.teacherId) : "");
   }
 
-  async function saveAssign() {
+  async function saveAssign(teacherIdOverride?: string) {
     if (!assignCourse) return;
+    const value = teacherIdOverride !== undefined ? teacherIdOverride : assignTeacherId;
     try {
       const res = await fetch(`${API_URL}/api/hod/courses/${assignCourse.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...authHeader() },
         body: JSON.stringify(
-          assignTeacherId ? { teacher_id: Number(assignTeacherId) } : { unassign_teacher: true },
+          value ? { teacher_id: Number(value) } : { unassign_teacher: true },
         ),
       });
       if (!res.ok) {
@@ -186,6 +188,17 @@ function Courses() {
     }
   }
 
+  const query = search.trim().toLowerCase();
+  const filteredCourses = query
+    ? courses.filter((c) =>
+        c.code.toLowerCase().includes(query) ||
+        c.name.toLowerCase().includes(query) ||
+        (c.teacherName ?? "").toLowerCase().includes(query) ||
+        c.section.toLowerCase().includes(query) ||
+        `sem ${c.sem}`.includes(query),
+      )
+    : courses;
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -198,6 +211,25 @@ function Courses() {
         </Button>
       </div>
 
+      <div className="relative max-w-md">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by code, name, teacher or section…"
+          className="h-10 rounded-xl pl-9 pr-9"
+        />
+        {search && (
+          <button
+            onClick={() => setSearch("")}
+            aria-label="Clear search"
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-0.5 text-muted-foreground hover:bg-muted"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
       {loading && (
         <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
           Loading courses…
@@ -208,9 +240,14 @@ function Courses() {
           {loadError}
         </div>
       )}
+      {!loading && !loadError && query && filteredCourses.length === 0 && (
+        <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+          No courses match "{search}".
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {courses.map((c) => (
+        {filteredCourses.map((c) => (
           <Card key={c.id} className="group rounded-2xl shadow-soft transition hover:-translate-y-0.5 hover:shadow-glass">
             <CardContent className="space-y-3 p-5">
               <div className="flex items-start justify-between">
@@ -345,13 +382,13 @@ function Courses() {
               </Select>
               <DialogFooter className="gap-2 sm:justify-between">
                 {assignCourse.teacherName && (
-                  <Button variant="ghost" className="rounded-xl text-destructive" onClick={() => { setAssignTeacherId(""); saveAssign(); }}>
+                  <Button variant="ghost" className="rounded-xl text-destructive" onClick={() => saveAssign("")}>
                     <UserX className="mr-1.5 h-4 w-4" /> Unassign
                   </Button>
                 )}
                 <div className="flex gap-2">
                   <Button variant="outline" className="rounded-xl" onClick={() => setAssignCourse(null)}>Cancel</Button>
-                  <Button className="rounded-xl gradient-brand text-white" disabled={!assignTeacherId} onClick={saveAssign}>Save</Button>
+                  <Button className="rounded-xl gradient-brand text-white" disabled={!assignTeacherId} onClick={() => saveAssign()}>Save</Button>
                 </div>
               </DialogFooter>
             </>

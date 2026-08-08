@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { authHeader } from "@/lib/auth";
 import {
@@ -23,9 +23,11 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/select";
 import {
-  sections, semesters, department,
-  getStudentsBySemesterSection, type Section,
+  sections, sectionLabel, getStudentsBySemesterSection, type Section,
 } from "@/features/HoD/lib/hod-mock-data";
+
+const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+const SEMESTER_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8];
 
 export const Route = createFileRoute("/hod/students")({
   head: () => ({ meta: [{ title: "Student Management · HOD" }] }),
@@ -63,12 +65,13 @@ function mapApiStudent(s: any): Student {
 }
 
 const emptyForm = {
-  name: "", enrollment: "", department, semester: 1, section: "D" as Section,
+  name: "", enrollment: "", semester: 1, section: "D" as Section,
   email: "", phone: "", address: "", guardianName: "", guardianPhone: "",
 };
 
 function Students() {
   const [students, setStudents] = useState<Student[]>([]);
+  const [department, setDepartment] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -78,11 +81,18 @@ function Students() {
       setLoading(true);
       setLoadError(null);
       try {
-        const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
-        const res = await fetch(`${API_URL}/api/hod/students`, { headers: { ...authHeader() } });
-        if (!res.ok) throw new Error(`Failed to load students (${res.status})`);
-        const data = await res.json();
-        if (!cancelled) setStudents(data.map(mapApiStudent));
+        const [meRes, studentsRes] = await Promise.all([
+          fetch(`${API_URL}/api/hod/me`, { headers: { ...authHeader() } }),
+          fetch(`${API_URL}/api/hod/students`, { headers: { ...authHeader() } }),
+        ]);
+        if (!meRes.ok) throw new Error(`Failed to load department info (${meRes.status})`);
+        if (!studentsRes.ok) throw new Error(`Failed to load students (${studentsRes.status})`);
+        const meData = await meRes.json();
+        const data = await studentsRes.json();
+        if (!cancelled) {
+          setDepartment(meData.department ?? "");
+          setStudents(data.map(mapApiStudent));
+        }
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load students.");
       } finally {
@@ -109,10 +119,15 @@ function Students() {
   const rows = (selectedSem && selectedSection ? getStudentsBySemesterSection(students, selectedSem, selectedSection) : [])
     .filter((s) => (s.name + s.enrollment).toLowerCase().includes(q.toLowerCase()));
 
+  const semesterCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const s of students) counts.set(s.semester, (counts.get(s.semester) ?? 0) + 1);
+    return counts;
+  }, [students]);
+
   async function saveNewStudent() {
     if (!form.name || !form.enrollment) return;
     try {
-      const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
       const res = await fetch(`${API_URL}/api/hod/students`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeader() },
@@ -140,7 +155,7 @@ function Students() {
         enrollment: form.enrollment,
         semester: form.semester,
         section: form.section,
-        department: form.department,
+        department,
         attendance: 100,
         gpa: "0.00",
         status: "active",
@@ -170,7 +185,6 @@ function Students() {
   async function saveEdit() {
     if (!editStudent) return;
     try {
-      const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
       const res = await fetch(`${API_URL}/api/hod/students/${editStudent.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...authHeader() },
@@ -201,7 +215,6 @@ function Students() {
   async function doDelete() {
     if (!deleteStudent) return;
     try {
-      const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
       const res = await fetch(`${API_URL}/api/hod/students/${deleteStudent.id}`, {
         method: "DELETE",
         headers: { ...authHeader() },
@@ -262,7 +275,7 @@ function Students() {
               {selectedSection && (
                 <>
                   <ChevronRight className="h-3 w-3" />
-                  <span className="font-semibold text-foreground">Section {selectedSection}</span>
+                  <span className="font-semibold text-foreground">Section {sectionLabel(selectedSection)}</span>
                 </>
               )}
             </div>
@@ -284,14 +297,14 @@ function Students() {
         <CardContent className={selectedSection ? "p-0" : undefined}>
           {selectedSem === null && (
             <div className="grid grid-cols-2 gap-3 p-5 pt-0 sm:grid-cols-4 xl:grid-cols-8">
-              {semesters.map((s) => (
-                <button key={s.id} onClick={() => setSelectedSem(s.number)}
+              {SEMESTER_NUMBERS.map((n) => (
+                <button key={n} onClick={() => setSelectedSem(n)}
                   className="group flex flex-col items-center gap-2 rounded-xl border border-border bg-background/50 p-4 text-center transition hover:-translate-y-0.5 hover:border-primary/40 hover:bg-background hover:shadow-soft">
                   <div className="grid h-11 w-11 place-items-center rounded-xl gradient-brand text-white shadow-soft">
                     <CalendarRange className="h-5 w-5" />
                   </div>
-                  <div className="font-display text-sm font-bold">Semester {s.number}</div>
-                  <div className="text-[11px] text-muted-foreground">{s.students} students</div>
+                  <div className="font-display text-sm font-bold">Semester {n}</div>
+                  <div className="text-[11px] text-muted-foreground">{semesterCounts.get(n) ?? 0} students</div>
                 </button>
               ))}
             </div>
@@ -306,7 +319,7 @@ function Students() {
                     className="group flex items-center gap-3 rounded-xl border border-border bg-background/50 p-4 text-left transition hover:-translate-y-0.5 hover:border-primary/40 hover:bg-background hover:shadow-soft">
                     <div className="grid h-11 w-11 place-items-center rounded-xl gradient-brand text-white shadow-soft font-display text-sm font-bold">{sec}</div>
                     <div>
-                      <div className="font-display text-sm font-bold">Section {sec}</div>
+                      <div className="font-display text-sm font-bold">Section {sectionLabel(sec)}</div>
                       <div className="text-[11px] text-muted-foreground">{count} students</div>
                     </div>
                   </button>
@@ -370,13 +383,13 @@ function Students() {
               <Input value={form.enrollment} onChange={(e) => setForm({ ...form, enrollment: e.target.value })} />
             </Field>
             <Field label="Department">
-              <Input value={form.department} disabled />
+              <Input value={department} disabled />
             </Field>
             <Field label="Semester">
               <Select value={String(form.semester)} onValueChange={(v) => setForm({ ...form, semester: Number(v) })}>
                 <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {semesters.map((s) => <SelectItem key={s.id} value={String(s.number)}>Semester {s.number}</SelectItem>)}
+                  {SEMESTER_NUMBERS.map((n) => <SelectItem key={n} value={String(n)}>Semester {n}</SelectItem>)}
                 </SelectContent>
               </Select>
             </Field>
@@ -384,7 +397,7 @@ function Students() {
               <Select value={form.section} onValueChange={(v) => setForm({ ...form, section: v as Section })}>
                 <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {sections.map((sec) => <SelectItem key={sec} value={sec}>{sec}</SelectItem>)}
+                  {sections.map((sec) => <SelectItem key={sec} value={sec}>{sectionLabel(sec)}</SelectItem>)}
                 </SelectContent>
               </Select>
             </Field>
@@ -456,7 +469,7 @@ function Students() {
                   <Avatar className="h-14 w-14"><AvatarImage src={viewStudent.photo} /><AvatarFallback>{viewStudent.name[0]}</AvatarFallback></Avatar>
                   <div>
                     <DialogTitle>{viewStudent.name}</DialogTitle>
-                    <DialogDescription>{viewStudent.enrollment} · Sem {viewStudent.semester} · Sec {viewStudent.section}</DialogDescription>
+                    <DialogDescription>{viewStudent.enrollment} · Sem {viewStudent.semester} · Sec {sectionLabel(viewStudent.section)}</DialogDescription>
                   </div>
                 </div>
               </DialogHeader>
@@ -493,13 +506,13 @@ function Students() {
                   <Field label="Semester">
                     <Select value={String(editForm.semester ?? editStudent.semester)} onValueChange={(v) => setEditForm({ ...editForm, semester: Number(v) })}>
                       <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
-                      <SelectContent>{semesters.map((s) => <SelectItem key={s.id} value={String(s.number)}>Semester {s.number}</SelectItem>)}</SelectContent>
+                      <SelectContent>{SEMESTER_NUMBERS.map((n) => <SelectItem key={n} value={String(n)}>Semester {n}</SelectItem>)}</SelectContent>
                     </Select>
                   </Field>
                   <Field label="Section">
                     <Select value={(editForm.section as string) ?? editStudent.section} onValueChange={(v) => setEditForm({ ...editForm, section: v as Section })}>
                       <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
-                      <SelectContent>{sections.map((sec) => <SelectItem key={sec} value={sec}>{sec}</SelectItem>)}</SelectContent>
+                      <SelectContent>{sections.map((sec) => <SelectItem key={sec} value={sec}>{sectionLabel(sec)}</SelectItem>)}</SelectContent>
                     </Select>
                   </Field>
                 </div>

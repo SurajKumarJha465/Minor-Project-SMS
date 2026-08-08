@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 
 from api.database import get_db
-from api.models import User, RoleEnum, Student, Section, Department, Notice, Enrollment, AttendanceRecord, AttendanceStatus, Course, Teacher, InternalMark, MarkStatus
+from api.models import User, RoleEnum, Student, Section, Department, Notice, Enrollment, AttendanceRecord, AttendanceStatus, Course, Teacher, InternalMark, MarkStatus, CourseGrade
+from api.grading import grade_point
 from api.auth import require_role
 from api.schemas import (
     NoticeOut,
@@ -16,6 +17,9 @@ from api.schemas import (
     StudentAttendanceSummary,
     StudentCourseAttendanceOut,
     StudentCourseOut,
+    StudentSemesterCourseOut,
+    StudentSemesterResultOut,
+    StudentResultsResponse,
     StudentAttendanceDay,
     StudentMeOut,
     UpdateMyProfileRequest,
@@ -269,6 +273,70 @@ def _attendance_status_label(pct: float) -> str:
     if pct >= 75:
         return "Good"
     return "Warning"
+
+
+@router.get("/results", response_model=StudentResultsResponse)
+def list_my_results(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.student)),
+):
+    """Final semester results, computed from CourseGrade rows. A semester
+    only counts as "Published" once every graded course in it is published;
+    draft grades never affect what the student sees (same rule InternalMark
+    follows). Semesters with zero recorded grades are omitted entirely
+    rather than shown as an empty row."""
+    student = _current_student(db, current_user)
+
+    all_grades = db.query(CourseGrade).filter(CourseGrade.student_id == student.id).all()
+    if not all_grades:
+        return StudentResultsResponse(cgpa=0.0, results=[], courses_by_semester={})
+
+    course_ids = [g.course_id for g in all_grades]
+    courses = {c.id: c for c in db.query(Course).filter(Course.id.in_(course_ids)).all()}
+
+    by_sem: dict[int, list[CourseGrade]] = defaultdict(list)
+    for g in all_grades:
+        course = courses.get(g.course_id)
+        if course and course.sem:
+            by_sem[course.sem].append(g)
+
+    results: list[StudentSemesterResultOut] = []
+    courses_by_semester: dict[int, list[StudentSemesterCourseOut]] = {}
+    cgpa_points = 0.0
+    cgpa_credits = 0
+
+    for sem in sorted(by_sem):
+        rows = by_sem[sem]
+        published_rows = [g for g in rows if g.status == MarkStatus.published]
+        is_published = bool(rows) and len(published_rows) == len(rows)
+
+        sem_credits = sum(courses[g.course_id].credits or 0 for g in published_rows)
+        sem_points = sum(grade_point(g.grade) * (courses[g.course_id].credits or 0) for g in published_rows)
+        sem_gpa = round(sem_points / sem_credits, 2) if sem_credits else 0.0
+
+        results.append(StudentSemesterResultOut(
+            semester=sem,
+            credits=sem_credits,
+            gpa=sem_gpa,
+            status="Published" if is_published else "Pending",
+        ))
+
+        courses_by_semester[sem] = [
+            StudentSemesterCourseOut(
+                code=courses[g.course_id].code,
+                name=courses[g.course_id].name,
+                credits=courses[g.course_id].credits or 0,
+                grade=g.grade,
+                grade_point=grade_point(g.grade),
+            )
+            for g in rows
+        ]
+
+        cgpa_points += sem_points
+        cgpa_credits += sem_credits
+
+    cgpa = round(cgpa_points / cgpa_credits, 2) if cgpa_credits else 0.0
+    return StudentResultsResponse(cgpa=cgpa, results=results, courses_by_semester=courses_by_semester)
 
 
 @router.get("/attendance", response_model=StudentAttendanceResponse)

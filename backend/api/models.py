@@ -153,6 +153,23 @@ class InternalMark(Base):
     t_assess = Column(Integer, default=0)
     status = Column(SqlEnum(MarkStatus), nullable=False, default=MarkStatus.draft)
 
+class CourseGrade(Base):
+    """Final letter grade for a student in a course, once the semester ends.
+    Separate from InternalMark (which only covers internal/continuous
+    assessment) — this represents the consolidated final result a transcript
+    would show. Same draft/publish lifecycle as InternalMark: students only
+    ever see published rows."""
+    __tablename__ = "course_grades"
+    __table_args__ = (
+        UniqueConstraint("student_id", "course_id", name="uq_course_grades_student_course"),
+    )
+    id = Column(Integer, primary_key=True)
+    student_id = Column(String, ForeignKey("students.id"))
+    course_id = Column(String, ForeignKey("courses.id"))
+    grade = Column(String, nullable=False, default="")   # letter grade, e.g. "A+", "B", "F" — "" means ungraded
+    status = Column(SqlEnum(MarkStatus), nullable=False, default=MarkStatus.draft)
+
+
 class NoticeType(str, enum.Enum):
     department = "Department"
     semester = "Semester"

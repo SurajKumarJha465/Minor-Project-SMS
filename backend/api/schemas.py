@@ -252,6 +252,7 @@ class StudentCourseOut(BaseModel):
     internal: int              # published total only; 0 if not yet published
     internal_max: int = 50
 
+
 class StudentCourseAttendanceOut(BaseModel):
     course_id: str
     code: str
@@ -373,6 +374,47 @@ class SaveMarksRow(MarkFields):
 
 class SaveMarksRequest(BaseModel):
     rows: list[SaveMarksRow]
+
+
+class TeacherGradeRow(BaseModel):
+    student_id: str
+    name: str
+    enrollment: str
+    grade: str = ""
+    status: str = "draft"
+
+    class Config:
+        from_attributes = True
+
+
+class SaveGradesRow(BaseModel):
+    student_id: str
+    grade: str
+
+
+class SaveGradesRequest(BaseModel):
+    rows: list[SaveGradesRow]
+
+
+class StudentSemesterCourseOut(BaseModel):
+    code: str
+    name: str
+    credits: int
+    grade: str
+    grade_point: float
+
+
+class StudentSemesterResultOut(BaseModel):
+    semester: int
+    credits: int
+    gpa: float
+    status: str   # "Published" | "Pending" — Published only once every graded course that semester is published
+
+
+class StudentResultsResponse(BaseModel):
+    cgpa: float
+    results: list[StudentSemesterResultOut]
+    courses_by_semester: dict[int, list[StudentSemesterCourseOut]]
 
 class HodMarkDistributionBucket(BaseModel):
     range: str

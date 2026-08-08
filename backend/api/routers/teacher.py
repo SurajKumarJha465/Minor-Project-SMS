@@ -4,10 +4,12 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 
 from api.database import get_db
-from api.models import User, RoleEnum, Teacher, Course, Enrollment, Student, InternalMark, MarkStatus, Notice
+from api.models import User, RoleEnum, Teacher, Course, Enrollment, Student, InternalMark, MarkStatus, Notice, CourseGrade
+from api.grading import VALID_GRADES
 from api.auth import require_role
 from api.schemas import (
     CourseOut, StudentMarkRow, SaveMarksRequest, FIELD_MAX, NoticeOut,
+    TeacherGradeRow, SaveGradesRequest,
 )
 
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
@@ -130,6 +132,76 @@ def publish_marks(
     )
     db.commit()
     return {"published": updated}
+
+@router.get("/courses/{course_id}/grades", response_model=list[TeacherGradeRow])
+def get_grades(
+    course_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.teacher)),
+):
+    _get_owned_course(db, current_user, course_id)
+
+    student_ids = [e.student_id for e in db.query(Enrollment).filter(Enrollment.course_id == course_id).all()]
+    students = db.query(Student).filter(Student.id.in_(student_ids)).order_by(Student.enrollment.asc()).all()
+    grades_by_student = {
+        g.student_id: g for g in db.query(CourseGrade).filter(CourseGrade.course_id == course_id).all()
+    }
+
+    result = []
+    for s in students:
+        g = grades_by_student.get(s.id)
+        result.append(TeacherGradeRow(
+            student_id=s.id, name=s.name, enrollment=s.enrollment,
+            grade=g.grade if g else "", status=g.status.value if g else "draft",
+        ))
+    return result
+
+
+@router.put("/courses/{course_id}/grades")
+def save_grades(
+    course_id: str,
+    payload: SaveGradesRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.teacher)),
+):
+    _get_owned_course(db, current_user, course_id)
+    enrolled_ids = {e.student_id for e in db.query(Enrollment).filter(Enrollment.course_id == course_id).all()}
+
+    for row in payload.rows:
+        if row.student_id not in enrolled_ids:
+            raise HTTPException(status_code=400, detail=f"Student {row.student_id} is not enrolled in this course")
+        grade = row.grade.strip().upper()
+        if grade and grade not in VALID_GRADES:
+            raise HTTPException(status_code=400, detail=f"'{grade}' is not a recognized grade")
+        record = db.query(CourseGrade).filter(
+            CourseGrade.course_id == course_id, CourseGrade.student_id == row.student_id
+        ).first()
+        if not record:
+            record = CourseGrade(course_id=course_id, student_id=row.student_id)
+            db.add(record)
+        record.grade = grade
+        # status is untouched here on purpose — same rule as save_marks: saving
+        # a draft never un-publishes, publishing only happens below
+
+    db.commit()
+    return {"saved": len(payload.rows)}
+
+
+@router.post("/courses/{course_id}/grades/publish")
+def publish_grades(
+    course_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.teacher)),
+):
+    _get_owned_course(db, current_user, course_id)
+    updated = (
+        db.query(CourseGrade)
+        .filter(CourseGrade.course_id == course_id)
+        .update({CourseGrade.status: MarkStatus.published})
+    )
+    db.commit()
+    return {"published": updated}
+
 
 @router.get("/notices", response_model=list[NoticeOut])
 def list_department_notices(

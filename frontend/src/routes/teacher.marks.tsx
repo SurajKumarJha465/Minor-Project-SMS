@@ -18,6 +18,9 @@ import {
 
 export const Route = createFileRoute("/teacher/marks")({
   head: () => ({ meta: [{ title: "Internal Marks · Teacher Portal" }] }),
+  validateSearch: (search: Record<string, unknown>): { courseId?: string } => ({
+    courseId: typeof search.courseId === "string" ? search.courseId : undefined,
+  }),
   component: MarksPage,
 });
 
@@ -38,9 +41,10 @@ const THEORY = [
 const ALL_FIELDS = [...PRACTICAL, ...THEORY];
 
 function MarksPage() {
+  const { courseId: initialCourseId } = Route.useSearch();
   const [courses, setCourses] = useState<TeacherCourse[]>([]);
   const [loading, setLoading] = useState(true);
-  const [courseId, setCourseId] = useState<string | null>(null);
+  const [courseId, setCourseId] = useState<string | null>(initialCourseId ?? null);
 
   const [dept, setDept] = useState<string>("all");
   const [sem, setSem] = useState<string>("all");

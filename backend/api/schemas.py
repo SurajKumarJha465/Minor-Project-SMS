@@ -208,12 +208,15 @@ class AdminDeptTeacherCount(BaseModel):
     teachers: int
 
 
-class AdminSearchResult(BaseModel):
-    type: str  # "student" | "teacher" | "hod"
+class SearchResultOut(BaseModel):
+    type: str  # e.g. "student" | "teacher" | "hod" | "course"
     id: str
     name: str
     subtitle: str  # e.g. department, enrollment, or email
     photo: Optional[str] = None
+    sem: Optional[int] = None
+    section: Optional[str] = None
+    meta: Optional[str] = None  # extra routing context, e.g. a related course id
 
 
 class AdminOverviewOut(BaseModel):

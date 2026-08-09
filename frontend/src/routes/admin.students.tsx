@@ -16,7 +16,7 @@ import { authHeader } from "@/lib/auth";
 
 export const Route = createFileRoute("/admin/students")({
   head: () => ({ meta: [{ title: "View Students · Super Admin" }] }),
-  validateSearch: (search: Record<string, unknown>) => ({
+  validateSearch: (search: Record<string, unknown>): { q?: string } => ({
     q: typeof search.q === "string" ? search.q : undefined,
   }),
   component: StudentsPage,

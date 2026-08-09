@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { authHeader } from "@/lib/auth";
+import { sectionLabel } from "@/features/HoD/lib/hod-mock-data";
 import { Search, UserPlus, UserMinus, BookOpen } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -129,7 +130,7 @@ function Enrollments() {
           <div>
             <CardTitle className="flex items-center gap-2 text-base">
               <BookOpen className="h-4 w-4 text-muted-foreground" />
-              {selectedCourse ? `${selectedCourse.code} · Sec ${selectedCourse.section}` : "No course selected"}
+              {selectedCourse ? `${selectedCourse.code} · Sec ${sectionLabel(selectedCourse.section)}` : "No course selected"}
             </CardTitle>
             {selectedCourse && (
               <div className="mt-1 text-xs text-muted-foreground">
@@ -157,7 +158,7 @@ function Enrollments() {
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="font-semibold">{s.name}</div>
                   <Badge variant="secondary" className="rounded-lg font-mono text-[10px]">{s.enrollment}</Badge>
-                  <Badge variant="outline" className="rounded-lg">Sec {s.section}</Badge>
+                  <Badge variant="outline" className="rounded-lg">Sec {sectionLabel(s.section)}</Badge>
                 </div>
               </div>
               {s.enrolled ? (

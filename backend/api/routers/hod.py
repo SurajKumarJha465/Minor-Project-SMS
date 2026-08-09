@@ -20,6 +20,7 @@ from api.schemas import (
     EventOut, CreateEventRequest, UpdateEventRequest,
     HodGradeRow, SaveGradesRequest,
     HodAttendanceReport, HodCourseAttendance, HodTeacherAttendance, HodLowAttendanceStudent,
+    SearchResultOut,
 )
 from api.auth import hash_password, generate_default_password, require_role
 from api.database import get_db
@@ -121,6 +122,70 @@ def my_profile(
         email=hod.email or "", phone=hod.phone, qualification=hod.qualification,
         experience=hod.experience, photo=hod.photo,
     )
+
+@router.get("/search", response_model=list[SearchResultOut])
+def search_department(
+    q: str = "",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    """Combined lookup across this HOD's own department — students, teachers, and courses."""
+    hod = _current_hod(db, current_user)
+    query = q.strip()
+    if len(query) < 2:
+        return []
+
+    like = f"%{query}%"
+    results: list[SearchResultOut] = []
+
+    students = (
+        db.query(Student)
+        .filter(
+            Student.department_id == hod.department_id,
+            (Student.name.ilike(like)) | (Student.enrollment.ilike(like)) | (Student.email.ilike(like)),
+        )
+        .limit(6)
+        .all()
+    )
+    for s in students:
+        results.append(SearchResultOut(
+            type="student", id=s.id, name=s.name,
+            subtitle=f"{s.enrollment or '—'} · Sem {s.sem or '—'}", photo=s.photo,
+            sem=s.sem, section=(s.section_id or "").upper() or None,
+        ))
+
+    teachers = (
+        db.query(Teacher)
+        .filter(
+            Teacher.department_id == hod.department_id,
+            (Teacher.name.ilike(like)) | (Teacher.email.ilike(like)),
+        )
+        .limit(6)
+        .all()
+    )
+    for t in teachers:
+        results.append(SearchResultOut(
+            type="teacher", id=str(t.id), name=t.name,
+            subtitle=t.specialization or "Teacher", photo=t.photo,
+        ))
+
+    courses = (
+        db.query(Course)
+        .filter(
+            Course.department_id == hod.department_id,
+            (Course.name.ilike(like)) | (Course.code.ilike(like)),
+        )
+        .limit(6)
+        .all()
+    )
+    for c in courses:
+        results.append(SearchResultOut(
+            type="course", id=c.id, name=c.name,
+            subtitle=f"{c.code} · Sem {c.sem or '—'}", photo=None,
+        ))
+
+    return results
+
 
 @router.get("/students", response_model=list[HodStudentOut])
 def list_students(

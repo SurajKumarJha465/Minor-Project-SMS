@@ -25,7 +25,7 @@ import { hodDepartmentOptions } from "@/features/SuperAdmin/lib/superadmin-mock-
 
 export const Route = createFileRoute("/admin/hods")({
   head: () => ({ meta: [{ title: "HOD Management · Super Admin" }] }),
-  validateSearch: (search: Record<string, unknown>) => ({
+  validateSearch: (search: Record<string, unknown>): { q?: string } => ({
     q: typeof search.q === "string" ? search.q : undefined,
   }),
   component: HodsPage,

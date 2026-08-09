@@ -23,6 +23,9 @@ import { sections, sectionLabel, type Section } from "@/features/HoD/lib/hod-moc
 
 export const Route = createFileRoute("/hod/courses")({
   head: () => ({ meta: [{ title: "Course Management · HOD" }] }),
+  validateSearch: (search: Record<string, unknown>): { q?: string } => ({
+    q: typeof search.q === "string" ? search.q : undefined,
+  }),
   component: Courses,
 });
 
@@ -46,6 +49,7 @@ function mapCourse(c: any): Course {
 const emptyForm = { code: "", name: "", credits: 3, sem: 1, section: "D" as Section };
 
 function Courses() {
+  const { q: initialQ } = Route.useSearch();
   const [courses, setCourses] = useState<Course[]>([]);
   const [teachers, setTeachers] = useState<TeacherOpt[]>([]);
   const [loading, setLoading] = useState(true);
@@ -81,7 +85,7 @@ function Courses() {
 
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState({ ...emptyForm });
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialQ ?? "");
 
   const [editCourse, setEditCourse] = useState<Course | null>(null);
   const [editForm, setEditForm] = useState({ code: "", name: "", credits: 0, section: "D" as Section });

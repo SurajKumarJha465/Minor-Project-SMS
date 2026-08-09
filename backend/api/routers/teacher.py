@@ -7,10 +7,78 @@ from api.database import get_db
 from api.models import User, RoleEnum, Teacher, Course, Enrollment, Student, InternalMark, MarkStatus, Notice
 from api.auth import require_role
 from api.schemas import (
-    CourseOut, StudentMarkRow, SaveMarksRequest, FIELD_MAX, NoticeOut,
+    CourseOut, StudentMarkRow, SaveMarksRequest, FIELD_MAX, NoticeOut, SearchResultOut,
 )
 
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
+
+
+def _current_teacher(db: Session, current_user: User) -> Teacher:
+    teacher = db.query(Teacher).filter(Teacher.user_id == current_user.id).first()
+    if not teacher:
+        raise HTTPException(status_code=400, detail="No teacher profile linked to this account")
+    return teacher
+
+
+@router.get("/search", response_model=list[SearchResultOut])
+def search_my_courses(
+    q: str = "",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.teacher)),
+):
+    """Combined lookup scoped to this teacher — their own courses and students enrolled in them."""
+    teacher = _current_teacher(db, current_user)
+    query = q.strip()
+    if len(query) < 2:
+        return []
+
+    like = f"%{query}%"
+    results: list[SearchResultOut] = []
+
+    courses = (
+        db.query(Course)
+        .filter(
+            Course.teacher_id == teacher.id,
+            (Course.name.ilike(like)) | (Course.code.ilike(like)),
+        )
+        .limit(6)
+        .all()
+    )
+    course_ids = [c.id for c in courses]
+    for c in courses:
+        results.append(SearchResultOut(
+            type="course", id=c.id, name=c.name,
+            subtitle=f"{c.code} · Sem {c.sem or '—'}", photo=None,
+        ))
+
+    my_course_ids = [c.id for c in db.query(Course).filter(Course.teacher_id == teacher.id).all()]
+    if my_course_ids:
+        enrollments = (
+            db.query(Enrollment)
+            .filter(Enrollment.course_id.in_(my_course_ids))
+            .all()
+        )
+        student_course_map: dict[str, str] = {}
+        for e in enrollments:
+            student_course_map.setdefault(e.student_id, e.course_id)
+
+        students = (
+            db.query(Student)
+            .filter(
+                Student.id.in_(list(student_course_map.keys())),
+                (Student.name.ilike(like)) | (Student.enrollment.ilike(like)),
+            )
+            .limit(6)
+            .all()
+        )
+        for s in students:
+            results.append(SearchResultOut(
+                type="student", id=s.id, name=s.name,
+                subtitle=f"{s.enrollment or '—'} · Sem {s.sem or '—'}", photo=s.photo,
+                meta=student_course_map.get(s.id),
+            ))
+
+    return results
 
 
 @router.get("/courses", response_model=list[CourseOut])

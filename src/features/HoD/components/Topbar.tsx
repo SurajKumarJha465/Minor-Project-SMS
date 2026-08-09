@@ -1,5 +1,6 @@
-import { Search, Sun, Moon, Menu, LogOut, User, Pencil, KeyRound } from "lucide-react";
-import { logout } from "@/lib/auth";
+import { Search, Sun, Moon, Menu, LogOut, User, KeyRound } from "lucide-react";
+import { useEffect, useState } from "react";
+import { logout, authHeader } from "@/lib/auth";
 import { useTheme } from "@/components/theme-provider";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -7,12 +8,29 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { hod } from "@/features/HoD/lib/hod-mock-data";
 import { useNavigate } from "@tanstack/react-router";
+
+const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+type HodProfile = { name: string; department: string; photo: string | null };
 
 export function HodTopbar({ onMenu }: { onMenu: () => void }) {
   const { theme, toggle } = useTheme();
   const navigate = useNavigate();
+  const [hod, setHod] = useState<HodProfile | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_URL}/api/hod/me`, { headers: { ...authHeader() } })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => { if (!cancelled && data) setHod(data); })
+      .catch(() => { /* topbar degrades gracefully if this fails */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  const name = hod?.name ?? "…";
+  const lastName = hod ? name.split(" ").slice(-1)[0] : "…";
+  const initials = hod ? name.split(" ").map((n) => n[0]).join("") : "";
 
   return (
     <header className="sticky top-0 z-30 glass">
@@ -23,12 +41,12 @@ export function HodTopbar({ onMenu }: { onMenu: () => void }) {
 
         <div className="hidden items-center gap-2 lg:flex">
           <div className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Dept.</div>
-          <div className="text-sm font-semibold">{hod.department}</div>
+          <div className="text-sm font-semibold">{hod?.department ?? "—"}</div>
         </div>
 
         <div className="relative ml-2 hidden max-w-md flex-1 md:block">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input placeholder="Search teachers, students, courses…" className="h-10 rounded-xl bg-background/70 pl-9" />
+          <Input placeholder="Search teachers, students, courses…" className="h-10 rounded-xl bg-background/70 pl-9" disabled />
         </div>
 
         <div className="ml-auto flex items-center gap-1.5 md:gap-2">
@@ -39,24 +57,21 @@ export function HodTopbar({ onMenu }: { onMenu: () => void }) {
           <DropdownMenu>
             <DropdownMenuTrigger className="ml-1 flex items-center gap-2 rounded-full border border-border bg-background/60 py-1 pl-1 pr-3 transition hover:bg-background">
               <Avatar className="h-8 w-8">
-                <AvatarImage src={hod.photo} alt={hod.name} />
-                <AvatarFallback>{hod.name.split(" ").map(n=>n[0]).join("")}</AvatarFallback>
+                <AvatarImage src={hod?.photo ?? undefined} alt={name} />
+                <AvatarFallback>{initials}</AvatarFallback>
               </Avatar>
               <div className="hidden text-left sm:block">
-                <div className="text-xs font-semibold leading-tight">{hod.title} {hod.name.split(" ").slice(-1)[0]}</div>
+                <div className="text-xs font-semibold leading-tight">{lastName}</div>
                 <div className="text-[10px] text-muted-foreground">Head of Dept.</div>
               </div>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>{hod.name}</DropdownMenuLabel>
+              <DropdownMenuLabel>{name}</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => navigate({ to: "/hod/profile" })}>
                 <User className="mr-2 h-4 w-4" /> View Profile
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate({ to: "/hod/profile" })}>
-                <Pencil className="mr-2 h-4 w-4" /> Edit Profile
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate({ to: "/hod/profile" })}>
+              <DropdownMenuItem onClick={() => navigate({ to: "/hod/settings" })}>
                 <KeyRound className="mr-2 h-4 w-4" /> Change Password
               </DropdownMenuItem>
               <DropdownMenuSeparator />

@@ -220,16 +220,13 @@ function HodDashboard() {
       <Card className="rounded-2xl shadow-soft">
         <CardHeader className="pb-3"><CardTitle className="text-base">Quick Actions</CardTitle></CardHeader>
         <CardContent>
-          <button
-            onClick={() => setSemModalOpen(true)}
-            className="group flex w-full max-w-xs items-center gap-3 rounded-xl border border-border bg-background/50 p-3 text-left transition hover:-translate-y-0.5 hover:border-primary/40 hover:bg-background hover:shadow-soft"
-          >
-            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl gradient-brand text-white shadow-soft">
-              <LayoutGrid className="h-[18px] w-[18px]" />
-            </div>
-            <div className="min-w-0 text-sm font-medium">View Semester</div>
-            <ArrowRight className="ml-auto h-4 w-4 text-muted-foreground opacity-0 transition group-hover:opacity-100" />
-          </button>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <QuickAction icon={LayoutGrid} label="View Semester" onClick={() => setSemModalOpen(true)} />
+            <QuickAction icon={GraduationCap} label="Add Student" to="/hod/students" />
+            <QuickAction icon={BookOpen} label="Add Course" to="/hod/courses" />
+            <QuickAction icon={Users} label="Enroll Student" to="/hod/enrollments" />
+            <QuickAction icon={Megaphone} label="New Notice" to="/hod/notices" />
+          </div>
         </CardContent>
       </Card>
 
@@ -379,4 +376,22 @@ function HodDashboard() {
       </Dialog>
     </div>
   );
+}
+
+function QuickAction({ icon: Icon, label, to, onClick }: { icon: any; label: string; to?: string; onClick?: () => void }) {
+  const content = (
+    <>
+      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl gradient-brand text-white shadow-soft">
+        <Icon className="h-[18px] w-[18px]" />
+      </div>
+      <div className="min-w-0 text-sm font-medium">{label}</div>
+      <ArrowRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground opacity-0 transition group-hover:opacity-100" />
+    </>
+  );
+  const className = "group flex items-center gap-3 rounded-xl border border-border bg-background/50 p-3 text-left transition hover:-translate-y-0.5 hover:border-primary/40 hover:bg-background hover:shadow-soft";
+
+  if (to) {
+    return <Link to={to} className={className}>{content}</Link>;
+  }
+  return <button onClick={onClick} className={className}>{content}</button>;
 }

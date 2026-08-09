@@ -36,6 +36,7 @@ import { Route as HodProfileRouteImport } from './routes/hod.profile'
 import { Route as HodOverviewRouteImport } from './routes/hod.overview'
 import { Route as HodNoticesRouteImport } from './routes/hod.notices'
 import { Route as HodMarksRouteImport } from './routes/hod.marks'
+import { Route as HodFinalResultsRouteImport } from './routes/hod.final-results'
 import { Route as HodEnrollmentsRouteImport } from './routes/hod.enrollments'
 import { Route as HodDashboardRouteImport } from './routes/hod.dashboard'
 import { Route as HodCoursesRouteImport } from './routes/hod.courses'
@@ -185,6 +186,11 @@ const HodMarksRoute = HodMarksRouteImport.update({
   path: '/marks',
   getParentRoute: () => HodRoute,
 } as any)
+const HodFinalResultsRoute = HodFinalResultsRouteImport.update({
+  id: '/final-results',
+  path: '/final-results',
+  getParentRoute: () => HodRoute,
+} as any)
 const HodEnrollmentsRoute = HodEnrollmentsRouteImport.update({
   id: '/enrollments',
   path: '/enrollments',
@@ -271,6 +277,7 @@ export interface FileRoutesByFullPath {
   '/hod/courses': typeof HodCoursesRoute
   '/hod/dashboard': typeof HodDashboardRoute
   '/hod/enrollments': typeof HodEnrollmentsRoute
+  '/hod/final-results': typeof HodFinalResultsRoute
   '/hod/marks': typeof HodMarksRoute
   '/hod/notices': typeof HodNoticesRoute
   '/hod/overview': typeof HodOverviewRoute
@@ -310,6 +317,7 @@ export interface FileRoutesByTo {
   '/hod/courses': typeof HodCoursesRoute
   '/hod/dashboard': typeof HodDashboardRoute
   '/hod/enrollments': typeof HodEnrollmentsRoute
+  '/hod/final-results': typeof HodFinalResultsRoute
   '/hod/marks': typeof HodMarksRoute
   '/hod/notices': typeof HodNoticesRoute
   '/hod/overview': typeof HodOverviewRoute
@@ -353,6 +361,7 @@ export interface FileRoutesById {
   '/hod/courses': typeof HodCoursesRoute
   '/hod/dashboard': typeof HodDashboardRoute
   '/hod/enrollments': typeof HodEnrollmentsRoute
+  '/hod/final-results': typeof HodFinalResultsRoute
   '/hod/marks': typeof HodMarksRoute
   '/hod/notices': typeof HodNoticesRoute
   '/hod/overview': typeof HodOverviewRoute
@@ -397,6 +406,7 @@ export interface FileRouteTypes {
     | '/hod/courses'
     | '/hod/dashboard'
     | '/hod/enrollments'
+    | '/hod/final-results'
     | '/hod/marks'
     | '/hod/notices'
     | '/hod/overview'
@@ -436,6 +446,7 @@ export interface FileRouteTypes {
     | '/hod/courses'
     | '/hod/dashboard'
     | '/hod/enrollments'
+    | '/hod/final-results'
     | '/hod/marks'
     | '/hod/notices'
     | '/hod/overview'
@@ -478,6 +489,7 @@ export interface FileRouteTypes {
     | '/hod/courses'
     | '/hod/dashboard'
     | '/hod/enrollments'
+    | '/hod/final-results'
     | '/hod/marks'
     | '/hod/notices'
     | '/hod/overview'
@@ -703,6 +715,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HodMarksRouteImport
       parentRoute: typeof HodRoute
     }
+    '/hod/final-results': {
+      id: '/hod/final-results'
+      path: '/final-results'
+      fullPath: '/hod/final-results'
+      preLoaderRoute: typeof HodFinalResultsRouteImport
+      parentRoute: typeof HodRoute
+    }
     '/hod/enrollments': {
       id: '/hod/enrollments'
       path: '/enrollments'
@@ -825,6 +844,7 @@ interface HodRouteChildren {
   HodCoursesRoute: typeof HodCoursesRoute
   HodDashboardRoute: typeof HodDashboardRoute
   HodEnrollmentsRoute: typeof HodEnrollmentsRoute
+  HodFinalResultsRoute: typeof HodFinalResultsRoute
   HodMarksRoute: typeof HodMarksRoute
   HodNoticesRoute: typeof HodNoticesRoute
   HodOverviewRoute: typeof HodOverviewRoute
@@ -844,6 +864,7 @@ const HodRouteChildren: HodRouteChildren = {
   HodCoursesRoute: HodCoursesRoute,
   HodDashboardRoute: HodDashboardRoute,
   HodEnrollmentsRoute: HodEnrollmentsRoute,
+  HodFinalResultsRoute: HodFinalResultsRoute,
   HodMarksRoute: HodMarksRoute,
   HodNoticesRoute: HodNoticesRoute,
   HodOverviewRoute: HodOverviewRoute,
@@ -900,3 +921,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

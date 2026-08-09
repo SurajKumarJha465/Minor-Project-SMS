@@ -1,11 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import {
   Building2, ShieldCheck, Users, GraduationCap, CalendarRange, UserPlus, ArrowRight,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/features/SuperAdmin/components/StatCard";
-import { superAdmin, saAnalytics, deptDistribution } from "@/features/SuperAdmin/lib/superadmin-mock-data";
+import { authHeader } from "@/lib/auth";
 import {
   Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -15,10 +16,94 @@ export const Route = createFileRoute("/admin/dashboard")({
   component: AdminDashboard,
 });
 
+const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+const SEMESTER_COUNT = 8; // fixed by the curriculum, not derived from the DB
+
+type AdminProfile = {
+  name: string;
+  title?: string | null;
+  email: string;
+  institution?: string | null;
+};
+
+type DeptTeacherCount = { department: string; teachers: number };
+
+type Overview = {
+  departments: number;
+  hods: number;
+  teachers: number;
+  students: number;
+  dept_teacher_counts: DeptTeacherCount[];
+};
+
 const iconMap = { departments: Building2, hods: ShieldCheck, teachers: Users, students: GraduationCap, semesters: CalendarRange };
 
 function AdminDashboard() {
   const today = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+
+  const [profile, setProfile] = useState<AdminProfile | null>(null);
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const [meRes, overviewRes] = await Promise.all([
+          fetch(`${API_URL}/api/admin/me`, { headers: { ...authHeader() } }),
+          fetch(`${API_URL}/api/admin/overview`, { headers: { ...authHeader() } }),
+        ]);
+        if (!meRes.ok) throw new Error(`Failed to load profile (${meRes.status})`);
+        if (!overviewRes.ok) throw new Error(`Failed to load overview (${overviewRes.status})`);
+
+        const [meData, overviewData] = await Promise.all([meRes.json(), overviewRes.json()]);
+
+        if (!cancelled) {
+          setProfile(meData);
+          setOverview(overviewData);
+        }
+      } catch (err) {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load dashboard data.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
+        Loading dashboard…
+      </div>
+    );
+  }
+
+  if (loadError || !overview) {
+    return (
+      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 text-center">
+        <p className="text-sm text-destructive">{loadError ?? "Could not load dashboard data."}</p>
+        <Button size="sm" variant="outline" onClick={() => window.location.reload()}>Retry</Button>
+      </div>
+    );
+  }
+
+  const saAnalytics = [
+    { key: "departments", label: "Total Departments", value: overview.departments, tone: "primary" },
+    { key: "hods", label: "Total HODs", value: overview.hods, tone: "accent" },
+    { key: "teachers", label: "Total Teachers", value: overview.teachers, tone: "info" },
+    { key: "students", label: "Total Students", value: overview.students, tone: "primary" },
+    { key: "semesters", label: "Total Semesters", value: SEMESTER_COUNT, delta: "Sem 1 – 8", tone: "success" },
+  ] as const;
+
+  const deptDistribution = overview.dept_teacher_counts.map((d) => ({
+    name: d.department.split(" ")[0],
+    teachers: d.teachers,
+  }));
 
   return (
     <div className="space-y-6">
@@ -29,10 +114,10 @@ function AdminDashboard() {
           <div>
             <div className="text-xs font-medium uppercase tracking-widest text-white/80">{today}</div>
             <h1 className="mt-1 font-display text-2xl font-bold md:text-3xl">
-              Welcome back, Super Administrator 👋
+              Welcome back, {profile?.name?.split(" ").slice(-1)[0] ?? "Super Administrator"} 👋
             </h1>
             <p className="mt-1.5 max-w-xl text-sm text-white/80">
-              <b className="text-white">{superAdmin.college}</b> · {superAdmin.session} · {superAdmin.currentSemester}. You manage <b className="text-white">8 departments</b>, <b className="text-white">8 HODs</b> and <b className="text-white">214 teachers</b>.
+              <b className="text-white">{profile?.institution ?? "—"}</b>. You manage <b className="text-white">{overview.departments} departments</b>, <b className="text-white">{overview.hods} HODs</b> and <b className="text-white">{overview.teachers} teachers</b>.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Link to="/admin/hods">
@@ -51,10 +136,10 @@ function AdminDashboard() {
             <div className="rounded-2xl bg-white/10 p-4 backdrop-blur-md">
               <div className="text-[11px] uppercase tracking-widest text-white/70">Institution Snapshot</div>
               <ul className="mt-2 space-y-1.5 text-sm">
-                <li className="flex items-center justify-between gap-6"><span>Departments</span><b>8</b></li>
-                <li className="flex items-center justify-between gap-6"><span>HODs</span><b>8</b></li>
-                <li className="flex items-center justify-between gap-6"><span>Teachers</span><b>214</b></li>
-                <li className="flex items-center justify-between gap-6"><span>Students</span><b>4,820</b></li>
+                <li className="flex items-center justify-between gap-6"><span>Departments</span><b>{overview.departments}</b></li>
+                <li className="flex items-center justify-between gap-6"><span>HODs</span><b>{overview.hods}</b></li>
+                <li className="flex items-center justify-between gap-6"><span>Teachers</span><b>{overview.teachers}</b></li>
+                <li className="flex items-center justify-between gap-6"><span>Students</span><b>{overview.students}</b></li>
               </ul>
             </div>
           </div>
@@ -64,7 +149,7 @@ function AdminDashboard() {
       {/* Analytics */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
         {saAnalytics.map((a) => (
-          <StatCard key={a.key} label={a.label} value={a.value} delta={a.delta} icon={iconMap[a.key as keyof typeof iconMap]} tone={a.tone as any} />
+          <StatCard key={a.key} label={a.label} value={a.value} delta={(a as any).delta} icon={iconMap[a.key as keyof typeof iconMap]} tone={a.tone as any} />
         ))}
       </div>
 
@@ -93,15 +178,21 @@ function AdminDashboard() {
       <Card className="rounded-2xl shadow-soft">
         <CardHeader className="pb-2"><CardTitle className="text-base">Teachers per Department</CardTitle></CardHeader>
         <CardContent className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={deptDistribution}>
-              <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-              <XAxis dataKey="name" fontSize={11} tickLine={false} axisLine={false} />
-              <YAxis fontSize={11} tickLine={false} axisLine={false} />
-              <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid var(--border)", background: "var(--card)" }} />
-              <Bar dataKey="teachers" fill="#4274D9" radius={[8,8,0,0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {deptDistribution.length === 0 ? (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              No departments yet — create an HOD or teacher to get started.
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={deptDistribution}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                <XAxis dataKey="name" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis fontSize={11} tickLine={false} axisLine={false} />
+                <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid var(--border)", background: "var(--card)" }} />
+                <Bar dataKey="teachers" fill="#4274D9" radius={[8,8,0,0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </CardContent>
       </Card>
     </div>

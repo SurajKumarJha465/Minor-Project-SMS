@@ -153,6 +153,11 @@ class MarkStatus(str, enum.Enum):
 
 
 class InternalMark(Base):
+    """Continuous/internal assessment marks for a student in a course.
+    Teachers enter and save these (draft only — they have no publish
+    endpoint). The HOD reviews the department's marks, can adjust any
+    field, and is the one who publishes: same draft/publish lifecycle as
+    CourseGrade, and students only ever see published rows."""
     __tablename__ = "internal_marks"
     __table_args__ = (
         UniqueConstraint("student_id", "course_id", name="uq_internal_marks_student_course"),

@@ -520,6 +520,34 @@ class HodResultsOverview(BaseModel):
     top_students: list[HodRankedStudent]
     at_risk_students: list[HodRankedStudent]
 
+
+class HodCourseAttendance(BaseModel):
+    code: str
+    name: str
+    pct: float
+
+
+class HodTeacherAttendance(BaseModel):
+    teacher_id: int
+    name: str
+    pct: float
+
+
+class HodLowAttendanceStudent(BaseModel):
+    id: str
+    name: str
+    enrollment: str
+    semester: int
+    pct: float
+
+
+class HodAttendanceReport(BaseModel):
+    overall_pct: float
+    total_records: int   # count of present/absent AttendanceRecord rows factored in (pending excluded)
+    by_course: list[HodCourseAttendance]
+    by_teacher: list[HodTeacherAttendance]
+    low_attendance_students: list[HodLowAttendanceStudent]   # below LOW_ATTENDANCE_THRESHOLD_PCT, worst first
+
 class NoticeOut(BaseModel):
     id: int
     title: str

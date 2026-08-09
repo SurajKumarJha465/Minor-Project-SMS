@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Server, Database, Shield, Bell, Palette, Globe } from "lucide-react";
+import { Server, Database, Shield, Bell, Palette, Globe, ScrollText } from "lucide-react";
 import { authHeader } from "@/lib/auth";
 
 export const Route = createFileRoute("/admin/settings")({
@@ -41,6 +41,31 @@ type SystemInfo = {
   uptime_seconds: number;
 };
 
+type AuditLog = {
+  id: number;
+  actor_email: string;
+  actor_role: string;
+  action: string;
+  detail: string | null;
+  created_at: string;
+};
+
+function formatLogTime(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+const ACTION_LABELS: Record<string, string> = {
+  "settings.update": "Updated settings",
+  "settings.backup_triggered": "Triggered backup",
+  "hod.create": "Created HOD",
+  "hod.delete": "Removed HOD",
+  "teacher.create": "Created teacher",
+  "teacher.delete": "Removed teacher",
+  "account.password_changed": "Changed password",
+  "admin.2fa_enabled": "Enabled 2FA",
+  "admin.2fa_disabled": "Disabled 2FA",
+};
+
 function formatUptime(seconds: number): string {
   const days = Math.floor(seconds / 86400);
   const hours = Math.floor((seconds % 86400) / 3600);
@@ -60,10 +85,24 @@ function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [dirty, setDirty] = useState<Partial<Settings>>({});
   const [sysInfo, setSysInfo] = useState<SystemInfo | null>(null);
+  const [logs, setLogs] = useState<AuditLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
+
+  async function loadLogs() {
+    setLogsLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/audit-logs`, { headers: { ...authHeader() } });
+      if (res.ok) setLogs(await res.json());
+    } catch {
+      // audit log is a secondary display — a failed fetch here shouldn't block the settings page
+    } finally {
+      setLogsLoading(false);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -79,6 +118,7 @@ function SettingsPage() {
       setSettings(settingsData);
       setSysInfo(infoData);
       setDirty({});
+      if (settingsData.audit_logs_enabled) loadLogs();
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Could not load settings.");
     } finally {
@@ -115,6 +155,7 @@ function SettingsPage() {
       setSettings(updated);
       setDirty({});
       toast.success("Settings saved.");
+      if (updated.audit_logs_enabled) loadLogs();
     } catch {
       toast.error("Could not reach the server. Try again.");
     } finally {
@@ -140,6 +181,7 @@ function SettingsPage() {
       const data = await res.json();
       setSettings((s) => (s ? { ...s, last_backup_at: data.last_backup_at } : s));
       toast.success("Backup triggered.");
+      if (merged?.audit_logs_enabled) loadLogs();
     } catch {
       toast.error("Could not reach the server. Try again.");
     } finally {
@@ -234,6 +276,33 @@ function SettingsPage() {
             <Row k="Uptime" v={sysInfo ? formatUptime(sysInfo.uptime_seconds) : "—"} />
           </CardContent>
         </Card>
+
+        {merged.audit_logs_enabled && (
+          <Card className="rounded-2xl shadow-soft lg:col-span-2">
+            <CardHeader className="flex flex-row items-center gap-2"><ScrollText className="h-4 w-4 text-primary" /><CardTitle className="text-base">Recent Activity</CardTitle></CardHeader>
+            <CardContent>
+              {logsLoading ? (
+                <div className="py-6 text-center text-sm text-muted-foreground">Loading activity…</div>
+              ) : logs.length === 0 ? (
+                <div className="py-6 text-center text-sm text-muted-foreground">No activity recorded yet.</div>
+              ) : (
+                <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                  {logs.map((log) => (
+                    <div key={log.id} className="flex items-start justify-between gap-3 rounded-xl border border-border/60 px-3 py-2 text-sm">
+                      <div className="min-w-0">
+                        <div className="font-medium">{ACTION_LABELS[log.action] ?? log.action}</div>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {log.actor_email} ({log.actor_role}){log.detail ? ` · ${log.detail}` : ""}
+                        </div>
+                      </div>
+                      <div className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">{formatLogTime(log.created_at)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <div className="flex justify-end gap-2">

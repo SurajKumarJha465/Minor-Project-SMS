@@ -35,6 +35,7 @@ class User(Base):
     must_change_password = Column(Boolean, nullable=False, default=True)
     totp_secret = Column(String, nullable=True)       # base32 TOTP secret, set on 2FA setup
     totp_enabled = Column(Boolean, nullable=False, default=False)
+    password_changed_at = Column(DateTime, nullable=True)  # set on every real password change; null = never tracked (legacy row, skip rotation checks)
 
 
 class Department(Base):
@@ -252,3 +253,14 @@ class SystemSettings(Base):
 
     dark_mode_default = Column(Boolean, nullable=False, default=False)
     compact_tables = Column(Boolean, nullable=False, default=False)
+
+
+class AuditLog(Base):
+    """Written only while SystemSettings.audit_logs_enabled is True."""
+    __tablename__ = "audit_logs"
+    id = Column(Integer, primary_key=True)
+    actor_email = Column(String, nullable=False)
+    actor_role = Column(String, nullable=False)
+    action = Column(String, nullable=False)       # short machine-ish label, e.g. "hod.create"
+    detail = Column(String, nullable=True)         # human-readable one-liner
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

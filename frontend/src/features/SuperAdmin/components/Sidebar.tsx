@@ -1,7 +1,7 @@
 import { Link, useLocation } from "@tanstack/react-router";
 import { logout } from "@/lib/auth";
 import {
-  LayoutDashboard, ShieldCheck, Users, GraduationCap, User, LogOut, X,
+  LayoutDashboard, ShieldCheck, Users, GraduationCap, User, Settings, LogOut, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -11,6 +11,7 @@ const nav = [
   { to: "/admin/teachers", label: "Teacher Management", icon: Users },
   { to: "/admin/students", label: "View Students", icon: GraduationCap },
   { to: "/admin/profile", label: "Profile", icon: User },
+  { to: "/admin/settings", label: "System Settings", icon: Settings },
 ] as const;
 
 export function SaSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {

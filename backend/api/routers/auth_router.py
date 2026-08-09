@@ -1,4 +1,5 @@
 import pyotp
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -8,10 +9,39 @@ from api.auth import (
     authenticate_user, create_access_token, get_current_user,
     create_pending_2fa_token, decode_pending_2fa_token,
 )
-from api.models import User
+from api.models import User, RoleEnum, SystemSettings
 from api.schemas import TwoFactorLoginRequest
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+def _get_settings(db: Session) -> SystemSettings | None:
+    return db.query(SystemSettings).filter(SystemSettings.id == 1).first()
+
+
+def _session_expiry(settings: SystemSettings | None) -> timedelta | None:
+    # None -> auth.create_access_token falls back to its own 8h default.
+    if settings and settings.session_timeout_enabled:
+        return timedelta(minutes=30)
+    return None
+
+
+def _enforce_password_rotation(db: Session, user: User, settings: SystemSettings | None) -> None:
+    """If rotation is on and this account's password is >=90 days old, flip
+    must_change_password so the frontend's existing forced-change flow catches it.
+    Skipped for accounts with no recorded change date (legacy rows) to avoid
+    mass-locking everyone the moment the toggle is switched on."""
+    if not settings or not settings.password_rotation_enabled or not user.password_changed_at:
+        return
+    if datetime.utcnow() - user.password_changed_at >= timedelta(days=90):
+        user.must_change_password = True
+        db.commit()
+
+
+def _requires_2fa_setup(user: User, settings: SystemSettings | None) -> bool:
+    # Policy currently scoped to admin accounts, matching the settings page copy
+    # ("Require 2FA for all admin accounts").
+    return bool(settings and settings.require_2fa and user.role == RoleEnum.admin and not user.totp_enabled)
 
 
 @router.post("/login")
@@ -19,6 +49,9 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     user = authenticate_user(db, form_data.username, form_data.password)  # OAuth2 form calls it "username", we treat it as email
     if not user:
         raise HTTPException(status_code=401, detail="Incorrect email or password")
+
+    settings = _get_settings(db)
+    _enforce_password_rotation(db, user, settings)
 
     if user.totp_enabled:
         # Correct password, but this account has 2FA — don't hand out a real
@@ -29,7 +62,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
             "pending_token": create_pending_2fa_token(user.id),
         }
 
-    token = create_access_token(data={"sub": str(user.id), "role": user.role.value})
+    token = create_access_token(data={"sub": str(user.id), "role": user.role.value}, expires_delta=_session_expiry(settings))
     return {
         "requires_2fa": False,
         "access_token": token,
@@ -37,6 +70,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         "role": user.role.value,
         "user_id": user.id,
         "must_change_password": user.must_change_password,
+        "must_setup_2fa": _requires_2fa_setup(user, settings),
     }
 
 
@@ -51,7 +85,8 @@ def verify_login_2fa(payload: TwoFactorLoginRequest, db: Session = Depends(get_d
     if not totp.verify(payload.code.strip(), valid_window=1):
         raise HTTPException(status_code=400, detail="Invalid verification code")
 
-    token = create_access_token(data={"sub": str(user.id), "role": user.role.value})
+    settings = _get_settings(db)
+    token = create_access_token(data={"sub": str(user.id), "role": user.role.value}, expires_delta=_session_expiry(settings))
     return {
         "requires_2fa": False,
         "access_token": token,
@@ -59,6 +94,7 @@ def verify_login_2fa(payload: TwoFactorLoginRequest, db: Session = Depends(get_d
         "role": user.role.value,
         "user_id": user.id,
         "must_change_password": user.must_change_password,
+        "must_setup_2fa": False,  # they just verified a live TOTP code, so 2FA is already set up
     }
 
 

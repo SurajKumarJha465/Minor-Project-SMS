@@ -458,6 +458,32 @@ class SaveGradesRequest(BaseModel):
     rows: list[SaveGradesRow]
 
 
+class SemesterResultImportSkip(BaseModel):
+    enrollment: str
+    course_code: str
+    reason: str
+
+
+class SemesterResultImportResponse(BaseModel):
+    saved: int
+    skipped: list[SemesterResultImportSkip]
+
+
+class HodSemesterCourseSummary(BaseModel):
+    course_id: str
+    code: str
+    name: str
+    section: str
+    graded: int            # rows with a non-empty grade recorded
+    total_enrolled: int
+    published: bool        # true once every graded row for this course is published
+
+
+class HodSemesterResultsSummary(BaseModel):
+    semester: int
+    courses: list[HodSemesterCourseSummary]
+
+
 class StudentSemesterCourseOut(BaseModel):
     code: str
     name: str

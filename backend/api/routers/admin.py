@@ -19,7 +19,7 @@ from api.schemas import (
     HodListingOut, UpdateHodRequest,
     TeacherListingOut, UpdateTeacherRequest,
     AdminMeOut, UpdateAdminProfileRequest,
-    AdminOverviewOut, AdminDeptTeacherCount, AdminStudentOut, AdminSearchResult,
+    AdminOverviewOut, AdminDeptTeacherCount, AdminStudentOut, SearchResultOut,
     SettingsOut, UpdateSettingsRequest, BackupTriggerResponse, SystemInfoOut,
     AuditLogOut, TwoFactorSetupResponse, TwoFactorVerifyRequest, TwoFactorStatusResponse,
 )
@@ -243,7 +243,7 @@ def update_my_profile(
     )
 
 
-@router.get("/search", response_model=list[AdminSearchResult])
+@router.get("/search", response_model=list[SearchResultOut])
 def global_search(
     q: str = "",
     db: Session = Depends(get_db),
@@ -256,7 +256,7 @@ def global_search(
 
     like = f"%{query}%"
     dept_map = {d.id: d.name for d in db.query(Department).all()}
-    results: list[AdminSearchResult] = []
+    results: list[SearchResultOut] = []
 
     students = (
         db.query(Student)
@@ -266,7 +266,7 @@ def global_search(
     )
     for s in students:
         dept = dept_map.get(s.department_id, s.department_id or "")
-        results.append(AdminSearchResult(
+        results.append(SearchResultOut(
             type="student", id=s.id, name=s.name,
             subtitle=f"{s.enrollment or '—'} · {dept}" if dept else (s.enrollment or ""),
             photo=s.photo,
@@ -280,7 +280,7 @@ def global_search(
     )
     for t in teachers:
         dept = dept_map.get(t.department_id, t.department_id or "")
-        results.append(AdminSearchResult(
+        results.append(SearchResultOut(
             type="teacher", id=f"T{t.id}", name=t.name, subtitle=dept, photo=t.photo,
         ))
 
@@ -292,7 +292,7 @@ def global_search(
     )
     for h in hods:
         dept = dept_map.get(h.department_id, h.department_id or "")
-        results.append(AdminSearchResult(
+        results.append(SearchResultOut(
             type="hod", id=f"H{h.id}", name=h.name, subtitle=dept, photo=h.photo,
         ))
 

@@ -1,34 +1,46 @@
-# Getting Lovable back in sync with eduflow-hub
+# Why the preview won't update
 
-## What's happening
+## The breakage
 
-The code you see here is not "stale code I wrote" — it's the last state Lovable received. Your latest `main` commit on `eduflow-hub` (9 Aug 2026, ~14:48) has not been pulled into this workspace, so the incoming half of the GitHub two-way sync is not landing.
+The new commit's attendance page imports five things that don't exist in the file it imports them from.
 
-Important constraint: I cannot run git operations, fetch a branch, or read `eduflow-hub` from here. There is no GitHub connector linked in this workspace, and cross-project tools only reach Lovable projects, not GitHub repos. So the inbound pull has to be re-triggered by the platform, not by me.
+`src/routes/teacher.attendance.$courseId.tsx` imports from `@/features/Teacher/lib/attendance-api`:
 
-## Step 1 — Re-trigger the inbound sync (you)
+- `recognizeAttendanceFrame`
+- `saveAttendance`
+- `getTodayAttendance`
+- type `AttendanceEntry`
+- type `Status`
 
-1. Open the **+ menu** in the chat input > **GitHub**.
-2. Confirm the connected repo is `eduflow-hub` and the tracked branch is `main` (if a branch selector shows something else, switch it to `main`).
-3. If it already says `main`, disconnect and reconnect the project to the same repo. Reconnecting forces a fresh read of the repo's current `main`.
-4. Send me any message afterwards so I can re-check the files.
+But `src/features/Teacher/lib/attendance-api.ts` in this workspace is a near-copy of `academic-data.ts` — it only exports course/roster/marks helpers (`getTeacherCourses`, `getCourseByCompositeId`, `getRosterForCourse`, `getCourseMarks`, `saveCourseMarks`, department/section constants). None of the five attendance exports are there.
 
-## Step 2 — Verify the sync landed (me)
+Because those imports fail, the route module can't be evaluated, which is exactly the error the preview shows:
 
-Once you've done the above, I will:
+```text
+TypeError: error loading dynamically imported module: .../@tanstack/react-router/dist/esm/index.dev.js
+```
 
-- Read the files most likely touched by your recent commits (`src/routes/*`, `src/lib/auth.ts`, `src/features/**`) and report whether their contents now match what you expect on GitHub.
-- Run a typecheck and confirm every route still resolves, since an inbound sync can bring in imports that don't exist on this stack.
+The router import is just the first thing in the failing module — the router itself is fine. Secondary type errors in the same file (`s` implicitly any, `student_id`/`similarity` implicitly any) are fallout from the missing types.
 
-## Step 3 — Manual re-apply (fallback, only if sync stays broken)
+No other file in the project fails to typecheck. This one missing module is what's blocking the preview.
 
-If reconnecting doesn't pull the commits, the practical workaround is to bring the changes in by hand:
+## Fix: add the missing attendance layer
 
-- You tell me which files/commits are missing (a diff, the file contents, or a description of the changes).
-- I re-apply them here as normal edits, which then push back out to `eduflow-hub` through the outbound direction of the sync (that direction appears to be working).
+Add the three attendance functions and two types to `src/features/Teacher/lib/attendance-api.ts`, built on the existing `src/lib/api.ts` helpers (`apiJson`, `apiFormJson`, `authHeader` already wired there), matching how the route already calls them:
 
-This is a last resort — it means editing the same files twice, so it's worth exhausting Step 1 first.
+- `type Status = "pending" | "present" | "absent"`
+- `type AttendanceEntry = { status: Status; source: "ai" | "manual"; similarity: number | null }`
+- `getTodayAttendance(courseId)` — GET today's records, returning `{ records: [{ student_id, status, marked_by, similarity }] }`, so an empty/unavailable response leaves the page on a blank roster instead of erroring.
+- `recognizeAttendanceFrame(courseId, imageBlob)` — multipart POST of the captured frame to the recognition endpoint, returning the recognized `{ student_id, similarity }` list.
+- `saveAttendance(courseId, rows)` — POST/PUT the final per-student statuses.
 
-## Risk to be aware of
+Then remove the duplicated marks/course helpers from `attendance-api.ts` that already live in `academic-data.ts`, so there is one source of truth and the route keeps importing course/roster data from `academic-data.ts` as it does today.
 
-Since the two sides have diverged, the reconnect in Step 1 may overwrite work that exists only in Lovable. Before reconnecting, tell me if anything here (for example the recent HOD/admin password-dialog and recognition-endpoint work) is *not* present in `eduflow-hub` — if so I'll capture those files first so nothing is lost.
+## Note on the sync question
+
+This confirms the earlier diagnosis: the commit's route file arrived, but the matching `attendance-api.ts` did not — the two sides are out of step. If you have the repo's version of that file, paste it and I'll use it verbatim instead of reconstructing the functions. Otherwise I'll write them against the endpoint shapes the route already expects.
+
+## Verification
+
+- Typecheck clean (currently 9 errors, all in this one file).
+- Load `/teacher/attendance/<courseId>` in the preview and confirm the roster renders with no console error.

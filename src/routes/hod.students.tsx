@@ -31,6 +31,11 @@ const SEMESTER_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8];
 
 export const Route = createFileRoute("/hod/students")({
   head: () => ({ meta: [{ title: "Student Management · HOD" }] }),
+  validateSearch: (search: Record<string, unknown>): { q?: string; sem?: number; section?: string } => ({
+    q: typeof search.q === "string" ? search.q : undefined,
+    sem: typeof search.sem === "number" ? search.sem : undefined,
+    section: typeof search.section === "string" ? search.section : undefined,
+  }),
   component: Students,
 });
 
@@ -68,6 +73,7 @@ const emptyForm = {
 };
 
 function Students() {
+  const { q: initialQ, sem: initialSem, section: initialSection } = Route.useSearch();
   const [students, setStudents] = useState<Student[]>([]);
   const [department, setDepartment] = useState("");
   const [loading, setLoading] = useState(true);
@@ -101,9 +107,9 @@ function Students() {
     return () => { cancelled = true; };
   }, []);
 
-  const [selectedSem, setSelectedSem] = useState<number | null>(null);
-  const [selectedSection, setSelectedSection] = useState<Section | null>(null);
-  const [q, setQ] = useState("");
+  const [selectedSem, setSelectedSem] = useState<number | null>(initialSem ?? null);
+  const [selectedSection, setSelectedSection] = useState<Section | null>((initialSection as Section) ?? null);
+  const [q, setQ] = useState(initialQ ?? "");
 
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState({ ...emptyForm });

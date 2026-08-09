@@ -36,6 +36,7 @@ import { Route as HodProfileRouteImport } from './routes/hod.profile'
 import { Route as HodOverviewRouteImport } from './routes/hod.overview'
 import { Route as HodNoticesRouteImport } from './routes/hod.notices'
 import { Route as HodMarksRouteImport } from './routes/hod.marks'
+import { Route as HodInternalResultsRouteImport } from './routes/hod.internal-results'
 import { Route as HodFinalResultsRouteImport } from './routes/hod.final-results'
 import { Route as HodEnrollmentsRouteImport } from './routes/hod.enrollments'
 import { Route as HodDashboardRouteImport } from './routes/hod.dashboard'
@@ -186,6 +187,11 @@ const HodMarksRoute = HodMarksRouteImport.update({
   path: '/marks',
   getParentRoute: () => HodRoute,
 } as any)
+const HodInternalResultsRoute = HodInternalResultsRouteImport.update({
+  id: '/internal-results',
+  path: '/internal-results',
+  getParentRoute: () => HodRoute,
+} as any)
 const HodFinalResultsRoute = HodFinalResultsRouteImport.update({
   id: '/final-results',
   path: '/final-results',
@@ -278,6 +284,7 @@ export interface FileRoutesByFullPath {
   '/hod/dashboard': typeof HodDashboardRoute
   '/hod/enrollments': typeof HodEnrollmentsRoute
   '/hod/final-results': typeof HodFinalResultsRoute
+  '/hod/internal-results': typeof HodInternalResultsRoute
   '/hod/marks': typeof HodMarksRoute
   '/hod/notices': typeof HodNoticesRoute
   '/hod/overview': typeof HodOverviewRoute
@@ -318,6 +325,7 @@ export interface FileRoutesByTo {
   '/hod/dashboard': typeof HodDashboardRoute
   '/hod/enrollments': typeof HodEnrollmentsRoute
   '/hod/final-results': typeof HodFinalResultsRoute
+  '/hod/internal-results': typeof HodInternalResultsRoute
   '/hod/marks': typeof HodMarksRoute
   '/hod/notices': typeof HodNoticesRoute
   '/hod/overview': typeof HodOverviewRoute
@@ -362,6 +370,7 @@ export interface FileRoutesById {
   '/hod/dashboard': typeof HodDashboardRoute
   '/hod/enrollments': typeof HodEnrollmentsRoute
   '/hod/final-results': typeof HodFinalResultsRoute
+  '/hod/internal-results': typeof HodInternalResultsRoute
   '/hod/marks': typeof HodMarksRoute
   '/hod/notices': typeof HodNoticesRoute
   '/hod/overview': typeof HodOverviewRoute
@@ -407,6 +416,7 @@ export interface FileRouteTypes {
     | '/hod/dashboard'
     | '/hod/enrollments'
     | '/hod/final-results'
+    | '/hod/internal-results'
     | '/hod/marks'
     | '/hod/notices'
     | '/hod/overview'
@@ -447,6 +457,7 @@ export interface FileRouteTypes {
     | '/hod/dashboard'
     | '/hod/enrollments'
     | '/hod/final-results'
+    | '/hod/internal-results'
     | '/hod/marks'
     | '/hod/notices'
     | '/hod/overview'
@@ -490,6 +501,7 @@ export interface FileRouteTypes {
     | '/hod/dashboard'
     | '/hod/enrollments'
     | '/hod/final-results'
+    | '/hod/internal-results'
     | '/hod/marks'
     | '/hod/notices'
     | '/hod/overview'
@@ -715,6 +727,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HodMarksRouteImport
       parentRoute: typeof HodRoute
     }
+    '/hod/internal-results': {
+      id: '/hod/internal-results'
+      path: '/internal-results'
+      fullPath: '/hod/internal-results'
+      preLoaderRoute: typeof HodInternalResultsRouteImport
+      parentRoute: typeof HodRoute
+    }
     '/hod/final-results': {
       id: '/hod/final-results'
       path: '/final-results'
@@ -845,6 +864,7 @@ interface HodRouteChildren {
   HodDashboardRoute: typeof HodDashboardRoute
   HodEnrollmentsRoute: typeof HodEnrollmentsRoute
   HodFinalResultsRoute: typeof HodFinalResultsRoute
+  HodInternalResultsRoute: typeof HodInternalResultsRoute
   HodMarksRoute: typeof HodMarksRoute
   HodNoticesRoute: typeof HodNoticesRoute
   HodOverviewRoute: typeof HodOverviewRoute
@@ -865,6 +885,7 @@ const HodRouteChildren: HodRouteChildren = {
   HodDashboardRoute: HodDashboardRoute,
   HodEnrollmentsRoute: HodEnrollmentsRoute,
   HodFinalResultsRoute: HodFinalResultsRoute,
+  HodInternalResultsRoute: HodInternalResultsRoute,
   HodMarksRoute: HodMarksRoute,
   HodNoticesRoute: HodNoticesRoute,
   HodOverviewRoute: HodOverviewRoute,

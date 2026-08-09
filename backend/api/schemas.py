@@ -266,6 +266,8 @@ class HodStudentOut(BaseModel):
     guardian_name: Optional[str] = None
     guardian_phone: Optional[str] = None
     courses_enrolled: int = 0   # real count from Enrollment, not a placeholder
+    attendance_pct: float = 0.0   # % of present/absent-marked AttendanceRecord rows that are "present"; 0.0 if none recorded yet
+    gpa: float = 0.0              # credit-weighted average over published CourseGrade rows; 0.0 if none published yet
 
     class Config:
         from_attributes = True

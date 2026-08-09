@@ -39,13 +39,12 @@ def _get_department_course(db: Session, hod: HOD, course_id: str) -> Course:
     return course
 
 def _course_out(db: Session, course: Course) -> HodCourseOut:
-    section_row = db.query(Section).filter(Section.id == course.section_id).first()
     teacher = db.query(Teacher).filter(Teacher.id == course.teacher_id).first() if course.teacher_id else None
     enrolled = db.query(Enrollment).filter(Enrollment.course_id == course.id).count()
     return HodCourseOut(
         id=course.id, code=course.code, name=course.name, credits=course.credits or 0,
         sem=course.sem or 0,
-        section=section_row.label if section_row else (course.section_id or "").upper(),
+        section=(course.section_id or "").upper(),
         teacher_id=teacher.id if teacher else None,
         teacher_name=teacher.name if teacher else None,
         enrolled=enrolled,
@@ -139,8 +138,6 @@ def list_students(
         .all()
     )
 
-    # section id -> label, fetched once instead of per-row
-    section_labels = {s.id: s.label for s in db.query(Section).all()}
     stats = _bulk_student_stats(db, [s.id for s in students])
 
     result: list[HodStudentOut] = []
@@ -151,7 +148,7 @@ def list_students(
                 name=s.name,
                 enrollment=s.enrollment,
                 semester=s.sem or 0,
-                section=section_labels.get(s.section_id, (s.section_id or "").upper()),
+                section=(s.section_id or "").upper(),
                 department=dept_name,
                 photo=s.photo,
                 email=s.email,
@@ -264,7 +261,6 @@ def update_student(
     db.refresh(student)
 
     dept = db.query(Department).filter(Department.id == hod.department_id).first()
-    section_row = db.query(Section).filter(Section.id == student.section_id).first()
     stats = _bulk_student_stats(db, [student.id])[student.id]
 
     return HodStudentOut(
@@ -272,7 +268,7 @@ def update_student(
         name=student.name,
         enrollment=student.enrollment,
         semester=student.sem or 0,
-        section=section_row.label if section_row else (student.section_id or "").upper(),
+        section=(student.section_id or "").upper(),
         department=dept.name if dept else hod.department_id,
         photo=student.photo,
         email=student.email,
@@ -471,7 +467,6 @@ def course_roster(
         raise HTTPException(status_code=404, detail="Course not found in your department")
 
     enrolled_ids = {e.student_id for e in db.query(Enrollment).filter(Enrollment.course_id == course_id).all()}
-    section_labels = {s.id: s.label for s in db.query(Section).all()}
 
     # eligible pool: department students in the same semester as this course
     students = (
@@ -484,7 +479,7 @@ def course_roster(
     return [
         HodCourseRosterStudent(
             id=s.id, name=s.name, enrollment=s.enrollment, semester=s.sem or 0,
-            section=section_labels.get(s.section_id, (s.section_id or "").upper()),
+            section=(s.section_id or "").upper(),
             photo=s.photo, enrolled=s.id in enrolled_ids,
         )
         for s in students
@@ -518,10 +513,9 @@ def enroll_student(
         db.add(Enrollment(student_id=student.id, course_id=course_id))
         db.commit()
 
-    section_row = db.query(Section).filter(Section.id == student.section_id).first()
     return HodCourseRosterStudent(
         id=student.id, name=student.name, enrollment=student.enrollment, semester=student.sem or 0,
-        section=section_row.label if section_row else (student.section_id or "").upper(),
+        section=(student.section_id or "").upper(),
         photo=student.photo, enrolled=True,
     )
 

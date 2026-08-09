@@ -377,28 +377,12 @@ def create_teacher(
     db.commit()
     db.refresh(teacher)
 
-    assigned_ids = []
-    for c in payload.courses:
-        course_id = f"{dept_id}-{payload.semester}-{payload.section_id}-{c.code.lower().replace('-', '')}"
-        course = db.query(Course).filter(Course.id == course_id).first()
-        if not course:
-            course = Course(
-                id=course_id, code=c.code, name=c.name, credits=c.credit,
-                sem=payload.semester, department_id=dept_id,
-                section_id=payload.section_id,
-            )
-            db.add(course)
-        course.teacher_id = teacher.id
-        assigned_ids.append(course_id)
-
-    db.commit()
-
     settings = _get_or_create_settings(db)
     _log_action(db, settings, current_user, "teacher.create", f"{payload.name} ({payload.email})")
 
     return CreateTeacherResponse(
         teacher_id=teacher.id, user_id=user.id, email=user.email,
-        default_password=default_password, assigned_course_ids=assigned_ids,
+        default_password=default_password,
     )
 
 @router.post("/hods", response_model=CreateHodResponse)

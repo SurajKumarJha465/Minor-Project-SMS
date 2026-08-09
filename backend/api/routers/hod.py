@@ -19,6 +19,7 @@ from api.schemas import (
     NoticeOut, CreateNoticeRequest, UpdateNoticeRequest, HodListingOut,
     EventOut, CreateEventRequest, UpdateEventRequest,
     HodGradeRow, SaveGradesRequest,
+    HodAttendanceReport, HodCourseAttendance, HodTeacherAttendance, HodLowAttendanceStudent,
 )
 from api.auth import hash_password, generate_default_password, require_role
 from api.database import get_db
@@ -802,6 +803,73 @@ def results_overview(
         pass_fail_by_course=pass_fail_by_course,
         top_students=ranked[:5], at_risk_students=failing[:5],
     )
+
+
+LOW_ATTENDANCE_THRESHOLD_PCT = 75.0  # matches the "< 75%" alert threshold shown elsewhere in the HoD UI
+
+
+def _attendance_pct(records: list[AttendanceRecord]) -> float:
+    if not records:
+        return 0.0
+    present = sum(1 for r in records if r.status == AttendanceStatus.present)
+    return round(present / len(records) * 100, 1)
+
+
+@router.get("/reports/attendance", response_model=HodAttendanceReport)
+def attendance_report(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    hod = _current_hod(db, current_user)
+    courses = db.query(Course).filter(Course.department_id == hod.department_id).all()
+    course_ids = [c.id for c in courses]
+
+    # "pending" rows haven't been marked present/absent yet, so they don't
+    # count toward a percentage either way
+    records = (
+        db.query(AttendanceRecord)
+        .filter(AttendanceRecord.course_id.in_(course_ids), AttendanceRecord.status != AttendanceStatus.pending)
+        .all()
+        if course_ids else []
+    )
+
+    overall_pct = _attendance_pct(records)
+
+    by_course = []
+    for c in courses:
+        rows = [r for r in records if r.course_id == c.id]
+        if rows:
+            by_course.append(HodCourseAttendance(code=c.code, name=c.name, pct=_attendance_pct(rows)))
+
+    teachers = db.query(Teacher).filter(Teacher.department_id == hod.department_id).all()
+    by_teacher = []
+    for t in teachers:
+        t_course_ids = {c.id for c in courses if c.teacher_id == t.id}
+        rows = [r for r in records if r.course_id in t_course_ids]
+        if rows:
+            by_teacher.append(HodTeacherAttendance(teacher_id=t.id, name=t.name, pct=_attendance_pct(rows)))
+
+    by_student: dict[str, list[AttendanceRecord]] = {}
+    for r in records:
+        by_student.setdefault(r.student_id, []).append(r)
+
+    low_students = []
+    for sid, rows in by_student.items():
+        pct = _attendance_pct(rows)
+        if pct < LOW_ATTENDANCE_THRESHOLD_PCT:
+            s = db.query(Student).filter(Student.id == sid).first()
+            if s:
+                low_students.append(HodLowAttendanceStudent(
+                    id=s.id, name=s.name, enrollment=s.enrollment, semester=s.sem or 0, pct=pct,
+                ))
+    low_students.sort(key=lambda x: x.pct)
+
+    return HodAttendanceReport(
+        overall_pct=overall_pct, total_records=len(records),
+        by_course=by_course, by_teacher=by_teacher,
+        low_attendance_students=low_students[:20],
+    )
+
 
 def _notice_out(n: Notice) -> NoticeOut:
     return NoticeOut(

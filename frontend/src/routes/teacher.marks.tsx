@@ -4,14 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Save, Send, ArrowRight } from "lucide-react";
+import { Save, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import {
-  getTeacherCourses, getCourseMarks, saveCourseMarks, publishCourseMarks,
+  getTeacherCourses, getCourseMarks, saveCourseMarks,
   deptName, sectionLabel, departments, semesters, sections,
   type TeacherCourse, type MarkRow, type MarkFields,
 } from "@/features/Teacher/lib/academic-data";
@@ -145,7 +141,6 @@ function StudentMarks({ courseId, course, onBack }: { courseId: string; course: 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [publishOpen, setPublishOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -175,22 +170,6 @@ function StudentMarks({ courseId, course, onBack }: { courseId: string; course: 
     }
   }
 
-  async function publish() {
-    setPublishOpen(false);
-    setSaving(true);
-    try {
-      // publishing should reflect whatever's currently on screen, not just the last save
-      await saveCourseMarks(courseId, rows.map(({ status, name, enrollment, ...fields }) => fields));
-      await publishCourseMarks(courseId);
-      setRows((r) => r.map((x) => ({ ...x, status: "published" as const })));
-      toast.success("Marks Published Successfully");
-    } catch (err: any) {
-      toast.error(err?.message ?? "Failed to publish marks");
-    } finally {
-      setSaving(false);
-    }
-  }
-
   const anyPublished = rows.some((r) => r.status === "published");
 
   return (
@@ -202,17 +181,21 @@ function StudentMarks({ courseId, course, onBack }: { courseId: string; course: 
             <div className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">{course?.code ?? courseId}</div>
             <h2 className="font-display text-xl font-bold">{course?.name ?? "Course"} · Internal Marks</h2>
           </div>
-          {anyPublished && <Badge className="rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">Published</Badge>}
+          {anyPublished
+            ? <Badge className="rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">Published by HOD</Badge>
+            : <Badge variant="secondary" className="rounded-lg">Awaiting HOD review</Badge>}
         </div>
         <div className="flex gap-2">
           <Button variant="outline" className="rounded-xl" disabled={saving || loading} onClick={saveDraft}>
             <Save className="mr-1.5 h-4 w-4" />Save Draft
           </Button>
-          <Button className="rounded-xl" disabled={saving || loading} onClick={() => setPublishOpen(true)}>
-            <Send className="mr-1.5 h-4 w-4" />Publish
-          </Button>
         </div>
       </div>
+
+      <p className="text-xs text-muted-foreground">
+        Marks are saved here as a draft. Your HOD reviews and publishes them — that's the step
+        that makes them visible to students.
+      </p>
 
       {loadError && !loading && (
         <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">{loadError}</div>
@@ -282,21 +265,6 @@ function StudentMarks({ courseId, course, onBack }: { courseId: string; course: 
           )}
         </CardContent>
       </Card>
-
-      <AlertDialog open={publishOpen} onOpenChange={setPublishOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Publish Internal Marks?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Once published, marks for {course?.name ?? "this course"} will be visible to students. You can still edit and re-publish afterward.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={publish}>Yes, Publish</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

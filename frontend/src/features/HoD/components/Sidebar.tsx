@@ -15,6 +15,7 @@ const nav = [
   { to: "/hod/enrollments", label: "Enrollments", icon: ClipboardCheck },
   { to: "/hod/final-results", label: "Final Results", icon: Award },
   { to: "/hod/semesters", label: "Semester Management", icon: CalendarRange },
+  { to: "/hod/report", label: "Report", icon: ClipboardCheck },
   { to: "/hod/notices", label: "Department Notices", icon: Bell },
   { to: "/hod/profile", label: "Profile", icon: User },
   { to: "/hod/settings", label: "Settings", icon: Settings },

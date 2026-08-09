@@ -6,11 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from "@/components/ui/select";
+import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowRight, Save, Send } from "lucide-react";
+import { ArrowRight, Save, Search, Send } from "lucide-react";
 import { authHeader } from "@/lib/auth";
+import { sections, sectionLabel } from "@/features/HoD/lib/hod-mock-data";
 
 export const Route = createFileRoute("/hod/internal-results")({
   head: () => ({ meta: [{ title: "Internal Results · HOD" }] }),
@@ -18,6 +22,7 @@ export const Route = createFileRoute("/hod/internal-results")({
 });
 
 const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+const SEMESTER_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8];
 
 const PRACTICAL = [
   { key: "p_att", label: "Attendance & Participation", max: 2 },
@@ -54,6 +59,10 @@ function InternalResults() {
   const [loading, setLoading] = useState(true);
   const [courseId, setCourseId] = useState<string | null>(null);
 
+  const [query, setQuery] = useState("");
+  const [sem, setSem] = useState<string>("all");
+  const [section, setSection] = useState<string>("all");
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -72,6 +81,16 @@ function InternalResults() {
     return () => { cancelled = true; };
   }, []);
 
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return courses.filter((c) => {
+      const bySem = sem === "all" || String(c.sem) === sem;
+      const bySection = section === "all" || c.section.toUpperCase() === section.toUpperCase();
+      const byQuery = !q || c.code.toLowerCase().includes(q) || c.name.toLowerCase().includes(q);
+      return bySem && bySection && byQuery;
+    });
+  }, [courses, query, sem, section]);
+
   if (courseId) {
     const course = courses.find((c) => c.id === courseId) ?? null;
     return <CourseMarks courseId={courseId} course={course} onBack={() => setCourseId(null)} />;
@@ -87,13 +106,43 @@ function InternalResults() {
         </p>
       </div>
 
+      <Card className="rounded-2xl shadow-soft">
+        <CardContent className="grid gap-3 p-4 md:grid-cols-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by course code or name…"
+              className="rounded-xl pl-9"
+            />
+          </div>
+          <Select value={sem} onValueChange={setSem}>
+            <SelectTrigger className="rounded-xl"><SelectValue placeholder="Semester" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Semesters</SelectItem>
+              {SEMESTER_NUMBERS.map((s) => <SelectItem key={s} value={String(s)}>Semester {s}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={section} onValueChange={setSection}>
+            <SelectTrigger className="rounded-xl"><SelectValue placeholder="Section" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Sections</SelectItem>
+              {sections.map((s) => <SelectItem key={s} value={s}>Section {sectionLabel(s)}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
+
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading courses…</p>
-      ) : courses.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No courses in your department yet.</p>
+      ) : filtered.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {courses.length === 0 ? "No courses in your department yet." : "No courses match the selected filters."}
+        </p>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {courses.map((c) => (
+          {filtered.map((c) => (
             <Card
               key={c.id}
               onClick={() => setCourseId(c.id)}

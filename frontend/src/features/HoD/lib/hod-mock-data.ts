@@ -56,6 +56,14 @@ export const teachers = Array.from({ length: 14 }).map((_, i) => ({
 export const sections = ["D", "M1", "M2"] as const;
 export type Section = (typeof sections)[number];
 
+// Display label only — the underlying section id/value stays "D" everywhere
+// (API payloads, section_id in the DB, filtering keys). Only what's shown to
+// the HOD changes.
+const sectionLabels: Record<string, string> = { D: "Day" };
+export function sectionLabel(sec: string): string {
+  return sectionLabels[sec] ?? sec;
+}
+
 export const department = "Computer Engineering";
 
 const studentNamePool = [

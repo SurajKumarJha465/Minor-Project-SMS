@@ -13,6 +13,7 @@ const nav = [
   { to: "/hod/teachers", label: "Teacher Management", icon: Users },
   { to: "/hod/students", label: "Student Management", icon: GraduationCap },
   { to: "/hod/enrollments", label: "Enrollments", icon: ClipboardCheck },
+  { to: "/hod/internal-results", label: "Internal Results", icon: Award },
   { to: "/hod/final-results", label: "Final Results", icon: Award },
   { to: "/hod/semesters", label: "Semester Management", icon: CalendarRange },
   { to: "/hod/reports", label: "Report", icon: ClipboardCheck },

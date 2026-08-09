@@ -114,7 +114,11 @@ export const hodStudents = Array.from({ length: 8 * sections.length * NUM_STUDEN
   };
 });
 
-export function getStudentsBySemesterSection(list: typeof hodStudents, semester: number, section: Section) {
+export function getStudentsBySemesterSection<T extends { semester: number; section: Section }>(
+  list: T[],
+  semester: number,
+  section: Section,
+): T[] {
   return list.filter((s) => s.semester === semester && s.section === section);
 }
 

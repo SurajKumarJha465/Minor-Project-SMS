@@ -101,17 +101,9 @@ class TwoFactorVerifyRequest(BaseModel):
 class TwoFactorStatusResponse(BaseModel):
     enabled: bool
 
-class CourseSelection(BaseModel):
-    code: str
-    name: str
-    credit: int
-
 
 class CreateTeacherRequest(BaseModel):
     department_name: str
-    semester: int
-    section_id: str = "d"  # not collected by this wizard yet — defaulting for now
-    courses: list[CourseSelection]
     name: str
     email: str
     phone: str
@@ -124,7 +116,6 @@ class CreateTeacherResponse(BaseModel):
     user_id: int
     email: str
     default_password: str
-    assigned_course_ids: list[str]
 
 class TeacherListingOut(BaseModel):
     id: str

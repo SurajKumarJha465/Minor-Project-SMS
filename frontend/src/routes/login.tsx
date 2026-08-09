@@ -48,7 +48,16 @@ function LoginPage() {
 
   function completeLogin(data: any) {
     setSession({ role: data.role as Role, email: email.trim().toLowerCase(), token: data.access_token });
-    toast.success(`Login Successful — opening ${String(data.role).toUpperCase()} dashboard`);
+
+    // Institution policy requires 2FA on admin accounts and this one hasn't
+    // set it up yet. The dashboard layout already shows a persistent banner
+    // for this on every admin page, so this is just an immediate heads-up
+    // at the moment of login rather than a hard redirect away from it.
+    if (data.role === "admin" && data.must_setup_2fa) {
+      toast.warning("Your institution requires two-factor authentication on admin accounts. Set it up from your profile.");
+    } else {
+      toast.success(`Login Successful — opening ${String(data.role).toUpperCase()} dashboard`);
+    }
     navigate({ to: ROLE_ROUTES[data.role as Role] });
   }
 

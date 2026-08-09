@@ -2,8 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
-  Search, Plus, Eye, Pencil, Trash2, BookOpen, ChevronRight, ChevronLeft,
-  Check, Building2, GraduationCap, Mail, Phone, Award,
+  Search, Plus, Eye, Pencil, Trash2, BookOpen, Building2, GraduationCap, Mail, Phone, Award,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,13 +11,16 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
 } from "@/components/ui/alert-dialog";
-import { departmentList, courseCatalog, type Course } from "@/features/SuperAdmin/lib/superadmin-mock-data";
+import { departmentList } from "@/features/SuperAdmin/lib/superadmin-mock-data";
 import { authHeader } from "@/lib/auth";
 
 export const Route = createFileRoute("/admin/teachers")({
@@ -85,21 +87,17 @@ function TeachersPage() {
   const [deleteTarget, setDeleteTarget] = useState<Teacher | null>(null);
   const [editForm, setEditForm] = useState(emptyTeacherForm);
 
-  // Add Teacher wizard state
-  const [addOpen, setAddOpen] = useState(false);
-  const [step, setStep] = useState(1);
+  // Create Teacher dialog state. Admin only ever creates a bare account —
+  // department is the one piece of institutional data admin owns; course
+  // and section assignment is the HOD's job from their own courses page.
+  const [createOpen, setCreateOpen] = useState(false);
   const [dept, setDept] = useState<string | null>(null);
-  const [semester, setSemester] = useState<number | null>(null);
-  const [selectedCourses, setSelectedCourses] = useState<Course[]>([]);
   const [teacherForm, setTeacherForm] = useState(emptyTeacherForm);
   const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
-  function resetWizard() {
-    setStep(1); setDept(null); setSemester(null); setSelectedCourses([]); setTeacherForm(emptyTeacherForm);
-  }
-
-  function toggleCourse(c: Course) {
-    setSelectedCourses((prev) => (prev.some((x) => x.code === c.code) ? prev.filter((x) => x.code !== c.code) : [...prev, c]));
+  function resetCreateForm() {
+    setDept(null); setTeacherForm(emptyTeacherForm);
   }
 
   function openEdit(t: Teacher) {
@@ -161,10 +159,15 @@ function TeachersPage() {
   }
 
   async function saveNewTeacher() {
-    if (!teacherForm.name || !teacherForm.email || selectedCourses.length === 0) {
-      toast.error("Please fill in the teacher's name, email and assign at least one course");
+    if (!dept) {
+      toast.error("Please select a department");
       return;
     }
+    if (!teacherForm.name || !teacherForm.email) {
+      toast.error("Please fill in the teacher's name and email");
+      return;
+    }
+    setCreating(true);
     try {
       const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
       const res = await fetch(`${API_URL}/api/admin/teachers`, {
@@ -172,8 +175,6 @@ function TeachersPage() {
         headers: { "Content-Type": "application/json", ...authHeader() },
         body: JSON.stringify({
           department_name: dept,
-          semester: semester,
-          courses: selectedCourses.map((c: any) => ({ code: c.code, name: c.name, credit: c.credit })),
           name: teacherForm.name,
           email: teacherForm.email,
           phone: teacherForm.phone,
@@ -191,8 +192,8 @@ function TeachersPage() {
         id: `T${data.teacher_id}`,
         name: teacherForm.name,
         specialization: teacherForm.specialization,
-        department: dept ?? "",
-        courses: selectedCourses.length,
+        department: dept,
+        courses: 0,
         email: teacherForm.email,
         phone: teacherForm.phone,
         status: "active",
@@ -202,10 +203,11 @@ function TeachersPage() {
       };
       setTeachers((prev) => [newTeacher, ...prev]);
       setGeneratedPassword(data.default_password);
-      setAddOpen(false);
-      setStep(1);
+      setCreateOpen(false);
     } catch {
       toast.error("Could not reach the server. Try again.");
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -214,10 +216,12 @@ function TeachersPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-bold">Teacher Management</h1>
-          <p className="text-sm text-muted-foreground">Add, edit or remove teachers across all departments.</p>
+          <p className="text-sm text-muted-foreground">
+            Create teacher accounts. Course and section assignment is handled by each department's HOD.
+          </p>
         </div>
-        <Button className="rounded-xl gradient-brand text-white" onClick={() => { resetWizard(); setAddOpen(true); }}>
-          <Plus className="mr-1.5 h-4 w-4" /> Add Teacher
+        <Button className="rounded-xl gradient-brand text-white" onClick={() => { resetCreateForm(); setCreateOpen(true); }}>
+          <Plus className="mr-1.5 h-4 w-4" /> Create Teacher
         </Button>
       </div>
 
@@ -364,7 +368,7 @@ function TeachersPage() {
       {/* GENERATED PASSWORD */}
       <Dialog
         open={!!generatedPassword}
-        onOpenChange={(o) => { if (!o) { setGeneratedPassword(null); resetWizard(); } }}
+        onOpenChange={(o) => { if (!o) { setGeneratedPassword(null); resetCreateForm(); } }}
       >
         <DialogContent className="rounded-2xl sm:max-w-md">
           <DialogHeader>
@@ -393,7 +397,7 @@ function TeachersPage() {
           <DialogFooter>
             <Button
               className="rounded-xl gradient-brand text-white"
-              onClick={() => { setGeneratedPassword(null); resetWizard(); }}
+              onClick={() => { setGeneratedPassword(null); resetCreateForm(); }}
             >
               Done
             </Button>
@@ -401,114 +405,44 @@ function TeachersPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ADD TEACHER WIZARD */}
-      <Dialog open={addOpen} onOpenChange={(o) => { setAddOpen(o); if (!o) resetWizard(); }}>
-        <DialogContent className="rounded-2xl sm:max-w-lg">
+      {/* CREATE TEACHER */}
+      <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (!o) resetCreateForm(); }}>
+        <DialogContent className="rounded-2xl sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Add Teacher</DialogTitle>
+            <DialogTitle>Create Teacher</DialogTitle>
             <DialogDescription>
-              {step === 1 && "Step 1 of 4 — Select a department"}
-              {step === 2 && `Step 2 of 4 — Select a semester in ${dept}`}
-              {step === 3 && `Step 3 of 4 — Choose courses (Sem ${semester}, ${dept})`}
-              {step === 4 && "Step 4 of 4 — Teacher details"}
+              Creates a bare-bones teacher account. Their HOD assigns courses and sections afterward.
             </DialogDescription>
           </DialogHeader>
 
-          {step === 1 && (
-            <div className="grid grid-cols-2 gap-2.5">
-              {departmentList.map((d) => (
-                <button
-                  key={d}
-                  onClick={() => { setDept(d); setStep(2); }}
-                  className="flex items-center gap-2.5 rounded-xl border border-border bg-background/50 p-3 text-left text-sm font-medium transition hover:-translate-y-0.5 hover:border-primary/40 hover:bg-background hover:shadow-soft"
-                >
-                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg gradient-brand text-white">
-                    <Building2 className="h-4 w-4" />
-                  </div>
-                  {d}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {step === 2 && dept && (
-            <div className="grid grid-cols-4 gap-2.5">
-              {Array.from({ length: 8 }).map((_, i) => {
-                const s = i + 1;
-                return (
-                  <button
-                    key={s}
-                    onClick={() => { setSemester(s); setStep(3); }}
-                    className="grid aspect-square place-items-center rounded-xl border border-border bg-background/50 text-sm font-semibold transition hover:-translate-y-0.5 hover:border-primary/40 hover:bg-background hover:shadow-soft"
-                  >
-                    <span className="text-[10px] font-normal uppercase text-muted-foreground">Sem</span>
-                    {s}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {step === 3 && dept && semester && (
-            <div className="grid gap-2.5">
-              {courseCatalog[dept][semester].map((c) => {
-                const active = selectedCourses.some((x) => x.code === c.code);
-                return (
-                  <div key={c.code} className={`flex items-center justify-between rounded-xl border p-3 transition ${active ? "border-primary/50 bg-primary/5" : "border-border bg-background/50"}`}>
-                    <div>
-                      <div className="text-sm font-semibold">{c.name}</div>
-                      <div className="text-xs text-muted-foreground">{c.code} · {c.credit} credit hrs</div>
-                    </div>
-                    <Button size="sm" variant={active ? "default" : "outline"} className={`rounded-lg ${active ? "gradient-brand text-white" : ""}`} onClick={() => toggleCourse(c)}>
-                      {active ? <><Check className="mr-1 h-3.5 w-3.5" /> Assigned</> : "Assign Teacher"}
-                    </Button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {step === 4 && (
-            <div className="grid gap-3">
-              <div className="flex flex-wrap gap-1.5">
-                <Badge variant="secondary" className="rounded-lg">{dept}</Badge>
-                <Badge variant="secondary" className="rounded-lg">Semester {semester}</Badge>
-                {selectedCourses.map((c) => <Badge key={c.code} className="rounded-lg gradient-brand text-white">{c.name}</Badge>)}
+          <div className="grid gap-3">
+            <Field label="Department">
+              <Select value={dept ?? undefined} onValueChange={(v) => setDept(v)}>
+                <SelectTrigger className="rounded-xl"><SelectValue placeholder="Select department" /></SelectTrigger>
+                <SelectContent>
+                  {departmentList.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Photo">
+              <div className="flex items-center gap-3">
+                <Avatar className="h-12 w-12"><AvatarFallback>{teacherForm.name ? teacherForm.name[0] : "T"}</AvatarFallback></Avatar>
+                <Input type="file" accept="image/*" className="rounded-xl" />
               </div>
-              <Field label="Photo">
-                <div className="flex items-center gap-3">
-                  <Avatar className="h-12 w-12"><AvatarFallback>{teacherForm.name ? teacherForm.name[0] : "T"}</AvatarFallback></Avatar>
-                  <Input type="file" accept="image/*" className="rounded-xl" />
-                </div>
-              </Field>
-              <Field label="Teacher Name"><Input className="rounded-xl" value={teacherForm.name} onChange={(e) => setTeacherForm({ ...teacherForm, name: e.target.value })} /></Field>
-              <Field label="Email"><Input type="email" className="rounded-xl" value={teacherForm.email} onChange={(e) => setTeacherForm({ ...teacherForm, email: e.target.value })} /></Field>
-              <Field label="Phone"><Input className="rounded-xl" value={teacherForm.phone} onChange={(e) => setTeacherForm({ ...teacherForm, phone: e.target.value })} /></Field>
-              <Field label="Qualification"><Input className="rounded-xl" value={teacherForm.qualification} onChange={(e) => setTeacherForm({ ...teacherForm, qualification: e.target.value })} /></Field>
-              <Field label="Specialization"><Input className="rounded-xl" value={teacherForm.specialization} onChange={(e) => setTeacherForm({ ...teacherForm, specialization: e.target.value })} /></Field>
-              <Field label="Username"><Input className="rounded-xl" value={teacherForm.username} onChange={(e) => setTeacherForm({ ...teacherForm, username: e.target.value })} /></Field>
-            </div>
-          )}
+            </Field>
+            <Field label="Teacher Name"><Input className="rounded-xl" value={teacherForm.name} onChange={(e) => setTeacherForm({ ...teacherForm, name: e.target.value })} /></Field>
+            <Field label="Email"><Input type="email" className="rounded-xl" value={teacherForm.email} onChange={(e) => setTeacherForm({ ...teacherForm, email: e.target.value })} /></Field>
+            <Field label="Phone"><Input className="rounded-xl" value={teacherForm.phone} onChange={(e) => setTeacherForm({ ...teacherForm, phone: e.target.value })} /></Field>
+            <Field label="Qualification"><Input className="rounded-xl" value={teacherForm.qualification} onChange={(e) => setTeacherForm({ ...teacherForm, qualification: e.target.value })} /></Field>
+            <Field label="Specialization"><Input className="rounded-xl" value={teacherForm.specialization} onChange={(e) => setTeacherForm({ ...teacherForm, specialization: e.target.value })} /></Field>
+            <Field label="Username"><Input className="rounded-xl" value={teacherForm.username} onChange={(e) => setTeacherForm({ ...teacherForm, username: e.target.value })} /></Field>
+          </div>
 
-          <DialogFooter className="sm:justify-between">
-            <div>
-              {step > 1 && (
-                <Button variant="outline" className="rounded-xl" onClick={() => setStep((s) => s - 1)}>
-                  <ChevronLeft className="mr-1 h-4 w-4" /> Back
-                </Button>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" className="rounded-xl" onClick={() => { setAddOpen(false); resetWizard(); }}>Cancel</Button>
-              {step === 3 && (
-                <Button className="rounded-xl gradient-brand text-white" disabled={selectedCourses.length === 0} onClick={() => setStep(4)}>
-                  Continue <ChevronRight className="ml-1 h-4 w-4" />
-                </Button>
-              )}
-              {step === 4 && (
-                <Button className="rounded-xl gradient-brand text-white" onClick={saveNewTeacher}>Save Teacher</Button>
-              )}
-            </div>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={() => { setCreateOpen(false); resetCreateForm(); }}>Cancel</Button>
+            <Button className="rounded-xl gradient-brand text-white" disabled={creating} onClick={saveNewTeacher}>
+              {creating ? "Creating…" : "Create Teacher"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

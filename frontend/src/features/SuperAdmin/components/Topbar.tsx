@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { Search, Sun, Moon, Menu, LogOut, User, ShieldCheck } from "lucide-react";
 import { logout } from "@/lib/auth";
 import { useTheme } from "@/components/theme-provider";
@@ -7,10 +9,35 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { superAdmin } from "@/features/SuperAdmin/lib/superadmin-mock-data";
+import { authHeader } from "@/lib/auth";
+
+const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
 
 export function SaTopbar({ onMenu }: { onMenu: () => void }) {
   const { theme, toggle } = useTheme();
+  const [name, setName] = useState("Super Administrator");
+  const [photo, setPhoto] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/admin/me`, { headers: { ...authHeader() } });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) {
+          setName(data.name);
+          setPhoto(data.photo ?? undefined);
+        }
+      } catch {
+        // topbar identity is a nice-to-have — a failed fetch just keeps the fallback label
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const initials = name.split(" ").map((n) => n[0]).join("").slice(0, 2);
+
   return (
     <header className="sticky top-0 z-30 glass">
       <div className="flex h-16 items-center gap-3 px-4 md:px-6">
@@ -38,18 +65,20 @@ export function SaTopbar({ onMenu }: { onMenu: () => void }) {
           <DropdownMenu>
             <DropdownMenuTrigger className="ml-1 flex items-center gap-2 rounded-full border border-border bg-background/60 py-1 pl-1 pr-3 transition hover:bg-background">
               <Avatar className="h-8 w-8">
-                <AvatarImage src={superAdmin.photo} alt={superAdmin.name} />
-                <AvatarFallback>{superAdmin.name.split(" ").map(n=>n[0]).join("")}</AvatarFallback>
+                <AvatarImage src={photo} alt={name} />
+                <AvatarFallback>{initials}</AvatarFallback>
               </Avatar>
               <div className="hidden text-left sm:block">
-                <div className="text-xs font-semibold leading-tight">{superAdmin.name}</div>
+                <div className="text-xs font-semibold leading-tight">{name}</div>
                 <div className="text-[10px] text-muted-foreground">Super Admin</div>
               </div>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>{superAdmin.name}</DropdownMenuLabel>
+              <DropdownMenuLabel>{name}</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem><User className="mr-2 h-4 w-4" /> My Profile</DropdownMenuItem>
+              <Link to="/admin/profile">
+                <DropdownMenuItem><User className="mr-2 h-4 w-4" /> My Profile</DropdownMenuItem>
+              </Link>
               <DropdownMenuSeparator />
               <DropdownMenuItem className="text-destructive" onClick={logout}><LogOut className="mr-2 h-4 w-4" /> Logout</DropdownMenuItem>
             </DropdownMenuContent>

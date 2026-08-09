@@ -2,13 +2,15 @@ import csv
 import io
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from api.models import (
     User, RoleEnum, HOD, Student, Section, Department, Enrollment, Course, Teacher, department_slug,
-    InternalMark, MarkStatus, Notice, NoticeType, CalendarEvent, EventType, CourseGrade,
+    InternalMark, MarkStatus, Notice, NoticeType, CalendarEvent, EventType, CourseGrade, AttendanceRecord,
+    AttendanceStatus,
 )
-from api.grading import VALID_GRADES
+from api.grading import VALID_GRADES, grade_point
 from api.schemas import (
     CreateStudentRequest, CreateStudentResponse, HodStudentOut, UpdateStudentRequest,
     HodCourseOut, CreateCourseRequest, UpdateCourseRequest, HodTeacherOut, HodCourseRosterStudent,
@@ -49,6 +51,64 @@ def _course_out(db: Session, course: Course) -> HodCourseOut:
         enrolled=enrolled,
     )
 
+
+def _bulk_student_stats(db: Session, student_ids: list[str]) -> dict[str, dict]:
+    """One batched query per metric instead of one query per student (was N+1).
+
+    Returns {student_id: {"courses_enrolled": int, "attendance_pct": float, "gpa": float}}.
+    Missing entries default to zeros by the caller.
+    """
+    stats: dict[str, dict] = {
+        sid: {"courses_enrolled": 0, "attendance_pct": 0.0, "gpa": 0.0} for sid in student_ids
+    }
+    if not student_ids:
+        return stats
+
+    for sid, count in (
+        db.query(Enrollment.student_id, func.count(Enrollment.id))
+        .filter(Enrollment.student_id.in_(student_ids))
+        .group_by(Enrollment.student_id)
+        .all()
+    ):
+        stats[sid]["courses_enrolled"] = count
+
+    # attendance %: present / (present + absent); "pending" rows aren't decided yet so excluded
+    for sid, status, count in (
+        db.query(AttendanceRecord.student_id, AttendanceRecord.status, func.count(AttendanceRecord.id))
+        .filter(AttendanceRecord.student_id.in_(student_ids), AttendanceRecord.status != AttendanceStatus.pending)
+        .group_by(AttendanceRecord.student_id, AttendanceRecord.status)
+        .all()
+    ):
+        entry = stats[sid].setdefault("_att_counts", {"present": 0, "absent": 0})
+        entry[status.value] = count
+    for sid in student_ids:
+        counts = stats[sid].pop("_att_counts", None)
+        if counts:
+            total = counts["present"] + counts["absent"]
+            stats[sid]["attendance_pct"] = round(counts["present"] / total * 100, 1) if total else 0.0
+
+    # GPA: credit-weighted average grade point over published, graded CourseGrade rows
+    grade_rows = (
+        db.query(CourseGrade.student_id, CourseGrade.grade, Course.credits)
+        .join(Course, Course.id == CourseGrade.course_id)
+        .filter(
+            CourseGrade.student_id.in_(student_ids),
+            CourseGrade.status == MarkStatus.published,
+            CourseGrade.grade != "",
+        )
+        .all()
+    )
+    weighted: dict[str, list[float]] = {}
+    for sid, grade, credits in grade_rows:
+        credits = credits or 0
+        w = weighted.setdefault(sid, [0.0, 0.0])  # [credit-weighted points, total credits]
+        w[0] += grade_point(grade) * credits
+        w[1] += credits
+    for sid, (points, credits) in weighted.items():
+        stats[sid]["gpa"] = round(points / credits, 2) if credits else 0.0
+
+    return stats
+
 @router.get("/me", response_model=HodListingOut)
 def my_profile(
     db: Session = Depends(get_db),
@@ -81,12 +141,10 @@ def list_students(
 
     # section id -> label, fetched once instead of per-row
     section_labels = {s.id: s.label for s in db.query(Section).all()}
+    stats = _bulk_student_stats(db, [s.id for s in students])
 
     result: list[HodStudentOut] = []
     for s in students:
-        courses_enrolled = (
-            db.query(Enrollment).filter(Enrollment.student_id == s.id).count()
-        )
         result.append(
             HodStudentOut(
                 id=s.id,
@@ -101,7 +159,9 @@ def list_students(
                 address=s.address,
                 guardian_name=s.guardian_name,
                 guardian_phone=s.guardian_phone,
-                courses_enrolled=courses_enrolled,
+                courses_enrolled=stats[s.id]["courses_enrolled"],
+                attendance_pct=stats[s.id]["attendance_pct"],
+                gpa=stats[s.id]["gpa"],
             )
         )
     return result
@@ -205,7 +265,7 @@ def update_student(
 
     dept = db.query(Department).filter(Department.id == hod.department_id).first()
     section_row = db.query(Section).filter(Section.id == student.section_id).first()
-    courses_enrolled = db.query(Enrollment).filter(Enrollment.student_id == student.id).count()
+    stats = _bulk_student_stats(db, [student.id])[student.id]
 
     return HodStudentOut(
         id=student.id,
@@ -220,7 +280,9 @@ def update_student(
         address=student.address,
         guardian_name=student.guardian_name,
         guardian_phone=student.guardian_phone,
-        courses_enrolled=courses_enrolled,
+        courses_enrolled=stats["courses_enrolled"],
+        attendance_pct=stats["attendance_pct"],
+        gpa=stats["gpa"],
     )
 
 
@@ -240,7 +302,13 @@ def delete_student(
         raise HTTPException(status_code=404, detail="Student not found in your department")
 
     user_id = student.user_id
+    # Clean up every table that FKs to students.id before deleting the row —
+    # none of these have ondelete=CASCADE set, so Postgres will reject the
+    # delete with an IntegrityError if any of this is skipped.
     db.query(Enrollment).filter(Enrollment.student_id == student.id).delete()
+    db.query(AttendanceRecord).filter(AttendanceRecord.student_id == student.id).delete()
+    db.query(InternalMark).filter(InternalMark.student_id == student.id).delete()
+    db.query(CourseGrade).filter(CourseGrade.student_id == student.id).delete()
     db.delete(student)
     if user_id:
         user = db.query(User).filter(User.id == user_id).first()

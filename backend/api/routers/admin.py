@@ -1,15 +1,16 @@
 import os
 import re
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 
+import pyotp
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from api.database import get_db, engine
 from api.models import (
     User, RoleEnum, Teacher, Course, HOD, Department, department_slug, Admin, Student,
-    Section, Enrollment, SystemSettings,
+    Section, Enrollment, SystemSettings, AuditLog,
 )
 from api.schemas import (
     CreateUserRequest, CreateUserResponse, ChangePasswordRequest,
@@ -19,6 +20,7 @@ from api.schemas import (
     TeacherListingOut, UpdateTeacherRequest,
     AdminMeOut, AdminOverviewOut, AdminDeptTeacherCount, AdminStudentOut,
     SettingsOut, UpdateSettingsRequest, BackupTriggerResponse, SystemInfoOut,
+    AuditLogOut, TwoFactorSetupResponse, TwoFactorVerifyRequest, TwoFactorStatusResponse,
 )
 from api.auth import (
     hash_password, verify_password, generate_default_password,
@@ -56,6 +58,20 @@ def _get_or_create_settings(db: Session) -> SystemSettings:
     return settings
 
 
+def _log_action(db: Session, settings: SystemSettings, current_user: User, action: str, detail: str | None = None) -> None:
+    """No-ops unless the audit_logs toggle is on — this IS the enforcement
+    for that setting, not just a display of it."""
+    if not settings.audit_logs_enabled:
+        return
+    db.add(AuditLog(
+        actor_email=current_user.email,
+        actor_role=current_user.role.value,
+        action=action,
+        detail=detail,
+    ))
+    db.commit()
+
+
 @router.get("/settings", response_model=SettingsOut)
 def get_settings(
     db: Session = Depends(get_db),
@@ -71,10 +87,12 @@ def update_settings(
     current_user: User = Depends(require_role(RoleEnum.admin)),
 ):
     settings = _get_or_create_settings(db)
+    changed_fields = list(payload.dict(exclude_unset=True).keys())
     for field, value in payload.dict(exclude_unset=True).items():
         setattr(settings, field, value)
     db.commit()
     db.refresh(settings)
+    _log_action(db, settings, current_user, "settings.update", ", ".join(changed_fields) or None)
     return settings
 
 
@@ -89,6 +107,7 @@ def trigger_backup(
     settings.last_backup_at = datetime.utcnow()
     db.commit()
     db.refresh(settings)
+    _log_action(db, settings, current_user, "settings.backup_triggered")
     return BackupTriggerResponse(last_backup_at=settings.last_backup_at)
 
 
@@ -105,6 +124,79 @@ def system_info(
     )
 
 
+@router.get("/audit-logs", response_model=list[AuditLogOut])
+def list_audit_logs(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.admin)),
+):
+    return (
+        db.query(AuditLog)
+        .order_by(AuditLog.created_at.desc())
+        .limit(50)
+        .all()
+    )
+
+
+@router.post("/2fa/setup", response_model=TwoFactorSetupResponse)
+def setup_two_factor(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.admin)),
+):
+    """Generates (or regenerates, if setup was abandoned) a TOTP secret.
+    The secret isn't active until /2fa/enable confirms a code from it."""
+    if current_user.totp_enabled:
+        raise HTTPException(status_code=400, detail="Two-factor authentication is already enabled")
+
+    secret = pyotp.random_base32()
+    current_user.totp_secret = secret
+    db.commit()
+
+    totp = pyotp.TOTP(secret)
+    uri = totp.provisioning_uri(name=current_user.email, issuer_name="Smart Student Management System")
+    return TwoFactorSetupResponse(secret=secret, otpauth_url=uri)
+
+
+@router.post("/2fa/enable", response_model=TwoFactorStatusResponse)
+def enable_two_factor(
+    payload: TwoFactorVerifyRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.admin)),
+):
+    if not current_user.totp_secret:
+        raise HTTPException(status_code=400, detail="Start 2FA setup first")
+
+    totp = pyotp.TOTP(current_user.totp_secret)
+    if not totp.verify(payload.code.strip(), valid_window=1):
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+
+    current_user.totp_enabled = True
+    db.commit()
+    settings = _get_or_create_settings(db)
+    _log_action(db, settings, current_user, "admin.2fa_enabled")
+    return TwoFactorStatusResponse(enabled=True)
+
+
+@router.post("/2fa/disable", response_model=TwoFactorStatusResponse)
+def disable_two_factor(
+    payload: TwoFactorVerifyRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.admin)),
+):
+    if not current_user.totp_enabled:
+        raise HTTPException(status_code=400, detail="Two-factor authentication is not enabled")
+
+    totp = pyotp.TOTP(current_user.totp_secret or "")
+    if not totp.verify(payload.code.strip(), valid_window=1):
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+
+    current_user.totp_enabled = False
+    current_user.totp_secret = None
+    db.commit()
+    settings = _get_or_create_settings(db)
+    _log_action(db, settings, current_user, "admin.2fa_disabled")
+    return TwoFactorStatusResponse(enabled=False)
+
+
 @router.get("/me", response_model=AdminMeOut)
 def my_profile(
     db: Session = Depends(get_db),
@@ -117,6 +209,8 @@ def my_profile(
         name=admin.name, title=admin.title, email=admin.email or current_user.email,
         phone=admin.phone, institution=admin.institution,
         qualification=admin.qualification, experience=admin.experience, photo=admin.photo,
+        must_change_password=current_user.must_change_password,
+        two_factor_enabled=current_user.totp_enabled,
     )
 
 
@@ -239,7 +333,10 @@ def change_password(
 
     current_user.hashed_password = hash_password(payload.new_password)
     current_user.must_change_password = False
+    current_user.password_changed_at = datetime.utcnow()  # feeds the password-rotation check at login
     db.commit()
+    settings = _get_or_create_settings(db)
+    _log_action(db, settings, current_user, "account.password_changed")
     return {"message": "Password updated successfully"}
 
 @router.post("/teachers", response_model=CreateTeacherResponse)
@@ -296,6 +393,9 @@ def create_teacher(
 
     db.commit()
 
+    settings = _get_or_create_settings(db)
+    _log_action(db, settings, current_user, "teacher.create", f"{payload.name} ({payload.email})")
+
     return CreateTeacherResponse(
         teacher_id=teacher.id, user_id=user.id, email=user.email,
         default_password=default_password, assigned_course_ids=assigned_ids,
@@ -334,6 +434,9 @@ def create_hod(
     db.add(hod)
     db.commit()
     db.refresh(hod)
+
+    settings = _get_or_create_settings(db)
+    _log_action(db, settings, current_user, "hod.create", f"{payload.name} ({payload.email})")
 
     return CreateHodResponse(hod_id=hod.id, user_id=user.id, email=user.email, default_password=default_password)
 
@@ -414,6 +517,7 @@ def delete_hod(
     if not hod:
         raise HTTPException(status_code=404, detail="HOD not found")
 
+    hod_name = hod.name
     user_id = hod.user_id
     db.delete(hod)
     if user_id:
@@ -421,6 +525,8 @@ def delete_hod(
         if user:
             db.delete(user)
     db.commit()
+    settings = _get_or_create_settings(db)
+    _log_action(db, settings, current_user, "hod.delete", hod_name)
     return {"deleted": hod_id}
 
 @router.get("/teachers", response_model=list[TeacherListingOut])
@@ -501,6 +607,7 @@ def delete_teacher(
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
 
+    teacher_name = teacher.name
     user_id = teacher.user_id
     # unassign rather than delete their courses — the courses should survive
     db.query(Course).filter(Course.teacher_id == teacher.id).update({Course.teacher_id: None})
@@ -510,4 +617,6 @@ def delete_teacher(
         if user:
             db.delete(user)
     db.commit()
+    settings = _get_or_create_settings(db)
+    _log_action(db, settings, current_user, "teacher.delete", teacher_name)
     return {"deleted": teacher_id}

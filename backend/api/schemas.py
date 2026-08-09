@@ -194,6 +194,8 @@ class AdminMeOut(BaseModel):
     qualification: Optional[str] = None
     experience: Optional[str] = None
     photo: Optional[str] = None
+    must_change_password: bool = False
+    two_factor_enabled: bool = False
 
     class Config:
         from_attributes = True
@@ -621,3 +623,15 @@ class SystemInfoOut(BaseModel):
     environment: str
     database: str
     uptime_seconds: int
+
+
+class AuditLogOut(BaseModel):
+    id: int
+    actor_email: str
+    actor_role: str
+    action: str
+    detail: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

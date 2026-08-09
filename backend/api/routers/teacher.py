@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 
 from api.database import get_db
-from api.models import User, RoleEnum, Teacher, Course, Enrollment, Student, InternalMark, MarkStatus, Notice
+from api.models import User, RoleEnum, Teacher, Course, Enrollment, Student, InternalMark, Notice
 from api.auth import require_role
 from api.schemas import (
     CourseOut, StudentMarkRow, SaveMarksRequest, FIELD_MAX, NoticeOut, SearchResultOut,
@@ -177,27 +177,12 @@ def save_marks(
             db.add(mark)
         for field in FIELD_MAX:
             setattr(mark, field, _clamp(field, getattr(row, field)))
-        # status is untouched here on purpose — saving a draft never un-publishes,
-        # and publishing only happens through the dedicated endpoint below
+        # status is untouched here on purpose — teachers only ever save drafts.
+        # Publishing is the HOD's call (see api/routers/hod.py), made after
+        # reviewing/adjusting marks — teachers have no publish endpoint here.
 
     db.commit()
     return {"saved": len(payload.rows)}
-
-
-@router.post("/courses/{course_id}/marks/publish")
-def publish_marks(
-    course_id: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_role(RoleEnum.teacher)),
-):
-    _get_owned_course(db, current_user, course_id)
-    updated = (
-        db.query(InternalMark)
-        .filter(InternalMark.course_id == course_id)
-        .update({InternalMark.status: MarkStatus.published})
-    )
-    db.commit()
-    return {"published": updated}
 
 @router.get("/notices", response_model=list[NoticeOut])
 def list_department_notices(

@@ -1,6 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { Award, TrendingUp, TrendingDown, Clock } from "lucide-react";
+import { Award, TrendingUp, TrendingDown, Clock, ArrowRight } from "lucide-react";
 import { authHeader } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard } from "@/features/HoD/components/StatCard";
@@ -56,9 +56,14 @@ function Marks() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="font-display text-2xl font-bold">Internal Marks Monitoring</h1>
-        <p className="text-sm text-muted-foreground">Department-wide internal assessment summary (published marks only).</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl font-bold">Internal Marks Monitoring</h1>
+          <p className="text-sm text-muted-foreground">Department-wide internal assessment summary (published marks only).</p>
+        </div>
+        <Link to="/hod/internal-results" className="inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-soft transition hover:opacity-90">
+          Review &amp; Publish <ArrowRight className="h-4 w-4" />
+        </Link>
       </div>
 
       {error && !loading && (

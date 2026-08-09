@@ -19,7 +19,7 @@ import {
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/select";
-import { sections, type Section } from "@/features/HoD/lib/hod-mock-data";
+import { sections, sectionLabel, type Section } from "@/features/HoD/lib/hod-mock-data";
 
 export const Route = createFileRoute("/hod/courses")({
   head: () => ({ meta: [{ title: "Course Management · HOD" }] }),
@@ -110,7 +110,7 @@ function Courses() {
       setForm({ ...emptyForm });
       toast.success(
         data.enrolled > 0
-          ? `Course created — ${data.enrolled} student${data.enrolled === 1 ? "" : "s"} from Sem ${data.sem} Sec ${data.section} auto-enrolled.`
+          ? `Course created — ${data.enrolled} student${data.enrolled === 1 ? "" : "s"} from Sem ${data.sem} Sec ${sectionLabel(data.section)} auto-enrolled.`
           : "Course created",
       );
     } catch {
@@ -199,6 +199,7 @@ function Courses() {
         c.name.toLowerCase().includes(query) ||
         (c.teacherName ?? "").toLowerCase().includes(query) ||
         c.section.toLowerCase().includes(query) ||
+        sectionLabel(c.section).toLowerCase().includes(query) ||
         `sem ${c.sem}`.includes(query),
       )
     : courses;
@@ -260,7 +261,7 @@ function Courses() {
                 </div>
                 <div className="flex gap-1">
                   <Badge variant="secondary" className="rounded-lg">Sem {c.sem}</Badge>
-                  <Badge variant="outline" className="rounded-lg">Sec {c.section}</Badge>
+                  <Badge variant="outline" className="rounded-lg">Sec {sectionLabel(c.section)}</Badge>
                 </div>
               </div>
               <div>
@@ -323,7 +324,7 @@ function Courses() {
             <Field label="Section" className="sm:col-span-2">
               <Select value={form.section} onValueChange={(v) => setForm({ ...form, section: v as Section })}>
                 <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
-                <SelectContent>{sections.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                <SelectContent>{sections.map((s) => <SelectItem key={s} value={s}>{sectionLabel(s)}</SelectItem>)}</SelectContent>
               </Select>
             </Field>
           </div>
@@ -353,7 +354,7 @@ function Courses() {
                   <Field label="Section">
                     <Select value={editForm.section} onValueChange={(v) => setEditForm({ ...editForm, section: v as Section })}>
                       <SelectTrigger className="rounded-xl"><SelectValue /></SelectTrigger>
-                      <SelectContent>{sections.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                      <SelectContent>{sections.map((s) => <SelectItem key={s} value={s}>{sectionLabel(s)}</SelectItem>)}</SelectContent>
                     </Select>
                   </Field>
                 </div>

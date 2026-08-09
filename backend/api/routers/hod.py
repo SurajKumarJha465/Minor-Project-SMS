@@ -21,6 +21,7 @@ from api.schemas import (
     HodGradeRow, SaveGradesRequest, StudentMarkRow, SaveMarksRequest,
     HodAttendanceReport, HodCourseAttendance, HodTeacherAttendance, HodLowAttendanceStudent,
     SearchResultOut,
+    SemesterResultImportResponse, SemesterResultImportSkip, HodSemesterCourseSummary, HodSemesterResultsSummary,
 )
 from api.auth import hash_password, generate_default_password, require_role
 from api.database import get_db
@@ -817,6 +818,147 @@ def publish_grades(
         db.query(CourseGrade)
         .filter(CourseGrade.course_id == course_id)
         .update({CourseGrade.status: MarkStatus.published})
+    )
+    db.commit()
+    return {"published": updated}
+
+
+@router.post("/semesters/{sem}/results/import-csv", response_model=SemesterResultImportResponse)
+async def import_semester_results_csv(
+    sem: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    """Bulk-load an entire semester's final results from one exam-office
+    sheet spanning every course, instead of importing course by course.
+    Expected columns: 'enrollment', 'course_code', 'grade' — one row per
+    (student, course) result. A course code can exist in more than one
+    section of the same semester; which exact Course row a row belongs to
+    is resolved by finding the course the student is actually enrolled in,
+    not by a section column, so the sheet doesn't need to name a section.
+    Rows land as drafts — nothing here publishes automatically. Rows that
+    don't resolve to exactly one enrolled course, or carry an unrecognized
+    grade, are skipped and reported back rather than failing the whole
+    import."""
+    hod = _current_hod(db, current_user)
+
+    raw = (await file.read()).decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(raw))
+    headers = {f.strip().lower() for f in (reader.fieldnames or [])}
+    if not {"enrollment", "course_code", "grade"}.issubset(headers):
+        raise HTTPException(status_code=400, detail="CSV must have 'enrollment', 'course_code' and 'grade' columns")
+
+    dept_courses = db.query(Course).filter(Course.department_id == hod.department_id, Course.sem == sem).all()
+    courses_by_code: dict[str, list[Course]] = {}
+    for c in dept_courses:
+        courses_by_code.setdefault(c.code.strip().upper(), []).append(c)
+
+    # not filtered by Student.sem — a repeat/backlog student's *current*
+    # semester may have moved on since this result sheet's semester, but
+    # their Enrollment row still ties them to the right course below
+    students_by_enrollment = {
+        s.enrollment: s for s in db.query(Student).filter(Student.department_id == hod.department_id).all()
+    }
+
+    saved = 0
+    skipped: list[SemesterResultImportSkip] = []
+    for row in reader:
+        row = {k.strip().lower(): v for k, v in row.items()}
+        enrollment = (row.get("enrollment") or "").strip()
+        code = (row.get("course_code") or "").strip().upper()
+        grade = (row.get("grade") or "").strip().upper()
+
+        student = students_by_enrollment.get(enrollment)
+        if not student:
+            skipped.append(SemesterResultImportSkip(
+                enrollment=enrollment, course_code=code, reason="student not found in this department"))
+            continue
+        candidates = courses_by_code.get(code, [])
+        if not candidates:
+            skipped.append(SemesterResultImportSkip(
+                enrollment=enrollment, course_code=code, reason=f"no course '{code}' in semester {sem}"))
+            continue
+        enrolled_course = next(
+            (c for c in candidates if db.query(Enrollment).filter(
+                Enrollment.course_id == c.id, Enrollment.student_id == student.id
+            ).first()),
+            None,
+        )
+        if not enrolled_course:
+            skipped.append(SemesterResultImportSkip(
+                enrollment=enrollment, course_code=code, reason="student is not enrolled in this course"))
+            continue
+        if grade not in VALID_GRADES:
+            skipped.append(SemesterResultImportSkip(
+                enrollment=enrollment, course_code=code, reason=f"unrecognized grade '{grade}'"))
+            continue
+
+        record = db.query(CourseGrade).filter(
+            CourseGrade.course_id == enrolled_course.id, CourseGrade.student_id == student.id
+        ).first()
+        if not record:
+            record = CourseGrade(course_id=enrolled_course.id, student_id=student.id)
+            db.add(record)
+        record.grade = grade
+        saved += 1
+
+    db.commit()
+    return SemesterResultImportResponse(saved=saved, skipped=skipped)
+
+
+@router.get("/semesters/{sem}/results", response_model=HodSemesterResultsSummary)
+def semester_results_summary(
+    sem: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    """Per-course rollup for a semester — how many students are graded vs
+    enrolled, and whether that course's grades are fully published — so the
+    HOD can review an import before publishing the whole semester at once."""
+    hod = _current_hod(db, current_user)
+    courses = db.query(Course).filter(Course.department_id == hod.department_id, Course.sem == sem).all()
+    course_ids = [c.id for c in courses]
+
+    grades = db.query(CourseGrade).filter(CourseGrade.course_id.in_(course_ids)).all() if course_ids else []
+    grades_by_course: dict[str, list[CourseGrade]] = {}
+    for g in grades:
+        grades_by_course.setdefault(g.course_id, []).append(g)
+
+    enrolled_counts = {
+        c.id: db.query(Enrollment).filter(Enrollment.course_id == c.id).count() for c in courses
+    }
+
+    summaries = []
+    for c in courses:
+        rows = grades_by_course.get(c.id, [])
+        graded_rows = [g for g in rows if g.grade]
+        summaries.append(HodSemesterCourseSummary(
+            course_id=c.id, code=c.code, name=c.name, section=(c.section_id or "").upper(),
+            graded=len(graded_rows), total_enrolled=enrolled_counts.get(c.id, 0),
+            published=bool(graded_rows) and all(g.status == MarkStatus.published for g in graded_rows),
+        ))
+    return HodSemesterResultsSummary(semester=sem, courses=summaries)
+
+
+@router.post("/semesters/{sem}/results/publish")
+def publish_semester_results(
+    sem: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    """Publishes every course's CourseGrade rows for this semester in one
+    action, instead of publishing course by course."""
+    hod = _current_hod(db, current_user)
+    course_ids = [
+        c.id for c in db.query(Course).filter(Course.department_id == hod.department_id, Course.sem == sem).all()
+    ]
+    if not course_ids:
+        return {"published": 0}
+    updated = (
+        db.query(CourseGrade)
+        .filter(CourseGrade.course_id.in_(course_ids))
+        .update({CourseGrade.status: MarkStatus.published}, synchronize_session=False)
     )
     db.commit()
     return {"published": updated}

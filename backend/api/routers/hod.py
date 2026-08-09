@@ -18,7 +18,7 @@ from api.schemas import (
     HodTeacherMarkStatus, HodResultsOverview, HodCoursePassFail, HodRankedStudent,
     NoticeOut, CreateNoticeRequest, UpdateNoticeRequest, HodListingOut,
     EventOut, CreateEventRequest, UpdateEventRequest,
-    HodGradeRow, SaveGradesRequest,
+    HodGradeRow, SaveGradesRequest, StudentMarkRow, SaveMarksRequest,
     HodAttendanceReport, HodCourseAttendance, HodTeacherAttendance, HodLowAttendanceStudent,
     SearchResultOut,
 )
@@ -603,6 +603,88 @@ def unenroll_student(
     ).delete()
     db.commit()
     return {"unenrolled": student_id}
+
+
+# --- Internal marks (InternalMark) ---
+# Teacher-entered, per-assessment continuous marks. Teachers can only save
+# drafts (see api/routers/teacher.py) — the HOD reviews what each teacher
+# entered, can correct any field, and is the one who publishes. Same
+# draft/publish lifecycle as final results below; students only ever see
+# published rows.
+
+@router.get("/courses/{course_id}/marks", response_model=list[StudentMarkRow])
+def get_course_marks(
+    course_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    hod = _current_hod(db, current_user)
+    _get_department_course(db, hod, course_id)
+
+    student_ids = [e.student_id for e in db.query(Enrollment).filter(Enrollment.course_id == course_id).all()]
+    students = db.query(Student).filter(Student.id.in_(student_ids)).order_by(Student.enrollment.asc()).all()
+    marks_by_student = {
+        m.student_id: m for m in db.query(InternalMark).filter(InternalMark.course_id == course_id).all()
+    }
+
+    result = []
+    for s in students:
+        m = marks_by_student.get(s.id)
+        result.append(StudentMarkRow(
+            student_id=s.id, name=s.name, enrollment=s.enrollment,
+            p_att=m.p_att if m else 0, p_lab=m.p_lab if m else 0,
+            p_exam=m.p_exam if m else 0, p_viva=m.p_viva if m else 0,
+            t_att=m.t_att if m else 0, t_assign=m.t_assign if m else 0,
+            t_present=m.t_present if m else 0, t_assess=m.t_assess if m else 0,
+            status=m.status.value if m else "draft",
+        ))
+    return result
+
+
+@router.put("/courses/{course_id}/marks")
+def save_course_marks(
+    course_id: str,
+    payload: SaveMarksRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    hod = _current_hod(db, current_user)
+    _get_department_course(db, hod, course_id)
+    enrolled_ids = {e.student_id for e in db.query(Enrollment).filter(Enrollment.course_id == course_id).all()}
+
+    for row in payload.rows:
+        if row.student_id not in enrolled_ids:
+            raise HTTPException(status_code=400, detail=f"Student {row.student_id} is not enrolled in this course")
+        mark = db.query(InternalMark).filter(
+            InternalMark.course_id == course_id, InternalMark.student_id == row.student_id
+        ).first()
+        if not mark:
+            mark = InternalMark(course_id=course_id, student_id=row.student_id)
+            db.add(mark)
+        for field in FIELD_MAX:
+            setattr(mark, field, max(0, min(FIELD_MAX[field], getattr(row, field))))
+        # status untouched here on purpose — same rule as everywhere else:
+        # saving a draft never un-publishes; publish is the dedicated step below
+
+    db.commit()
+    return {"saved": len(payload.rows)}
+
+
+@router.post("/courses/{course_id}/marks/publish")
+def publish_course_marks(
+    course_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    hod = _current_hod(db, current_user)
+    _get_department_course(db, hod, course_id)
+    updated = (
+        db.query(InternalMark)
+        .filter(InternalMark.course_id == course_id)
+        .update({InternalMark.status: MarkStatus.published})
+    )
+    db.commit()
+    return {"published": updated}
 
 
 # --- Final results (CourseGrade) ---

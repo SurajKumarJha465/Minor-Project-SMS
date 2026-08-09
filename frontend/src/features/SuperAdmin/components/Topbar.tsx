@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
-import { Link } from "@tanstack/react-router";
-import { Search, Sun, Moon, Menu, LogOut, User, ShieldCheck } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import {
+  Search, Sun, Moon, Menu, LogOut, User, ShieldCheck, GraduationCap, BookOpen, Users, Loader2,
+} from "lucide-react";
 import { logout } from "@/lib/auth";
 import { useTheme } from "@/components/theme-provider";
 import { Input } from "@/components/ui/input";
@@ -12,6 +14,143 @@ import {
 import { authHeader } from "@/lib/auth";
 
 const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+type SearchResult = {
+  type: "student" | "teacher" | "hod";
+  id: string;
+  name: string;
+  subtitle: string;
+  photo?: string | null;
+};
+
+const RESULT_ROUTE: Record<SearchResult["type"], string> = {
+  student: "/admin/students",
+  teacher: "/admin/teachers",
+  hod: "/admin/hods",
+};
+
+const RESULT_ICON: Record<SearchResult["type"], typeof GraduationCap> = {
+  student: GraduationCap,
+  teacher: BookOpen,
+  hod: Users,
+};
+
+const RESULT_LABEL: Record<SearchResult["type"], string> = {
+  student: "Students",
+  teacher: "Teachers",
+  hod: "HODs",
+};
+
+function GlobalSearch() {
+  const navigate = useNavigate();
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const trimmed = query.trim();
+    if (trimmed.length < 2) {
+      setResults([]);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/admin/search?q=${encodeURIComponent(trimmed)}`, {
+          headers: { ...authHeader() },
+        });
+        if (!res.ok) return;
+        const data: SearchResult[] = await res.json();
+        setResults(data);
+      } catch {
+        // search dropdown just stays empty on failure
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query]);
+
+  function goToResult(result: SearchResult) {
+    navigate({ to: RESULT_ROUTE[result.type], search: { q: result.name } });
+    setOpen(false);
+    setQuery("");
+    setResults([]);
+  }
+
+  const grouped = (["student", "teacher", "hod"] as const)
+    .map((type) => ({ type, items: results.filter((r) => r.type === type) }))
+    .filter((g) => g.items.length > 0);
+
+  return (
+    <div ref={containerRef} className="relative ml-2 hidden max-w-md flex-1 md:block">
+      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        placeholder="Search HODs, teachers, students…"
+        className="h-10 rounded-xl bg-background/70 pl-9"
+        value={query}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+      />
+      {open && query.trim().length >= 2 ? (
+        <div className="absolute left-0 right-0 top-11 z-40 max-h-96 overflow-y-auto rounded-xl border border-border bg-popover shadow-lg">
+          {searching ? (
+            <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Searching…
+            </div>
+          ) : grouped.length === 0 ? (
+            <div className="p-4 text-sm text-muted-foreground">No matches for "{query.trim()}"</div>
+          ) : (
+            grouped.map((group) => {
+              const Icon = RESULT_ICON[group.type];
+              return (
+                <div key={group.type} className="border-b border-border/60 py-1.5 last:border-0">
+                  <div className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    {RESULT_LABEL[group.type]}
+                  </div>
+                  {group.items.map((item) => (
+                    <button
+                      key={`${item.type}-${item.id}`}
+                      type="button"
+                      onClick={() => goToResult(item)}
+                      className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-muted"
+                    >
+                      <Avatar className="h-7 w-7">
+                        <AvatarImage src={item.photo ?? undefined} alt={item.name} />
+                        <AvatarFallback><Icon className="h-3.5 w-3.5" /></AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-medium">{item.name}</div>
+                        <div className="truncate text-xs text-muted-foreground">{item.subtitle}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              );
+            })
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export function SaTopbar({ onMenu }: { onMenu: () => void }) {
   const { theme, toggle } = useTheme();
@@ -52,10 +191,7 @@ export function SaTopbar({ onMenu }: { onMenu: () => void }) {
           <div className="text-sm font-semibold">Student Management System</div>
         </div>
 
-        <div className="relative ml-2 hidden max-w-md flex-1 md:block">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input placeholder="Search HODs, teachers, students…" className="h-10 rounded-xl bg-background/70 pl-9" />
-        </div>
+        <GlobalSearch />
 
         <div className="ml-auto flex items-center gap-1.5 md:gap-2">
           <IconBtn label="Toggle theme" onClick={toggle}>

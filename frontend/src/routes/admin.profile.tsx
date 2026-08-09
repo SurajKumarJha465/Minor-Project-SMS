@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
-  Mail, Phone, Shield, Pencil, KeyRound, ShieldCheck, ShieldOff, Building2, Award, Copy,
+  Mail, Phone, Shield, Pencil, KeyRound, ShieldCheck, ShieldOff, Building2, Award, Copy, Camera,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -57,6 +57,18 @@ function ProfilePage() {
   const [disableCode, setDisableCode] = useState("");
   const [disableBusy, setDisableBusy] = useState(false);
 
+  // Edit profile flow
+  const [editOpen, setEditOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editTitle, setEditTitle] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editInstitution, setEditInstitution] = useState("");
+  const [editQualification, setEditQualification] = useState("");
+  const [editExperience, setEditExperience] = useState("");
+  const [editPhoto, setEditPhoto] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+
   async function loadProfile() {
     setLoading(true);
     setLoadError(null);
@@ -73,6 +85,60 @@ function ProfilePage() {
   }
 
   useEffect(() => { loadProfile(); }, []);
+
+  function openEditDialog() {
+    if (!admin) return;
+    setEditName(admin.name ?? "");
+    setEditTitle(admin.title ?? "");
+    setEditEmail(admin.email ?? "");
+    setEditPhone(admin.phone ?? "");
+    setEditInstitution(admin.institution ?? "");
+    setEditQualification(admin.qualification ?? "");
+    setEditExperience(admin.experience ?? "");
+    setEditPhoto(admin.photo ?? "");
+    setEditOpen(true);
+  }
+
+  function closeEditDialog() {
+    setEditOpen(false);
+  }
+
+  async function submitProfileEdit() {
+    if (!editName.trim()) {
+      toast.error("Name can't be empty.");
+      return;
+    }
+    setEditSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/me`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({
+          name: editName.trim(),
+          title: editTitle.trim() || null,
+          email: editEmail.trim() || null,
+          phone: editPhone.trim() || null,
+          institution: editInstitution.trim() || null,
+          qualification: editQualification.trim() || null,
+          experience: editExperience.trim() || null,
+          photo: editPhoto.trim() || null,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail ?? "Failed to update profile");
+        return;
+      }
+      const data = await res.json();
+      setAdmin(data);
+      toast.success("Profile updated successfully.");
+      closeEditDialog();
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    } finally {
+      setEditSaving(false);
+    }
+  }
 
   function closePasswordDialog() {
     setPwOpen(false);
@@ -228,7 +294,7 @@ function ProfilePage() {
             <Button
               variant="secondary"
               className="rounded-xl bg-white text-primary hover:bg-white/90"
-              onClick={() => toast.info("Profile detail editing isn't wired up yet.")}
+              onClick={openEditDialog}
             >
               <Pencil className="mr-1.5 h-4 w-4" /> Edit Profile
             </Button>
@@ -294,6 +360,72 @@ function ProfilePage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Edit profile dialog */}
+      <Dialog open={editOpen} onOpenChange={(o) => !o && closeEditDialog()}>
+        <DialogContent className="rounded-2xl sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Profile</DialogTitle>
+            <DialogDescription>Update your profile details.</DialogDescription>
+          </DialogHeader>
+          <div className="grid max-h-[60vh] gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
+            <div className="flex items-center gap-4 sm:col-span-2">
+              <Avatar className="h-16 w-16">
+                <AvatarImage src={editPhoto || undefined} />
+                <AvatarFallback>{editName ? editName[0] : "A"}</AvatarFallback>
+              </Avatar>
+              <div className="flex-1 space-y-1.5">
+                <Label htmlFor="edit-photo" className="text-xs text-muted-foreground">Profile Photo URL</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="edit-photo"
+                    value={editPhoto}
+                    onChange={(e) => setEditPhoto(e.target.value)}
+                    placeholder="https://…"
+                  />
+                  <Button type="button" variant="outline" size="icon" className="shrink-0 rounded-xl" disabled>
+                    <Camera className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="edit-name">Full Name</Label>
+              <Input id="edit-name" value={editName} onChange={(e) => setEditName(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-title">Title</Label>
+              <Input id="edit-title" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} placeholder="Super Administrator" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-email">Email</Label>
+              <Input id="edit-email" type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-phone">Phone</Label>
+              <Input id="edit-phone" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-institution">Institution</Label>
+              <Input id="edit-institution" value={editInstitution} onChange={(e) => setEditInstitution(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-qualification">Qualification</Label>
+              <Input id="edit-qualification" value={editQualification} onChange={(e) => setEditQualification(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-experience">Experience</Label>
+              <Input id="edit-experience" value={editExperience} onChange={(e) => setEditExperience(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={closeEditDialog}>Cancel</Button>
+            <Button className="rounded-xl gradient-brand text-white" disabled={editSaving} onClick={submitProfileEdit}>
+              {editSaving ? "Saving…" : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Change password dialog */}
       <Dialog open={pwOpen} onOpenChange={(o) => !o && closePasswordDialog()}>

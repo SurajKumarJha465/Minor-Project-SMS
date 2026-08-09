@@ -25,6 +25,9 @@ import { authHeader } from "@/lib/auth";
 
 export const Route = createFileRoute("/admin/teachers")({
   head: () => ({ meta: [{ title: "Teacher Management · Super Admin" }] }),
+  validateSearch: (search: Record<string, unknown>) => ({
+    q: typeof search.q === "string" ? search.q : undefined,
+  }),
   component: TeachersPage,
 });
 
@@ -55,10 +58,11 @@ const emptyTeacherForm = {
 };
 
 function TeachersPage() {
+  const { q: initialQ } = Route.useSearch();
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(initialQ ?? "");
   const rows = teachers.filter((t) => (t.name + t.specialization + t.department).toLowerCase().includes(q.toLowerCase()));
 
   useEffect(() => {

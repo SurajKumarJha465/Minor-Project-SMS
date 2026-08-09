@@ -18,7 +18,8 @@ from api.schemas import (
     CreateHodRequest, CreateHodResponse,
     HodListingOut, UpdateHodRequest,
     TeacherListingOut, UpdateTeacherRequest,
-    AdminMeOut, AdminOverviewOut, AdminDeptTeacherCount, AdminStudentOut,
+    AdminMeOut, UpdateAdminProfileRequest,
+    AdminOverviewOut, AdminDeptTeacherCount, AdminStudentOut, AdminSearchResult,
     SettingsOut, UpdateSettingsRequest, BackupTriggerResponse, SystemInfoOut,
     AuditLogOut, TwoFactorSetupResponse, TwoFactorVerifyRequest, TwoFactorStatusResponse,
 )
@@ -212,6 +213,90 @@ def my_profile(
         must_change_password=current_user.must_change_password,
         two_factor_enabled=current_user.totp_enabled,
     )
+
+
+@router.patch("/me", response_model=AdminMeOut)
+def update_my_profile(
+    payload: UpdateAdminProfileRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.admin)),
+):
+    admin = db.query(Admin).filter(Admin.user_id == current_user.id).first()
+    if not admin:
+        raise HTTPException(status_code=400, detail="No admin profile linked to this account")
+
+    changed_fields = list(payload.dict(exclude_unset=True).keys())
+    for field, value in payload.dict(exclude_unset=True).items():
+        setattr(admin, field, value)
+    db.commit()
+    db.refresh(admin)
+
+    settings = _get_or_create_settings(db)
+    _log_action(db, settings, current_user, "admin.profile_update", ", ".join(changed_fields) or None)
+
+    return AdminMeOut(
+        name=admin.name, title=admin.title, email=admin.email or current_user.email,
+        phone=admin.phone, institution=admin.institution,
+        qualification=admin.qualification, experience=admin.experience, photo=admin.photo,
+        must_change_password=current_user.must_change_password,
+        two_factor_enabled=current_user.totp_enabled,
+    )
+
+
+@router.get("/search", response_model=list[AdminSearchResult])
+def global_search(
+    q: str = "",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.admin)),
+):
+    """Combined lookup across students, teachers, and HODs for the topbar search."""
+    query = q.strip()
+    if len(query) < 2:
+        return []
+
+    like = f"%{query}%"
+    dept_map = {d.id: d.name for d in db.query(Department).all()}
+    results: list[AdminSearchResult] = []
+
+    students = (
+        db.query(Student)
+        .filter((Student.name.ilike(like)) | (Student.enrollment.ilike(like)) | (Student.email.ilike(like)))
+        .limit(6)
+        .all()
+    )
+    for s in students:
+        dept = dept_map.get(s.department_id, s.department_id or "")
+        results.append(AdminSearchResult(
+            type="student", id=s.id, name=s.name,
+            subtitle=f"{s.enrollment or '—'} · {dept}" if dept else (s.enrollment or ""),
+            photo=s.photo,
+        ))
+
+    teachers = (
+        db.query(Teacher)
+        .filter((Teacher.name.ilike(like)) | (Teacher.email.ilike(like)))
+        .limit(6)
+        .all()
+    )
+    for t in teachers:
+        dept = dept_map.get(t.department_id, t.department_id or "")
+        results.append(AdminSearchResult(
+            type="teacher", id=f"T{t.id}", name=t.name, subtitle=dept, photo=t.photo,
+        ))
+
+    hods = (
+        db.query(HOD)
+        .filter((HOD.name.ilike(like)) | (HOD.email.ilike(like)))
+        .limit(6)
+        .all()
+    )
+    for h in hods:
+        dept = dept_map.get(h.department_id, h.department_id or "")
+        results.append(AdminSearchResult(
+            type="hod", id=f"H{h.id}", name=h.name, subtitle=dept, photo=h.photo,
+        ))
+
+    return results
 
 
 @router.get("/overview", response_model=AdminOverviewOut)

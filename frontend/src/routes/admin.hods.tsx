@@ -25,6 +25,9 @@ import { hodDepartmentOptions } from "@/features/SuperAdmin/lib/superadmin-mock-
 
 export const Route = createFileRoute("/admin/hods")({
   head: () => ({ meta: [{ title: "HOD Management · Super Admin" }] }),
+  validateSearch: (search: Record<string, unknown>) => ({
+    q: typeof search.q === "string" ? search.q : undefined,
+  }),
   component: HodsPage,
 });
 
@@ -55,10 +58,11 @@ const emptyForm = {
 };
 
 function HodsPage() {
+  const { q: initialQ } = Route.useSearch();
   const [hods, setHods] = useState<Hod[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(initialQ ?? "");
 
   useEffect(() => {
     let cancelled = false;

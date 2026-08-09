@@ -38,7 +38,7 @@ type Student = {
   id: string; name: string; enrollment: string; semester: number; section: Section;
   department: string; attendance: number; gpa: string; status: string; photo: string;
   email: string; phone: string; address: string; guardianName: string; guardianPhone: string;
-  username: string; coursesEnrolled: number;
+  coursesEnrolled: number;
 };
 
 function mapApiStudent(s: any): Student {
@@ -56,11 +56,9 @@ function mapApiStudent(s: any): Student {
     guardianName: s.guardian_name ?? "",
     guardianPhone: s.guardian_phone ?? "",
     coursesEnrolled: s.courses_enrolled ?? 0,
-    // not tracked by the backend yet — placeholders until attendance %/GPA modules exist
-    attendance: 100,
-    gpa: "0.00",
+    attendance: s.attendance_pct ?? 0,
+    gpa: (s.gpa ?? 0).toFixed(2),
     status: "active",
-    username: "",
   };
 }
 
@@ -156,7 +154,7 @@ function Students() {
         semester: form.semester,
         section: form.section,
         department,
-        attendance: 100,
+        attendance: 0,
         gpa: "0.00",
         status: "active",
         photo: `https://i.pravatar.cc/120?img=${(students.length + 5) % 60}`,
@@ -165,7 +163,6 @@ function Students() {
         address: form.address,
         guardianName: form.guardianName,
         guardianPhone: form.guardianPhone,
-        username: data.username ?? "",
         coursesEnrolled: 0,
       };
       setStudents((prev) => [newStudent, ...prev]);

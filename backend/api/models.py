@@ -151,6 +151,20 @@ class AttendanceRecord(Base):
     similarity = Column(Float, nullable=True)   # populated when marked via face recognition, null if manual
     marked_by = Column(String, nullable=True)   # "ai" or teacher's user id
 
+class TeacherActivity(Base):
+    """Per-teacher activity feed shown on the teacher dashboard. Written
+    inline by the routers that perform teacher actions (attendance.py,
+    teacher.py) — unlike AuditLog, this is always on and scoped to a single
+    teacher rather than being an admin-wide, togglable audit trail."""
+    __tablename__ = "teacher_activities"
+    id = Column(Integer, primary_key=True)
+    teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=False)
+    icon = Column(String, nullable=False)   # "check" | "award" | "bell" | "file" | "message" — matches frontend's activityIcons map
+    title = Column(String, nullable=False)
+    desc = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
 class HOD(Base):
     __tablename__ = "hods"
     id = Column(Integer, primary_key=True)

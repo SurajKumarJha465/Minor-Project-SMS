@@ -6,7 +6,7 @@ import {
 import { logout } from "@/lib/auth";
 import { useTheme } from "@/components/theme-provider";
 import { Input } from "@/components/ui/input";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { SafeAvatarImage } from "@/components/safe-avatar-image";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
@@ -132,10 +132,11 @@ function GlobalSearch() {
                       onClick={() => goToResult(item)}
                       className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-muted"
                     >
-                      <Avatar className="h-7 w-7">
-                        <AvatarImage src={item.photo ?? undefined} alt={item.name} />
-                        <AvatarFallback><Icon className="h-3.5 w-3.5" /></AvatarFallback>
-                      </Avatar>
+                      <SafeAvatarImage
+                        src={item.photo}
+                        fallback={<Icon className="h-3.5 w-3.5" />}
+                        className="h-7 w-7"
+                      />
                       <div className="min-w-0 flex-1">
                         <div className="truncate font-medium">{item.name}</div>
                         <div className="truncate text-xs text-muted-foreground">{item.subtitle}</div>
@@ -200,10 +201,11 @@ export function SaTopbar({ onMenu }: { onMenu: () => void }) {
 
           <DropdownMenu>
             <DropdownMenuTrigger className="ml-1 flex items-center gap-2 rounded-full border border-border bg-background/60 py-1 pl-1 pr-3 transition hover:bg-background">
-              <Avatar className="h-8 w-8">
-                <AvatarImage src={photo} alt={name} />
-                <AvatarFallback>{initials}</AvatarFallback>
-              </Avatar>
+              <SafeAvatarImage
+                src={photo}
+                fallback={initials}
+                className="h-8 w-8"
+              />
               <div className="hidden text-left sm:block">
                 <div className="text-xs font-semibold leading-tight">{name}</div>
                 <div className="text-[10px] text-muted-foreground">Super Admin</div>

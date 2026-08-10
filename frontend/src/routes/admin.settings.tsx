@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Server, Database, Shield, Bell, Palette, Globe, ScrollText } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { authHeader } from "@/lib/auth";
 
 export const Route = createFileRoute("/admin/settings")({
@@ -90,7 +91,6 @@ function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [backingUp, setBackingUp] = useState(false);
 
   async function loadLogs() {
     setLogsLoading(true);
@@ -167,28 +167,6 @@ function SettingsPage() {
     setDirty({});
   }
 
-  async function runBackupNow() {
-    setBackingUp(true);
-    try {
-      const res = await fetch(`${API_URL}/api/admin/settings/backup`, {
-        method: "POST",
-        headers: { ...authHeader() },
-      });
-      if (!res.ok) {
-        toast.error("Failed to trigger backup");
-        return;
-      }
-      const data = await res.json();
-      setSettings((s) => (s ? { ...s, last_backup_at: data.last_backup_at } : s));
-      toast.success("Backup triggered.");
-      if (merged?.audit_logs_enabled) loadLogs();
-    } catch {
-      toast.error("Could not reach the server. Try again.");
-    } finally {
-      setBackingUp(false);
-    }
-  }
-
   if (loading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
@@ -234,36 +212,54 @@ function SettingsPage() {
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl shadow-soft">
-          <CardHeader className="flex flex-row items-center gap-2"><Bell className="h-4 w-4 text-primary" /><CardTitle className="text-base">Notifications</CardTitle></CardHeader>
+        <Card className="rounded-2xl shadow-soft opacity-80">
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
+            <div className="flex items-center gap-2"><Bell className="h-4 w-4 text-primary" /><CardTitle className="text-base">Notifications</CardTitle></div>
+            <Badge variant="secondary" className="rounded-lg text-[10px]">Coming soon</Badge>
+          </CardHeader>
           <CardContent className="space-y-4">
-            <Toggle label="Email notifications" desc="System alerts to admin email" checked={merged.email_notifications} onChange={(v) => setField("email_notifications", v)} />
-            <Toggle label="SMS alerts" desc="Critical alerts via SMS" checked={merged.sms_alerts} onChange={(v) => setField("sms_alerts", v)} />
-            <Toggle label="Weekly summary" desc="Every Monday at 9 AM" checked={merged.weekly_summary} onChange={(v) => setField("weekly_summary", v)} />
+            <p className="text-xs text-muted-foreground">
+              These preferences save, but nothing sends an email, SMS, or summary yet.
+            </p>
+            <Toggle label="Email notifications" desc="System alerts to admin email" checked={merged.email_notifications} onChange={(v) => setField("email_notifications", v)} disabled />
+            <Toggle label="SMS alerts" desc="Critical alerts via SMS" checked={merged.sms_alerts} onChange={(v) => setField("sms_alerts", v)} disabled />
+            <Toggle label="Weekly summary" desc="Every Monday at 9 AM" checked={merged.weekly_summary} onChange={(v) => setField("weekly_summary", v)} disabled />
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl shadow-soft">
-          <CardHeader className="flex flex-row items-center gap-2"><Database className="h-4 w-4 text-primary" /><CardTitle className="text-base">Backup & Data</CardTitle></CardHeader>
+        <Card className="rounded-2xl shadow-soft opacity-80">
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
+            <div className="flex items-center gap-2"><Database className="h-4 w-4 text-primary" /><CardTitle className="text-base">Backup & Data</CardTitle></div>
+            <Badge variant="secondary" className="rounded-lg text-[10px]">Coming soon</Badge>
+          </CardHeader>
           <CardContent className="space-y-4">
-            <Toggle label="Automatic backup" desc="Daily backup at 2:00 AM" checked={merged.auto_backup_enabled} onChange={(v) => setField("auto_backup_enabled", v)} />
+            <p className="text-xs text-muted-foreground">
+              No real backup job exists yet — "Run now" only records a timestamp.
+            </p>
+            <Toggle label="Automatic backup" desc="Daily backup at 2:00 AM" checked={merged.auto_backup_enabled} onChange={(v) => setField("auto_backup_enabled", v)} disabled />
             <div className="flex items-center justify-between rounded-xl border border-border/60 p-3">
               <div>
                 <div className="text-sm font-medium">Last backup</div>
                 <div className="text-xs text-muted-foreground">{formatLastBackup(merged.last_backup_at)}</div>
               </div>
-              <Button variant="outline" size="sm" className="rounded-lg" disabled={backingUp} onClick={runBackupNow}>
-                {backingUp ? "Running…" : "Run now"}
+              <Button variant="outline" size="sm" className="rounded-lg" disabled>
+                Run now
               </Button>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl shadow-soft">
-          <CardHeader className="flex flex-row items-center gap-2"><Palette className="h-4 w-4 text-primary" /><CardTitle className="text-base">Appearance</CardTitle></CardHeader>
+        <Card className="rounded-2xl shadow-soft opacity-80">
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
+            <div className="flex items-center gap-2"><Palette className="h-4 w-4 text-primary" /><CardTitle className="text-base">Appearance</CardTitle></div>
+            <Badge variant="secondary" className="rounded-lg text-[10px]">Coming soon</Badge>
+          </CardHeader>
           <CardContent className="space-y-4">
-            <Toggle label="Dark mode by default" desc="New users start in dark mode" checked={merged.dark_mode_default} onChange={(v) => setField("dark_mode_default", v)} />
-            <Toggle label="Compact tables" desc="Denser table rows" checked={merged.compact_tables} onChange={(v) => setField("compact_tables", v)} />
+            <p className="text-xs text-muted-foreground">
+              These preferences save, but the app doesn't apply them anywhere yet.
+            </p>
+            <Toggle label="Dark mode by default" desc="New users start in dark mode" checked={merged.dark_mode_default} onChange={(v) => setField("dark_mode_default", v)} disabled />
+            <Toggle label="Compact tables" desc="Denser table rows" checked={merged.compact_tables} onChange={(v) => setField("compact_tables", v)} disabled />
           </CardContent>
         </Card>
 
@@ -324,14 +320,14 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
   );
 }
 
-function Toggle({ label, desc, checked, onChange }: { label: string; desc: string; checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ label, desc, checked, onChange, disabled }: { label: string; desc: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
     <div className="flex items-center justify-between gap-4">
       <div>
         <div className="text-sm font-medium">{label}</div>
         <div className="text-xs text-muted-foreground">{desc}</div>
       </div>
-      <Switch checked={checked} onCheckedChange={onChange} />
+      <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} />
     </div>
   );
 }

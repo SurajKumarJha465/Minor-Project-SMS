@@ -4,11 +4,12 @@ import { toast } from "sonner";
 import { authHeader } from "@/lib/auth";
 import {
   Eye, Pencil, UserX, BookOpen, UserPlus, ArrowLeft,
-  CalendarRange, CheckCircle2, GraduationCap, Award, Clock, ChevronRight,
+  CalendarRange, CheckCircle2, GraduationCap, Award, Clock, ChevronRight, Users, Search, X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -44,6 +45,16 @@ type Teacher = {
   qualification: string | null;
   experience: string | null;
   photo: string | null;
+};
+
+type AvailableTeacher = {
+  id: number;
+  name: string;
+  specialization: string | null;
+  qualification: string | null;
+  email: string | null;
+  photo: string | null;
+  departments: string[];
 };
 
 type GroupedCourse = {
@@ -98,6 +109,15 @@ function TeacherManagement() {
   const [viewCourse, setViewCourse] = useState<Course | null>(null);
   const [removeCourse, setRemoveCourse] = useState<Course | null>(null);
   const [removing, setRemoving] = useState(false);
+
+  // Manage-department-teachers dialog: current roster (with remove) plus a
+  // search over every teacher in the system to add one to this department.
+  const [manageOpen, setManageOpen] = useState(false);
+  const [availQuery, setAvailQuery] = useState("");
+  const [availResults, setAvailResults] = useState<AvailableTeacher[]>([]);
+  const [availLoading, setAvailLoading] = useState(false);
+  const [addingId, setAddingId] = useState<number | null>(null);
+  const [removingDeptId, setRemovingDeptId] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -236,6 +256,84 @@ function TeacherManagement() {
     }
   }
 
+  // Debounced search over every teacher in the system, for the "add teacher
+  // to my department" flow — mirrors the min-2-char rule the backend applies.
+  useEffect(() => {
+    if (!manageOpen) return;
+    const query = availQuery.trim();
+    if (query.length < 2) {
+      setAvailResults([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setAvailLoading(true);
+      try {
+        const res = await fetch(`${API_URL}/api/hod/teachers/available?q=${encodeURIComponent(query)}`, {
+          headers: { ...authHeader() },
+        });
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        if (!cancelled) setAvailResults(data);
+      } catch {
+        if (!cancelled) toast.error("Could not search teachers. Try again.");
+      } finally {
+        if (!cancelled) setAvailLoading(false);
+      }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [availQuery, manageOpen]);
+
+  async function addTeacherToDept(t: AvailableTeacher) {
+    setAddingId(t.id);
+    try {
+      const res = await fetch(`${API_URL}/api/hod/teachers/${t.id}/assign`, {
+        method: "POST",
+        headers: { ...authHeader() },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail ?? "Failed to add teacher");
+        return;
+      }
+      const added = await res.json();
+      setTeachers((prev) => (prev.some((x) => x.id === added.id) ? prev : [...prev, added]));
+      setAvailResults((prev) => prev.filter((x) => x.id !== t.id));
+      toast.success(`${t.name} added to your department`);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    } finally {
+      setAddingId(null);
+    }
+  }
+
+  async function removeTeacherFromDept(t: Teacher) {
+    setRemovingDeptId(t.id);
+    try {
+      const res = await fetch(`${API_URL}/api/hod/teachers/${t.id}/assign`, {
+        method: "DELETE",
+        headers: { ...authHeader() },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail ?? "Failed to remove teacher");
+        return;
+      }
+      setTeachers((prev) => prev.filter((x) => x.id !== t.id));
+      toast.success(`${t.name} removed from your department`);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    } finally {
+      setRemovingDeptId(null);
+    }
+  }
+
+  function closeManage() {
+    setManageOpen(false);
+    setAvailQuery("");
+    setAvailResults([]);
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
@@ -260,9 +358,14 @@ function TeacherManagement() {
           <h1 className="font-display text-2xl font-bold">Teacher Management</h1>
           <p className="text-sm text-muted-foreground">Assign faculty to courses across semesters.</p>
         </div>
-        <Button className="rounded-xl gradient-brand text-white" onClick={() => openAssignWizard()}>
-          <UserPlus className="mr-1.5 h-4 w-4" /> Assign Teacher
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" className="rounded-xl" onClick={() => setManageOpen(true)}>
+            <Users className="mr-1.5 h-4 w-4" /> Manage Department Teachers
+          </Button>
+          <Button className="rounded-xl gradient-brand text-white" onClick={() => openAssignWizard()}>
+            <UserPlus className="mr-1.5 h-4 w-4" /> Assign Teacher
+          </Button>
+        </div>
       </div>
 
       <Card className="rounded-2xl shadow-soft">
@@ -548,6 +651,86 @@ function TeacherManagement() {
               <Button className="mt-1 rounded-xl gradient-brand text-white" onClick={closeWizard}>Done</Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Manage department teachers: current roster + search-to-add */}
+      <Dialog open={manageOpen} onOpenChange={(o) => !o && closeManage()}>
+        <DialogContent className="rounded-2xl sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Manage Department Teachers</DialogTitle>
+            <DialogDescription>
+              A teacher can belong to more than one department — add anyone from the system to yours,
+              or remove someone who no longer belongs (they must first be off all your courses).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search teachers by name or email…"
+                value={availQuery}
+                onChange={(e) => setAvailQuery(e.target.value)}
+                className="h-9 rounded-xl pl-9"
+              />
+            </div>
+            {availQuery.trim().length >= 2 && (
+              <div className="max-h-48 space-y-1.5 overflow-y-auto rounded-xl border border-border/60 p-2">
+                {availLoading && <div className="py-3 text-center text-xs text-muted-foreground">Searching…</div>}
+                {!availLoading && availResults.length === 0 && (
+                  <div className="py-3 text-center text-xs text-muted-foreground">No matching teachers found.</div>
+                )}
+                {!availLoading && availResults.map((t) => (
+                  <div key={t.id} className="flex items-center justify-between gap-2 rounded-lg p-1.5 hover:bg-muted/40">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Avatar className="h-8 w-8"><AvatarImage src={t.photo ?? undefined} /><AvatarFallback>{t.name[0]}</AvatarFallback></Avatar>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium">{t.name}</div>
+                        <div className="truncate text-[11px] text-muted-foreground">
+                          {t.email}{t.departments.length ? ` · also in ${t.departments.join(", ")}` : ""}
+                        </div>
+                      </div>
+                    </div>
+                    <Button size="sm" className="h-7 shrink-0 rounded-lg text-xs" disabled={addingId === t.id} onClick={() => addTeacherToDept(t)}>
+                      {addingId === t.id ? "Adding…" : "Add"}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-1.5 border-t border-border/60 pt-3">
+            <div className="text-xs font-semibold text-muted-foreground">Current teachers ({teachers.length})</div>
+            <div className="max-h-56 space-y-1.5 overflow-y-auto">
+              {teachers.map((t) => (
+                <div key={t.id} className="flex items-center justify-between gap-2 rounded-lg p-1.5 hover:bg-muted/40">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Avatar className="h-8 w-8"><AvatarImage src={t.photo ?? undefined} /><AvatarFallback>{t.name[0]}</AvatarFallback></Avatar>
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">{t.name}</div>
+                      <div className="truncate text-[11px] text-muted-foreground">{t.specialization ?? "—"}</div>
+                    </div>
+                  </div>
+                  <Button
+                    size="icon" variant="ghost" className="h-7 w-7 shrink-0 text-destructive"
+                    title="Remove from department" disabled={removingDeptId === t.id}
+                    onClick={() => removeTeacherFromDept(t)}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+              {teachers.length === 0 && (
+                <div className="py-3 text-center text-xs text-muted-foreground">No teachers in your department yet.</div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={closeManage}>Done</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

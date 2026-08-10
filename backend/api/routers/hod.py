@@ -8,14 +8,16 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from api.models import (
-    User, RoleEnum, HOD, Student, Section, Department, Enrollment, Course, Teacher, department_slug,
+    User, RoleEnum, HOD, Student, Section, Department, Enrollment, Course, Teacher, TeacherDepartment,
+    department_slug,
     InternalMark, MarkStatus, Notice, NoticeType, CalendarEvent, EventType, CourseGrade, AttendanceRecord,
     AttendanceStatus,
 )
 from api.grading import VALID_GRADES, grade_point
 from api.schemas import (
     CreateStudentRequest, CreateStudentResponse, HodStudentOut, UpdateStudentRequest,
-    HodCourseOut, CreateCourseRequest, UpdateCourseRequest, HodTeacherOut, HodCourseRosterStudent,
+    HodCourseOut, CreateCourseRequest, UpdateCourseRequest, HodTeacherOut, HodAvailableTeacherOut,
+    HodCourseRosterStudent,
     EnrollStudentRequest, FIELD_MAX, HodMarksOverview, HodCourseAverage, HodMarkDistributionBucket,
     HodTeacherMarkStatus, HodResultsOverview, HodCoursePassFail, HodRankedStudent,
     NoticeOut, CreateNoticeRequest, UpdateNoticeRequest, HodListingOut, NoticeAttachmentOut,
@@ -37,6 +39,22 @@ def _current_hod(db: Session, current_user: User) -> HOD:
     if not hod:
         raise HTTPException(status_code=400, detail="No HOD profile linked to this account")
     return hod
+
+def _department_teacher_ids(db: Session, department_id: str) -> list[int]:
+    """Teacher ids that have been added to this department via TeacherDepartment
+    (an HOD's own doing) — a teacher can appear in more than one department's list."""
+    return [
+        row.teacher_id
+        for row in db.query(TeacherDepartment).filter(TeacherDepartment.department_id == department_id).all()
+    ]
+
+
+def _department_teachers(db: Session, department_id: str):
+    ids = _department_teacher_ids(db, department_id)
+    if not ids:
+        return []
+    return db.query(Teacher).filter(Teacher.id.in_(ids)).all()
+
 
 def _get_department_course(db: Session, hod: HOD, course_id: str) -> Course:
     course = db.query(Course).filter(Course.id == course_id, Course.department_id == hod.department_id).first()
@@ -231,10 +249,11 @@ def search_department(
             sem=s.sem, section=(s.section_id or "").upper() or None,
         ))
 
+    dept_teacher_ids = _department_teacher_ids(db, hod.department_id)
     teachers = (
         db.query(Teacher)
         .filter(
-            Teacher.department_id == hod.department_id,
+            Teacher.id.in_(dept_teacher_ids) if dept_teacher_ids else False,
             (Teacher.name.ilike(like)) | (Teacher.email.ilike(like)),
         )
         .limit(6)
@@ -547,9 +566,10 @@ def update_course(
     if payload.unassign_teacher:
         course.teacher_id = None
     elif payload.teacher_id is not None:
+        dept_teacher_ids = _department_teacher_ids(db, hod.department_id)
         teacher = (
             db.query(Teacher)
-            .filter(Teacher.id == payload.teacher_id, Teacher.department_id == hod.department_id)
+            .filter(Teacher.id == payload.teacher_id, Teacher.id.in_(dept_teacher_ids) if dept_teacher_ids else False)
             .first()
         )
         if not teacher:
@@ -588,7 +608,7 @@ def list_department_teachers(
     current_user: User = Depends(require_role(RoleEnum.hod)),
 ):
     hod = _current_hod(db, current_user)
-    teachers = db.query(Teacher).filter(Teacher.department_id == hod.department_id).all()
+    teachers = _department_teachers(db, hod.department_id)
     result = []
     for t in teachers:
         course_count = db.query(Course).filter(Course.teacher_id == t.id).count()
@@ -597,6 +617,108 @@ def list_department_teachers(
             experience=t.experience, email=t.email, phone=t.phone, photo=t.photo, courses=course_count,
         ))
     return result
+
+
+@router.get("/teachers/available", response_model=list[HodAvailableTeacherOut])
+def search_available_teachers(
+    q: str = "",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    """Teachers not yet in this HOD's department — the pool to pick from when
+    adding a teacher to the department. Search is required (min 2 chars) since
+    this can span every teacher in the system, not just this department."""
+    hod = _current_hod(db, current_user)
+    query = q.strip()
+    if len(query) < 2:
+        return []
+
+    like = f"%{query}%"
+    dept_teacher_ids = _department_teacher_ids(db, hod.department_id)
+    candidates = (
+        db.query(Teacher)
+        .filter((Teacher.name.ilike(like)) | (Teacher.email.ilike(like)))
+        .filter(~Teacher.id.in_(dept_teacher_ids) if dept_teacher_ids else True)
+        .limit(10)
+        .all()
+    )
+    dept_map = {d.id: d.name for d in db.query(Department).all()}
+    other_dept_names: dict[int, list[str]] = {}
+    for row in db.query(TeacherDepartment).filter(TeacherDepartment.teacher_id.in_([t.id for t in candidates])).all() if candidates else []:
+        other_dept_names.setdefault(row.teacher_id, []).append(dept_map.get(row.department_id, row.department_id))
+
+    return [
+        HodAvailableTeacherOut(
+            id=t.id, name=t.name, specialization=t.specialization, qualification=t.qualification,
+            email=t.email, photo=t.photo, departments=other_dept_names.get(t.id, []),
+        )
+        for t in candidates
+    ]
+
+
+@router.post("/teachers/{teacher_id}/assign", response_model=HodTeacherOut)
+def assign_teacher_to_department(
+    teacher_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    """Add an existing teacher account to this HOD's department. This is the
+    only way a teacher ends up in a department — admin no longer sets it at
+    account-creation time — and a teacher can be added to more than one."""
+    hod = _current_hod(db, current_user)
+    teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
+    if not teacher:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+
+    existing = (
+        db.query(TeacherDepartment)
+        .filter(TeacherDepartment.teacher_id == teacher_id, TeacherDepartment.department_id == hod.department_id)
+        .first()
+    )
+    if not existing:
+        db.add(TeacherDepartment(teacher_id=teacher_id, department_id=hod.department_id))
+        db.commit()
+
+    course_count = db.query(Course).filter(Course.teacher_id == teacher.id).count()
+    return HodTeacherOut(
+        id=teacher.id, name=teacher.name, specialization=teacher.specialization,
+        qualification=teacher.qualification, experience=teacher.experience,
+        email=teacher.email, phone=teacher.phone, photo=teacher.photo, courses=course_count,
+    )
+
+
+@router.delete("/teachers/{teacher_id}/assign")
+def unassign_teacher_from_department(
+    teacher_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    """Remove a teacher from this HOD's department only — the account and any
+    other department memberships are untouched. Blocked while the teacher
+    still has courses in this department, so a course never ends up pointing
+    at a teacher outside it."""
+    hod = _current_hod(db, current_user)
+    still_teaching = (
+        db.query(Course)
+        .filter(Course.teacher_id == teacher_id, Course.department_id == hod.department_id)
+        .count()
+    )
+    if still_teaching:
+        raise HTTPException(
+            status_code=400,
+            detail="Unassign this teacher from their courses in your department first",
+        )
+
+    row = (
+        db.query(TeacherDepartment)
+        .filter(TeacherDepartment.teacher_id == teacher_id, TeacherDepartment.department_id == hod.department_id)
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Teacher not found in your department")
+    db.delete(row)
+    db.commit()
+    return {"removed": teacher_id}
 
 @router.get("/courses/{course_id}/roster", response_model=list[HodCourseRosterStudent])
 def course_roster(
@@ -1095,7 +1217,12 @@ def marks_overview(
                 avg=round(sum(_mark_pct(m) for m in rows) / len(rows), 1),
             ))
 
-    teachers = db.query(Teacher).filter(Teacher.department_id == hod.department_id).all()
+    # Teachers who actually teach a course in this department — derived from
+    # the courses themselves rather than TeacherDepartment membership, so a
+    # teacher who's since been unassigned from the department but still has
+    # a stray course here isn't silently dropped from the status list.
+    course_teacher_ids = {c.teacher_id for c in courses if c.teacher_id}
+    teachers = db.query(Teacher).filter(Teacher.id.in_(course_teacher_ids)).all() if course_teacher_ids else []
     teacher_status = []
     for t in teachers:
         t_courses = [c for c in courses if c.teacher_id == t.id]
@@ -1206,7 +1333,10 @@ def attendance_report(
         if rows:
             by_course.append(HodCourseAttendance(code=c.code, name=c.name, pct=_attendance_pct(rows)))
 
-    teachers = db.query(Teacher).filter(Teacher.department_id == hod.department_id).all()
+    # same rationale as the marks-overview version above: derive from the
+    # department's own courses, not TeacherDepartment membership.
+    course_teacher_ids = {c.teacher_id for c in courses if c.teacher_id}
+    teachers = db.query(Teacher).filter(Teacher.id.in_(course_teacher_ids)).all() if course_teacher_ids else []
     by_teacher = []
     for t in teachers:
         t_course_ids = {c.id for c in courses if c.teacher_id == t.id}

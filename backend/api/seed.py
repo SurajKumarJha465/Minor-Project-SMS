@@ -52,7 +52,7 @@ import os
 from api.database import SessionLocal, engine, Base
 from api.models import (
     Department, Section, Course, Student, Enrollment, User, RoleEnum,
-    AttendanceRecord, InternalMark, Teacher, HOD, Admin, SystemSettings,
+    AttendanceRecord, InternalMark, Teacher, TeacherDepartment, HOD, Admin, SystemSettings,
 )
 from api.auth import hash_password
 
@@ -588,7 +588,10 @@ def seed():
                 db.query(User).filter(User.id.in_(old_user_ids)).delete(synchronize_session=False)
         db.query(Course).filter(Course.department_id == "ce").delete(synchronize_session=False)
 
-        old_teacher_ids = [t.id for t in db.query(Teacher).filter(Teacher.department_id == "ce").all()]
+        old_teacher_ids = [
+            row.teacher_id
+            for row in db.query(TeacherDepartment).filter(TeacherDepartment.department_id == "ce").all()
+        ]
         old_hod_ids = [h.id for h in db.query(HOD).filter(HOD.department_id == "ce").all()]
         if old_teacher_ids or old_hod_ids:
             old_staff_user_ids = [
@@ -596,6 +599,7 @@ def seed():
             ] + [
                 h.user_id for h in db.query(HOD).filter(HOD.id.in_(old_hod_ids)).all() if h.user_id
             ]
+            db.query(TeacherDepartment).filter(TeacherDepartment.teacher_id.in_(old_teacher_ids)).delete(synchronize_session=False)
             db.query(Teacher).filter(Teacher.id.in_(old_teacher_ids)).delete(synchronize_session=False)
             db.query(HOD).filter(HOD.id.in_(old_hod_ids)).delete(synchronize_session=False)
             if old_staff_user_ids:
@@ -671,11 +675,18 @@ def seed():
 
         # --- teachers + their login accounts — every teacher, including
         # Manil Vaidhya, gets their own firstname.lastname@ncit.edu.np /
-        # teacher123 login, same pattern, no special cases ---
+        # teacher123 login, same pattern, no special cases. Department
+        # membership is a separate TeacherDepartment row (the HOD's own
+        # action in the real app), added right after each teacher here so
+        # the seeded IT roster still ends up assigned to IT. ---
         teacher_id_by_name = {}
+        dept_teacher_ids = {
+            row.teacher_id
+            for row in db.query(TeacherDepartment).filter(TeacherDepartment.department_id == DEPARTMENT_ID).all()
+        }
         for i, (name, title, specialization, qualification, experience) in enumerate(TEACHERS):
             existing = db.query(Teacher).filter(
-                Teacher.name == name, Teacher.department_id == DEPARTMENT_ID
+                Teacher.name == name, Teacher.id.in_(dept_teacher_ids) if dept_teacher_ids else False
             ).first()
             if existing:
                 teacher_id_by_name[name] = existing.id
@@ -693,7 +704,7 @@ def seed():
                 db.refresh(user)
 
             teacher = Teacher(
-                user_id=user.id, name=name, title=title, department_id=DEPARTMENT_ID,
+                user_id=user.id, name=name, title=title,
                 specialization=specialization, qualification=qualification,
                 email=user.email, phone=f"+977 98-{4100 + i}-{6200 + i}",
                 office=f"IT Block — Room {201 + i}",
@@ -704,6 +715,8 @@ def seed():
             db.add(teacher)
             db.commit()
             db.refresh(teacher)
+            db.add(TeacherDepartment(teacher_id=teacher.id, department_id=DEPARTMENT_ID))
+            db.commit()
             teacher_id_by_name[name] = teacher.id
 
         # --- courses — one row per section per template, matching the

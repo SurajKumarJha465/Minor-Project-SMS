@@ -1,5 +1,7 @@
 import csv
 import io
+import os
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy import func
@@ -16,7 +18,7 @@ from api.schemas import (
     HodCourseOut, CreateCourseRequest, UpdateCourseRequest, HodTeacherOut, HodCourseRosterStudent,
     EnrollStudentRequest, FIELD_MAX, HodMarksOverview, HodCourseAverage, HodMarkDistributionBucket,
     HodTeacherMarkStatus, HodResultsOverview, HodCoursePassFail, HodRankedStudent,
-    NoticeOut, CreateNoticeRequest, UpdateNoticeRequest, HodListingOut,
+    NoticeOut, CreateNoticeRequest, UpdateNoticeRequest, HodListingOut, NoticeAttachmentOut,
     EventOut, CreateEventRequest, UpdateEventRequest,
     HodGradeRow, SaveGradesRequest, StudentMarkRow, SaveMarksRequest,
     HodAttendanceReport, HodCourseAttendance, HodTeacherAttendance, HodLowAttendanceStudent,
@@ -1160,12 +1162,73 @@ def attendance_report(
     )
 
 
+NOTICE_ATTACHMENTS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "notice_attachments"
+)
+NOTICE_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+NOTICE_ATTACHMENT_ALLOWED_EXT = {
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".png", ".jpg", ".jpeg", ".txt",
+}
+
+
+@router.post("/notices/attachment", response_model=NoticeAttachmentOut)
+async def upload_notice_attachment(
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+    db: Session = Depends(get_db),
+):
+    """Uploads a file for a notice before the notice itself exists yet — the
+    HOD picks a file while composing, this stores it and hands back a URL,
+    and that URL rides along in the CreateNoticeRequest/UpdateNoticeRequest
+    payload. Kept separate from create/update so the notice form doesn't
+    need to be multipart just to support the (optional) attachment."""
+    _current_hod(db, current_user)  # just an auth/role check here; file isn't tied to a department row
+
+    original_name = file.filename or "attachment"
+    ext = os.path.splitext(original_name)[1].lower()
+    if ext not in NOTICE_ATTACHMENT_ALLOWED_EXT:
+        allowed = ", ".join(sorted(NOTICE_ATTACHMENT_ALLOWED_EXT))
+        raise HTTPException(status_code=400, detail=f"Unsupported file type '{ext}'. Allowed: {allowed}")
+
+    data = await file.read()
+    if len(data) > NOTICE_ATTACHMENT_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="File is larger than the 10 MB limit")
+    if not data:
+        raise HTTPException(status_code=400, detail="File is empty")
+
+    os.makedirs(NOTICE_ATTACHMENTS_DIR, exist_ok=True)
+    # random prefix avoids collisions and stops one HOD's upload from being
+    # guessable/overwritable from another notice with the same filename
+    stored_name = f"{uuid.uuid4().hex}{ext}"
+    with open(os.path.join(NOTICE_ATTACHMENTS_DIR, stored_name), "wb") as f:
+        f.write(data)
+
+    return NoticeAttachmentOut(
+        attachment_url=f"/uploads/notices/{stored_name}",
+        attachment_name=original_name,
+        attachment_size=len(data),
+    )
+
+
+def _delete_attachment_file(attachment_url: str | None):
+    if not attachment_url:
+        return
+    stored_name = os.path.basename(attachment_url)
+    path = os.path.join(NOTICE_ATTACHMENTS_DIR, stored_name)
+    if os.path.isfile(path):
+        try:
+            os.remove(path)
+        except OSError:
+            pass  # not worth failing the request over a stray file on disk
+
+
 def _notice_out(n: Notice) -> NoticeOut:
     return NoticeOut(
         id=n.id, title=n.title, body=n.body, type=n.type.value,
         audience=n.audience, pinned=n.pinned, author=n.author_name,
         date=n.created_at.strftime("%b %d, %Y"),
         scheduled_for=n.scheduled_for.strftime("%b %d, %Y %I:%M %p") if n.scheduled_for else None,
+        attachment_url=n.attachment_url, attachment_name=n.attachment_name, attachment_size=n.attachment_size,
     )
 
 
@@ -1200,6 +1263,8 @@ def create_notice(
         department_id=hod.department_id, title=payload.title, body=payload.body,
         type=notice_type, audience=payload.audience, pinned=payload.pinned,
         author_name=hod.name, scheduled_for=payload.scheduled_for,
+        attachment_url=payload.attachment_url, attachment_name=payload.attachment_name,
+        attachment_size=payload.attachment_size,
     )
     db.add(notice)
     db.commit()
@@ -1232,6 +1297,18 @@ def update_notice(
         notice.audience = payload.audience
     if payload.pinned is not None:
         notice.pinned = payload.pinned
+    if payload.remove_attachment:
+        _delete_attachment_file(notice.attachment_url)
+        notice.attachment_url = None
+        notice.attachment_name = None
+        notice.attachment_size = None
+    elif payload.attachment_url is not None:
+        # swapping to a newly-uploaded file — drop the old one from disk first
+        if notice.attachment_url and notice.attachment_url != payload.attachment_url:
+            _delete_attachment_file(notice.attachment_url)
+        notice.attachment_url = payload.attachment_url
+        notice.attachment_name = payload.attachment_name
+        notice.attachment_size = payload.attachment_size
 
     db.commit()
     db.refresh(notice)
@@ -1248,6 +1325,7 @@ def delete_notice(
     notice = db.query(Notice).filter(Notice.id == notice_id, Notice.department_id == hod.department_id).first()
     if not notice:
         raise HTTPException(status_code=404, detail="Notice not found in your department")
+    _delete_attachment_file(notice.attachment_url)
     db.delete(notice)
     db.commit()
     return {"deleted": notice_id}

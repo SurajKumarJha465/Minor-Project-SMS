@@ -19,6 +19,7 @@ from api.schemas import (
     EnrollStudentRequest, FIELD_MAX, HodMarksOverview, HodCourseAverage, HodMarkDistributionBucket,
     HodTeacherMarkStatus, HodResultsOverview, HodCoursePassFail, HodRankedStudent,
     NoticeOut, CreateNoticeRequest, UpdateNoticeRequest, HodListingOut, NoticeAttachmentOut,
+    UpdateHodContactRequest,
     EventOut, CreateEventRequest, UpdateEventRequest,
     HodGradeRow, SaveGradesRequest, StudentMarkRow, SaveMarksRequest,
     HodAttendanceReport, HodCourseAttendance, HodTeacherAttendance, HodLowAttendanceStudent,
@@ -113,18 +114,91 @@ def _bulk_student_stats(db: Session, student_ids: list[str]) -> dict[str, dict]:
 
     return stats
 
-@router.get("/me", response_model=HodListingOut)
-def my_profile(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_role(RoleEnum.hod)),
-):
-    hod = _current_hod(db, current_user)
+def _hod_profile_out(db: Session, hod: HOD) -> HodListingOut:
     dept = db.query(Department).filter(Department.id == hod.department_id).first()
     return HodListingOut(
         id=str(hod.id), name=hod.name, department=dept.name if dept else "",
         email=hod.email or "", phone=hod.phone, qualification=hod.qualification,
         experience=hod.experience, photo=hod.photo,
     )
+
+
+@router.get("/me", response_model=HodListingOut)
+def my_profile(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    hod = _current_hod(db, current_user)
+    return _hod_profile_out(db, hod)
+
+
+@router.patch("/me", response_model=HodListingOut)
+def update_my_contact(
+    payload: UpdateHodContactRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    """Self-service contact edit. Deliberately limited to email/phone — name
+    and department stay admin-managed, same as the rest of the HOD record."""
+    hod = _current_hod(db, current_user)
+    if payload.email is not None:
+        email = payload.email.strip()
+        if not email:
+            raise HTTPException(status_code=400, detail="Email cannot be empty")
+        hod.email = email
+    if payload.phone is not None:
+        hod.phone = payload.phone.strip() or None
+    db.commit()
+    db.refresh(hod)
+    return _hod_profile_out(db, hod)
+
+
+PROFILE_PHOTOS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "profile_photos"
+)
+PROFILE_PHOTO_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+PROFILE_PHOTO_ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".webp"}
+
+
+@router.post("/me/photo", response_model=HodListingOut)
+async def upload_my_photo(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    hod = _current_hod(db, current_user)
+
+    original_name = file.filename or "photo"
+    ext = os.path.splitext(original_name)[1].lower()
+    if ext not in PROFILE_PHOTO_ALLOWED_EXT:
+        allowed = ", ".join(sorted(PROFILE_PHOTO_ALLOWED_EXT))
+        raise HTTPException(status_code=400, detail=f"Unsupported image type '{ext}'. Allowed: {allowed}")
+
+    data = await file.read()
+    if len(data) > PROFILE_PHOTO_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Image is larger than the 5 MB limit")
+    if not data:
+        raise HTTPException(status_code=400, detail="File is empty")
+
+    os.makedirs(PROFILE_PHOTOS_DIR, exist_ok=True)
+    stored_name = f"hod-{hod.id}-{uuid.uuid4().hex}{ext}"
+    with open(os.path.join(PROFILE_PHOTOS_DIR, stored_name), "wb") as f:
+        f.write(data)
+
+    # only clean up the old file if it's one we saved ourselves — an admin
+    # may have set hod.photo to some external URL, which isn't ours to delete
+    if hod.photo and hod.photo.startswith("/uploads/profile-photos/"):
+        old_path = os.path.join(PROFILE_PHOTOS_DIR, os.path.basename(hod.photo))
+        if os.path.isfile(old_path):
+            try:
+                os.remove(old_path)
+            except OSError:
+                pass
+
+    hod.photo = f"/uploads/profile-photos/{stored_name}"
+    db.commit()
+    db.refresh(hod)
+    return _hod_profile_out(db, hod)
 
 @router.get("/search", response_model=list[SearchResultOut])
 def search_department(

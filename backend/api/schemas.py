@@ -168,6 +168,14 @@ class HodListingOut(BaseModel):
         from_attributes = True
 
 
+class UpdateHodContactRequest(BaseModel):
+    """Self-service contact edit for the HOD's own profile — deliberately
+    narrower than UpdateHodRequest (which is for the admin editing a HOD's
+    full record, including name/department)."""
+    email: Optional[str] = None
+    phone: Optional[str] = None
+
+
 class UpdateHodRequest(BaseModel):
     name: Optional[str] = None
     email: Optional[str] = None

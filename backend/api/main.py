@@ -38,6 +38,12 @@ NOTICE_ATTACHMENTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__))
 os.makedirs(NOTICE_ATTACHMENTS_DIR, exist_ok=True)
 app.mount("/uploads/notices", StaticFiles(directory=NOTICE_ATTACHMENTS_DIR), name="notice_attachments")
 
+# Profile pictures (HOD, teacher, admin, etc.) uploaded via the various
+# "/me/photo" endpoints, served back out at "/uploads/profile-photos/<file>".
+PROFILE_PHOTOS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "profile_photos")
+os.makedirs(PROFILE_PHOTOS_DIR, exist_ok=True)
+app.mount("/uploads/profile-photos", StaticFiles(directory=PROFILE_PHOTOS_DIR), name="profile_photos")
+
 
 @app.get("/")
 def health_check():

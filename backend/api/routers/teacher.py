@@ -17,6 +17,7 @@ from api.schemas import (
     CourseOut, StudentMarkRow, SaveMarksRequest, FIELD_MAX, NoticeOut, SearchResultOut,
     TeacherMeOut, TeacherActivityOut, UpdateTeacherContactRequest, TeacherDepartmentOut,
     TeacherPerformanceStudentRow, TeacherCoursePerformanceOut,
+    TeacherCourseOfferingSummary, TeacherCourseAggregatePerformanceOut,
 )
 
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
@@ -362,14 +363,10 @@ def _attendance_pct(records: list[AttendanceRecord]) -> float:
     return round(present / len(marked) * 100, 1)
 
 
-@router.get("/courses/{course_id}/performance", response_model=TeacherCoursePerformanceOut)
-def get_course_performance(
-    course_id: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_role(RoleEnum.teacher)),
-):
-    course = _get_owned_course(db, current_user, course_id)
-
+def _course_performance_rows(db: Session, course_id: str) -> list[TeacherPerformanceStudentRow]:
+    """Per-student attendance % + internal marks total for a single course
+    offering. Shared by the single-offering and cross-offering aggregate
+    endpoints below so the two never drift out of sync."""
     student_ids = [e.student_id for e in db.query(Enrollment).filter(Enrollment.course_id == course_id).all()]
     students = db.query(Student).filter(Student.id.in_(student_ids)).order_by(Student.enrollment.asc()).all()
 
@@ -392,9 +389,21 @@ def get_course_performance(
             attendance_pct=_attendance_pct(attendance_by_student.get(s.id, [])),
             marks_total=marks_total,
         ))
+    return rows
 
-    avg_attendance = round(sum(r.attendance_pct for r in rows) / len(rows), 1) if rows else 0.0
-    avg_marks = round(sum(r.marks_total for r in rows) / len(rows), 1) if rows else 0.0
+
+def _avg(values: list[float]) -> float:
+    return round(sum(values) / len(values), 1) if values else 0.0
+
+
+@router.get("/courses/{course_id}/performance", response_model=TeacherCoursePerformanceOut)
+def get_course_performance(
+    course_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.teacher)),
+):
+    course = _get_owned_course(db, current_user, course_id)
+    rows = _course_performance_rows(db, course_id)
 
     return TeacherCoursePerformanceOut(
         course_id=course.id,
@@ -402,10 +411,61 @@ def get_course_performance(
         name=course.name,
         credits=course.credits or 0,
         enrolled=len(rows),
-        avg_attendance=avg_attendance,
-        avg_marks=avg_marks,
+        avg_attendance=_avg([r.attendance_pct for r in rows]),
+        avg_marks=_avg([r.marks_total for r in rows]),
         total_marks=TOTAL_MARKS,
         students=rows,
+    )
+
+
+@router.get("/courses/by-code/{code}/performance", response_model=TeacherCourseAggregatePerformanceOut)
+def get_course_aggregate_performance(
+    code: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.teacher)),
+):
+    """Combined performance across every section/semester offering of `code`
+    that this teacher is assigned to — the course-level summary shown before
+    the teacher drills into one specific offering."""
+    teacher = db.query(Teacher).filter(Teacher.user_id == current_user.id).first()
+    if not teacher:
+        raise HTTPException(status_code=400, detail="No teacher profile linked to this account")
+
+    offerings = (
+        db.query(Course)
+        .filter(Course.teacher_id == teacher.id, Course.code == code)
+        .order_by(Course.sem.asc())
+        .all()
+    )
+    if not offerings:
+        raise HTTPException(status_code=404, detail="Course not found or not assigned to you")
+
+    all_rows: list[TeacherPerformanceStudentRow] = []
+    offering_summaries: list[TeacherCourseOfferingSummary] = []
+    for c in offerings:
+        rows = _course_performance_rows(db, c.id)
+        all_rows.extend(rows)
+        section = c.id.split("-")[-2] if "-" in c.id else "d"
+        offering_summaries.append(TeacherCourseOfferingSummary(
+            id=c.id,
+            sem=c.sem or 0,
+            section=section,
+            enrolled=len(rows),
+            avg_attendance=_avg([r.attendance_pct for r in rows]),
+            avg_marks=_avg([r.marks_total for r in rows]),
+        ))
+
+    first = offerings[0]
+    return TeacherCourseAggregatePerformanceOut(
+        code=first.code,
+        name=first.name,
+        credits=first.credits or 0,
+        enrolled=len(all_rows),
+        avg_attendance=_avg([r.attendance_pct for r in all_rows]),
+        avg_marks=_avg([r.marks_total for r in all_rows]),
+        total_marks=TOTAL_MARKS,
+        students=all_rows,
+        offerings=offering_summaries,
     )
 
 

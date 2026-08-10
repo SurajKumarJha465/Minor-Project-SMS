@@ -763,6 +763,16 @@ class TeacherMeOut(BaseModel):
         from_attributes = True
 
 
+class UpdateTeacherContactRequest(BaseModel):
+    # Deliberately excludes name — stays admin-managed, same as HOD/Student records.
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    office: Optional[str] = None
+    office_hours: Optional[str] = None
+    qualification: Optional[str] = None
+    specialization: Optional[str] = None
+
+
 class TeacherActivityOut(BaseModel):
     icon: str
     title: str

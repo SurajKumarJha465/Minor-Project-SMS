@@ -30,6 +30,14 @@ import { authHeader } from "@/lib/auth";
 
 const API_URL = import.meta.env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
 
+// Same convention as the teacher/HOD profile pages: the backend returns a
+// relative /uploads/profile-photos/<file> path, which needs the API origin
+// prefixed since the frontend and backend run on different ports/hosts.
+function photoSrc(photo) {
+  if (!photo) return undefined;
+  return photo.startsWith("http") ? photo : `${API_URL}${photo}`;
+}
+
 function initials(name) {
   if (!name) return "??";
   return name
@@ -97,7 +105,7 @@ function passwordStrength(pw) {
   return { ...levels[Math.max(0, score - 1)], score };
 }
 
-export default function Profile() {
+export default function Profile({ onUserRefresh }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -117,8 +125,11 @@ export default function Profile() {
   const [savingPw, setSavingPw] = useState(false);
   const strength = passwordStrength(newPw);
 
-  // Photo upload preview state (in-memory only, no backend endpoint yet).
+  // Photo upload: photoPreview shows the picked file immediately (via
+  // createObjectURL) while the upload is in flight; once the server responds,
+  // `profile.photo` (the persisted URL) takes over as the source of truth.
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   // 2FA setup flow.
   const [twoFaOpen, setTwoFaOpen] = useState(false);
@@ -201,11 +212,43 @@ export default function Profile() {
     }
   }
 
-  function handlePhotoChange(e) {
+  async function handlePhotoChange(e) {
     const file = e.target.files?.[0];
+    e.target.value = ""; // allow picking the same file again later
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    setPhotoPreview(url);
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image is larger than the 5 MB limit");
+      return;
+    }
+
+    const localUrl = URL.createObjectURL(file);
+    setPhotoPreview(localUrl);
+    setUploadingPhoto(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`${API_URL}/api/student/me/photo`, {
+        method: "POST",
+        headers: { ...authHeader() },
+        body: form,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail ?? "Failed to upload photo");
+        return;
+      }
+      const data = await res.json();
+      setProfile(data);
+      toast.success("Profile picture updated");
+      onUserRefresh?.(); // topbar avatar is a separate fetch — nudge it to pick up the new photo
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    } finally {
+      setUploadingPhoto(false);
+      setPhotoPreview(null);
+      URL.revokeObjectURL(localUrl);
+    }
   }
 
   function closePasswordDialog() {
@@ -390,7 +433,7 @@ export default function Profile() {
               {photoPreview ? (
                 <img src={photoPreview} alt={p.name} className="size-full object-cover" />
               ) : p.photo ? (
-                <img src={p.photo} alt={p.name} className="size-full object-cover" />
+                <img src={photoSrc(p.photo)} alt={p.name} className="size-full object-cover" />
               ) : (
                 initials(p.name)
               )}
@@ -464,11 +507,23 @@ export default function Profile() {
         <form className="space-y-4" onSubmit={submitEdit}>
           <div className="flex items-center gap-4">
             <div className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-2xl gradient-primary font-display text-xl font-bold text-primary-foreground">
-              {photoPreview ? <img src={photoPreview} alt="" className="size-full object-cover" /> : initials(p.name)}
+              {photoPreview ? (
+                <img src={photoPreview} alt="" className="size-full object-cover" />
+              ) : p.photo ? (
+                <img src={photoSrc(p.photo)} alt="" className="size-full object-cover" />
+              ) : (
+                initials(p.name)
+              )}
             </div>
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-foreground hover:bg-accent">
-              <Camera className="size-4" /> Upload Photo
-              <input type="file" accept="image/*" className="hidden" onChange={handlePhotoChange} />
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm font-medium text-foreground hover:bg-accent aria-disabled:pointer-events-none aria-disabled:opacity-60">
+              <Camera className="size-4" /> {uploadingPhoto ? "Uploading…" : "Upload Photo"}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={handlePhotoChange}
+                disabled={uploadingPhoto}
+              />
             </label>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">

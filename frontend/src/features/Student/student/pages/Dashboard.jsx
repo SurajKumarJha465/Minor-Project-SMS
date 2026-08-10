@@ -1,5 +1,5 @@
 import { toast } from "sonner";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -16,10 +16,8 @@ import {
 import {
   BellRing,
   BookOpen,
-  Download,
   GraduationCap,
   ListChecks,
-  Paperclip,
   TrendingUp,
   UserCheck,
 } from "lucide-react";
@@ -31,21 +29,18 @@ import Button from "@/features/Student/ui/Button";
 import Pill from "@/features/Student/ui/Pill";
 import FloatingModal from "@/features/Student/ui/FloatingModal";
 import { CHART, tooltipStyle } from "@/features/Student/lib/chart-colors";
-import {
-  attendanceTrend,
-  coursePerformance,
-  notices,
-  quickStats,
-  semesterGpaTrend,
-  studentProfile,
-} from "@/features/Student/data/mock/student";
+import { authHeader } from "@/lib/auth";
 
-const CAT_TONE = { Important: "danger", Academic: "info", Department: "primary", Exam: "warning" };
+const API_URL = import.meta.env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+// Same category → colour mapping NoticeBoard.jsx uses, so a notice looks the
+// same whether you see it here or on the full board.
+const CAT_TONE = { Department: "primary", Semester: "info", Exam: "warning", Emergency: "danger" };
 
 const QUICK_ACTIONS = [
   { label: "View Attendance", icon: UserCheck, page: "attendance" },
   { label: "View Marks", icon: ListChecks, page: "internal-marks" },
-  { label: "Download Result", icon: Download, page: "semester-results" },
+  { label: "Download Result", icon: BookOpen, page: "semester-results" },
   { label: "Open Notices", icon: BellRing, page: "notice-board" },
 ];
 
@@ -57,19 +52,114 @@ const formatToday = () =>
     year: "numeric",
   });
 
+// The backend only tracks attendance day-by-day (no monthly rollup), so the
+// "trend" chart is built here from the raw calendar: bucket days into weeks
+// and take the % present per week, most recent 8 weeks.
+function buildWeeklyAttendanceTrend(calendar) {
+  if (!calendar?.length) return [];
+  const buckets = new Map();
+  for (const day of calendar) {
+    const d = new Date(day.date);
+    if (Number.isNaN(d.getTime())) continue;
+    const weekStart = new Date(d);
+    weekStart.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // Monday of that week
+    const key = weekStart.toISOString().slice(0, 10);
+    const bucket = buckets.get(key) ?? { present: 0, total: 0 };
+    bucket.total += 1;
+    if (day.status === "present") bucket.present += 1;
+    buckets.set(key, bucket);
+  }
+  return Array.from(buckets.entries())
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .slice(-8)
+    .map(([key, b]) => ({
+      name: new Date(key).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }),
+      value: Math.round((b.present / b.total) * 100),
+    }));
+}
+
 export default function Dashboard({ onNavigate }) {
   const [today, setToday] = useState("");
   const [noticeOpen, setNoticeOpen] = useState(null);
+
+  const [profile, setProfile] = useState(null);
+  const [attendance, setAttendance] = useState(null);
+  const [courses, setCourses] = useState([]);
+  const [results, setResults] = useState(null);
+  const [notices, setNotices] = useState([]);
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => setToday(formatToday()), []);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      try {
+        const headers = { ...authHeader() };
+        const [meRes, attRes, coursesRes, resultsRes, noticesRes] = await Promise.all([
+          fetch(`${API_URL}/api/student/me`, { headers }),
+          fetch(`${API_URL}/api/student/attendance`, { headers }),
+          fetch(`${API_URL}/api/student/courses`, { headers }),
+          fetch(`${API_URL}/api/student/results`, { headers }),
+          fetch(`${API_URL}/api/student/notices`, { headers }),
+        ]);
+        if (!meRes.ok) throw new Error(`Failed to load profile (${meRes.status})`);
+        if (!attRes.ok) throw new Error(`Failed to load attendance (${attRes.status})`);
+        if (!coursesRes.ok) throw new Error(`Failed to load courses (${coursesRes.status})`);
+        if (!resultsRes.ok) throw new Error(`Failed to load results (${resultsRes.status})`);
+        if (!noticesRes.ok) throw new Error(`Failed to load notices (${noticesRes.status})`);
+
+        const [me, att, courseList, resultsData, noticeList] = await Promise.all([
+          meRes.json(),
+          attRes.json(),
+          coursesRes.json(),
+          resultsRes.json(),
+          noticesRes.json(),
+        ]);
+
+        if (cancelled) return;
+        setProfile(me);
+        setAttendance(att);
+        setCourses(courseList);
+        setResults(resultsData);
+        setNotices(noticeList);
+      } catch (err) {
+        if (!cancelled) toast.error(err instanceof Error ? err.message : "Could not load dashboard data.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const stats = [
-    { icon: UserCheck, label: "Attendance", value: `${quickStats.attendance}%`, tone: "primary" },
-    { icon: TrendingUp, label: "CGPA", value: studentProfile.cgpa, tone: "info" },
-    { icon: BookOpen, label: "Courses Enrolled", value: quickStats.coursesEnrolled, tone: "mist" },
-    { icon: GraduationCap, label: "Semester Progress", value: `${quickStats.semesterProgress}%`, tone: "mist" },
+    { icon: UserCheck, label: "Attendance", value: attendance ? `${attendance.summary.overall}%` : "—", tone: "primary" },
+    { icon: TrendingUp, label: "CGPA", value: results ? results.cgpa : "—", tone: "info" },
+    { icon: BookOpen, label: "Courses Enrolled", value: courses.length, tone: "mist" },
+    { icon: GraduationCap, label: "Semester", value: profile ? profile.semester : "—", tone: "mist" },
   ];
 
+  const weeklyAttendanceTrend = useMemo(
+    () => buildWeeklyAttendanceTrend(attendance?.calendar),
+    [attendance],
+  );
+
+  const semesterGpaTrend = useMemo(
+    () => (results?.results ?? []).map((r) => ({ name: `Sem ${r.semester}`, gpa: r.gpa })),
+    [results],
+  );
+
+  const coursePerformance = useMemo(
+    () => courses.map((c) => ({ name: c.code, score: Math.round((c.internal / (c.internal_max || 50)) * 100) })),
+    [courses],
+  );
+
   const quickNotices = notices.slice(0, 4);
+  const firstName = profile?.name?.split(" ")[0] ?? "";
 
   return (
     <div className="space-y-6">
@@ -81,16 +171,20 @@ export default function Dashboard({ onNavigate }) {
           <div className="min-w-0 text-primary-foreground">
             <p className="text-sm font-medium opacity-80">{today}</p>
             <h1 className="mt-1 font-display text-2xl font-bold tracking-tight sm:text-3xl">
-              Welcome back, {studentProfile.firstName}! 👋
+              Welcome back{firstName ? `, ${firstName}` : ""}! 👋
             </h1>
             <p className="mt-1.5 text-sm opacity-90">
-              Semester {studentProfile.semester} · {studentProfile.department} · Enrollment {studentProfile.enrollment}
+              {profile
+                ? `Semester ${profile.semester} · ${profile.department} · Enrollment ${profile.enrollment}`
+                : loading
+                  ? "Loading your details…"
+                  : ""}
             </p>
           </div>
           <div className="flex items-center gap-3 rounded-2xl bg-white/15 px-5 py-3 backdrop-blur">
             <div className="text-primary-foreground">
               <p className="text-xs opacity-80">Current CGPA</p>
-              <p className="font-display text-2xl font-bold">{studentProfile.cgpa}</p>
+              <p className="font-display text-2xl font-bold">{results ? results.cgpa : "—"}</p>
             </div>
           </div>
         </div>
@@ -123,8 +217,8 @@ export default function Dashboard({ onNavigate }) {
 
       {/* Analytics */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <ChartCard title="Attendance Trend" subtitle="Monthly average %" icon={TrendingUp}>
-          <AreaChart data={attendanceTrend} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+        <ChartCard title="Attendance Trend" subtitle="Weekly average %" icon={TrendingUp}>
+          <AreaChart data={weeklyAttendanceTrend} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
             <defs>
               <linearGradient id="attGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={CHART.c1} stopOpacity={0.35} />
@@ -133,7 +227,7 @@ export default function Dashboard({ onNavigate }) {
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke={CHART.grid} vertical={false} />
             <XAxis dataKey="name" stroke={CHART.axis} fontSize={12} tickLine={false} axisLine={false} />
-            <YAxis domain={[70, 100]} stroke={CHART.axis} fontSize={12} tickLine={false} axisLine={false} />
+            <YAxis domain={[0, 100]} stroke={CHART.axis} fontSize={12} tickLine={false} axisLine={false} />
             <Tooltip {...tooltipStyle} />
             <Area type="monotone" dataKey="value" stroke={CHART.c1} strokeWidth={2.5} fill="url(#attGrad)" />
           </AreaChart>
@@ -143,13 +237,13 @@ export default function Dashboard({ onNavigate }) {
           <LineChart data={semesterGpaTrend} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={CHART.grid} vertical={false} />
             <XAxis dataKey="name" stroke={CHART.axis} fontSize={12} tickLine={false} axisLine={false} />
-            <YAxis domain={[7, 10]} stroke={CHART.axis} fontSize={12} tickLine={false} axisLine={false} />
+            <YAxis domain={[0, 10]} stroke={CHART.axis} fontSize={12} tickLine={false} axisLine={false} />
             <Tooltip {...tooltipStyle} />
             <Line type="monotone" dataKey="gpa" stroke={CHART.c2} strokeWidth={2.5} dot={{ r: 4, fill: CHART.c2 }} activeDot={{ r: 6 }} />
           </LineChart>
         </ChartCard>
 
-        <ChartCard title="Course Performance" subtitle="Score % per course" icon={BookOpen}>
+        <ChartCard title="Course Performance" subtitle="Internal marks %" icon={BookOpen}>
           <BarChart data={coursePerformance} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={CHART.grid} vertical={false} />
             <XAxis dataKey="name" stroke={CHART.axis} fontSize={11} tickLine={false} axisLine={false} />
@@ -166,14 +260,19 @@ export default function Dashboard({ onNavigate }) {
         {/* Quick Notices */}
         <SectionCard title="Quick Notices" icon={BellRing} action={<Button variant="ghost" size="sm" onClick={() => onNavigate("notice-board")}>View all</Button>}>
           <div className="space-y-3">
+            {quickNotices.length === 0 && (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                {loading ? "Loading…" : "No notices yet."}
+              </p>
+            )}
             {quickNotices.map((n) => (
               <div key={n.id} className="rounded-xl border border-border/60 bg-card p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-foreground">{n.title}</p>
-                    <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{n.summary}</p>
+                    <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{n.body}</p>
                   </div>
-                  <Pill tone={n.priority === "High" ? "danger" : "neutral"}>{n.priority}</Pill>
+                  <Pill tone={CAT_TONE[n.type] ?? "neutral"}>{n.type}</Pill>
                 </div>
                 <div className="mt-3 flex items-center justify-between">
                   <span className="text-[11px] text-muted-foreground">{n.date}</span>
@@ -190,21 +289,15 @@ export default function Dashboard({ onNavigate }) {
         open={!!noticeOpen}
         onClose={() => setNoticeOpen(null)}
         title={noticeOpen?.title}
-        description={noticeOpen ? `${noticeOpen.category} · ${noticeOpen.date}` : ""}
+        description={noticeOpen ? `${noticeOpen.audience} · ${noticeOpen.author} · ${noticeOpen.date}` : ""}
       >
         {noticeOpen && (
           <div className="space-y-4">
-            <p className="text-sm text-foreground">{noticeOpen.description}</p>
+            <p className="whitespace-pre-wrap text-sm text-foreground">{noticeOpen.body}</p>
             <div className="flex flex-wrap items-center gap-2">
-              <Pill tone={CAT_TONE[noticeOpen.category]} dot>{noticeOpen.category}</Pill>
-              <Pill tone={noticeOpen.priority === "High" ? "danger" : "neutral"}>{noticeOpen.priority} priority</Pill>
+              <Pill tone={CAT_TONE[noticeOpen.type] ?? "neutral"} dot>{noticeOpen.type}</Pill>
+              {noticeOpen.pinned && <Pill tone="danger">Pinned</Pill>}
             </div>
-            {noticeOpen.attachment && (
-              <div className="flex items-center justify-between rounded-xl border border-border/60 bg-accent/30 px-4 py-2.5 text-sm">
-                <span className="flex items-center gap-2 text-foreground"><Paperclip className="size-4" /> {noticeOpen.attachment}</span>
-                <Button size="sm" variant="ghost" onClick={() => toast.success(`Downloading ${noticeOpen.attachment}`)}>Download</Button>
-              </div>
-            )}
             <div className="flex justify-end">
               <Button variant="ghost" onClick={() => setNoticeOpen(null)}>Close</Button>
             </div>

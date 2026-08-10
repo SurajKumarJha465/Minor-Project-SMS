@@ -55,7 +55,7 @@ export default function StudentApp() {
         user={user ?? undefined}
         brandLabel="Student Portal"
       >
-        {Page ? <Page /> : null}
+        {Page ? <Page onNavigate={setActiveId} /> : null}
       </DashboardShell>
     </ThemeProvider>
   );

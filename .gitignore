@@ -39,3 +39,4 @@ frontend/.env.*.local
 .DS_Store
 Thumbs.db
 extract.py
+repository_code.txt

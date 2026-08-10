@@ -479,6 +479,32 @@ class TeacherCoursePerformanceOut(BaseModel):
     students: list[TeacherPerformanceStudentRow]
 
 
+class TeacherCourseOfferingSummary(BaseModel):
+    """One (sem, section) offering of a course, with its own summary stats —
+    used for the section-picker shown under the aggregate view."""
+    id: str          # composite course id, e.g. "ce-5-d-cs501"
+    sem: int
+    section: str
+    enrolled: int
+    avg_attendance: float
+    avg_marks: float
+
+
+class TeacherCourseAggregatePerformanceOut(BaseModel):
+    """Combined performance across every section/semester offering of a
+    course code the teacher is assigned to. Shown before drilling into a
+    single offering's TeacherCoursePerformanceOut dashboard."""
+    code: str
+    name: str
+    credits: int
+    enrolled: int
+    avg_attendance: float
+    avg_marks: float
+    total_marks: int
+    students: list[TeacherPerformanceStudentRow]
+    offerings: list[TeacherCourseOfferingSummary]
+
+
 class HodGradeRow(BaseModel):
     student_id: str
     name: str

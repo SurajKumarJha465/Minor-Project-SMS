@@ -22,7 +22,9 @@ const nav = [
   { to: "/hod/settings", label: "Settings", icon: Settings },
 ] as const;
 
-export function HodSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function HodSidebar({
+  open, onClose, department,
+}: { open: boolean; onClose: () => void; department?: string | null }) {
   const { pathname } = useLocation();
 
   return (
@@ -43,7 +45,7 @@ export function HodSidebar({ open, onClose }: { open: boolean; onClose: () => vo
             </div>
             <div className="min-w-0">
               <div className="font-display text-sm font-bold leading-tight">EduPortal</div>
-              <div className="truncate text-[11px] text-muted-foreground">HOD · Comp. Engg.</div>
+              <div className="truncate text-[11px] text-muted-foreground">HOD · {department ?? "—"}</div>
             </div>
           </Link>
           <button className="rounded-lg p-1.5 hover:bg-sidebar-accent lg:hidden" onClick={onClose}>

@@ -11,7 +11,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowRight, BookOpen, Save, Send, Upload } from "lucide-react";
+import { ArrowRight, BookOpen, ChevronDown, ChevronUp, Save, Send, Upload } from "lucide-react";
 import { authHeader } from "@/lib/auth";
 
 export const Route = createFileRoute("/hod/final-results")({
@@ -24,6 +24,7 @@ const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://lo
 // Same scale as backend/api/grading.py (Pokhara University's 4.0 system).
 // Keep these two in sync if the grading scale ever changes.
 const GRADE_OPTIONS = ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "F"];
+const SEMESTERS = [1, 2, 3, 4, 5, 6, 7, 8];
 
 type HodCourse = {
   id: string; code: string; name: string; credits: number; sem: number;
@@ -31,6 +32,11 @@ type HodCourse = {
 };
 
 type GradeRow = { student_id: string; name: string; enrollment: string; grade: string; status: "draft" | "published" };
+
+type SemesterCourseSummary = {
+  course_id: string; code: string; name: string; section: string;
+  graded: number; total_enrolled: number; published: boolean;
+};
 
 function FinalResults() {
   const [courses, setCourses] = useState<HodCourse[]>([]);
@@ -65,45 +71,253 @@ function FinalResults() {
       <div>
         <h1 className="font-display text-2xl font-bold">Final Results</h1>
         <p className="text-sm text-muted-foreground">
-          Enter or import final grades from the exam office's results sheet, then publish per course.
-          This is separate from internal marks — teachers don't have access to this.
+          Publish the university's end-semester results — upload one sheet for a whole semester, or
+          enter/import grades course by course below. This is separate from internal marks — teachers
+          don't have access to this.
         </p>
       </div>
 
-      {loading ? (
-        <p className="text-sm text-muted-foreground">Loading courses…</p>
-      ) : courses.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No courses in your department yet.</p>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {courses.map((c) => (
-            <Card
-              key={c.id}
-              onClick={() => setCourseId(c.id)}
-              className="group cursor-pointer overflow-hidden rounded-2xl border-border/60 p-0 shadow-soft transition hover:-translate-y-1 hover:shadow-glass"
-            >
-              <div className="gradient-brand relative h-20 p-4 text-white">
-                <div className="text-[10px] uppercase tracking-widest opacity-80">{c.code}</div>
-                <div className="mt-1 font-display text-base font-bold">{c.name}</div>
-              </div>
-              <CardContent className="space-y-2 p-4 text-sm">
-                <div className="flex flex-wrap gap-1.5">
-                  <Badge variant="secondary" className="rounded-full">Sem {c.sem}</Badge>
-                  <Badge variant="secondary" className="rounded-full">Sec {c.section}</Badge>
-                  {c.teacher_name && <Badge variant="secondary" className="rounded-full">{c.teacher_name}</Badge>}
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">{c.enrolled} students</span>
-                  <span className="flex items-center gap-1 text-xs font-medium text-primary">
-                    Enter results <ArrowRight className="h-3 w-3" />
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+      <SemesterImport onOpenCourse={setCourseId} />
+
+      <div className="space-y-3">
+        <div>
+          <h2 className="font-display text-lg font-bold">Browse by Course</h2>
+          <p className="text-xs text-muted-foreground">Enter or import grades for a single course manually.</p>
         </div>
-      )}
+
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Loading courses…</p>
+        ) : courses.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No courses in your department yet.</p>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {courses.map((c) => (
+              <Card
+                key={c.id}
+                onClick={() => setCourseId(c.id)}
+                className="group cursor-pointer overflow-hidden rounded-2xl border-border/60 p-0 shadow-soft transition hover:-translate-y-1 hover:shadow-glass"
+              >
+                <div className="gradient-brand relative h-20 p-4 text-white">
+                  <div className="text-[10px] uppercase tracking-widest opacity-80">{c.code}</div>
+                  <div className="mt-1 font-display text-base font-bold">{c.name}</div>
+                </div>
+                <CardContent className="space-y-2 p-4 text-sm">
+                  <div className="flex flex-wrap gap-1.5">
+                    <Badge variant="secondary" className="rounded-full">Sem {c.sem}</Badge>
+                    <Badge variant="secondary" className="rounded-full">Sec {c.section}</Badge>
+                    {c.teacher_name && <Badge variant="secondary" className="rounded-full">{c.teacher_name}</Badge>}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">{c.enrolled} students</span>
+                    <span className="flex items-center gap-1 text-xs font-medium text-primary">
+                      Enter results <ArrowRight className="h-3 w-3" />
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
+  );
+}
+
+function SemesterImport({ onOpenCourse }: { onOpenCourse: (courseId: string) => void }) {
+  const [expanded, setExpanded] = useState(true);
+  const [sem, setSem] = useState<number>(1);
+  const [summary, setSummary] = useState<SemesterCourseSummary[]>([]);
+  const [loadingSummary, setLoadingSummary] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const loadSummary = async (semester: number) => {
+    setLoadingSummary(true);
+    try {
+      const res = await fetch(`${API_URL}/api/hod/semesters/${semester}/results`, { headers: { ...authHeader() } });
+      if (!res.ok) throw new Error(`Failed to load semester summary (${res.status})`);
+      const data = await res.json();
+      setSummary(data.courses ?? []);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not load semester summary.");
+    } finally {
+      setLoadingSummary(false);
+    }
+  };
+
+  useEffect(() => { loadSummary(sem); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [sem]);
+
+  async function importCsv(file: File) {
+    setImporting(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`${API_URL}/api/hod/semesters/${sem}/results/import-csv`, {
+        method: "POST", headers: { ...authHeader() }, body: form,
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.detail ?? `Import failed (${res.status})`);
+      toast.success(`Imported ${body.saved} result(s)${body.skipped?.length ? `, skipped ${body.skipped.length}` : ""}`);
+      if (body.skipped?.length) {
+        // handy when the sheet only covers some students/courses — makes it
+        // obvious which rows didn't match anything without failing the import
+        console.info("Skipped rows:", body.skipped);
+      }
+      await loadSummary(sem);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to import CSV");
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function publishSemester() {
+    setPublishOpen(false);
+    setPublishing(true);
+    try {
+      const res = await fetch(`${API_URL}/api/hod/semesters/${sem}/results/publish`, {
+        method: "POST", headers: { ...authHeader() },
+      });
+      if (!res.ok) throw new Error(`Failed to publish (${res.status})`);
+      toast.success(`Published semester ${sem} results — students can now see them`);
+      await loadSummary(sem);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to publish semester results");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  const totalGraded = summary.reduce((n, c) => n + c.graded, 0);
+  const allPublished = summary.length > 0 && summary.every((c) => c.graded === 0 || c.published);
+
+  return (
+    <Card className="rounded-2xl shadow-soft">
+      <CardHeader
+        className="cursor-pointer select-none pb-3"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Upload className="h-4 w-4" /> Publish by Semester
+          </CardTitle>
+          {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Upload one results sheet covering every course in a semester, then publish it all at once.
+        </p>
+      </CardHeader>
+
+      {expanded && (
+        <CardContent className="space-y-4 pt-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={String(sem)} onValueChange={(v) => setSem(Number(v))}>
+              <SelectTrigger className="h-9 w-32 rounded-lg"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {SEMESTERS.map((s) => <SelectItem key={s} value={String(s)}>Semester {s}</SelectItem>)}
+              </SelectContent>
+            </Select>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) importCsv(file);
+                e.target.value = "";
+              }}
+            />
+            <Button variant="outline" className="rounded-xl" disabled={importing} onClick={() => fileInputRef.current?.click()}>
+              <Upload className="mr-1.5 h-4 w-4" />{importing ? "Importing…" : "Upload Result Sheet (CSV)"}
+            </Button>
+
+            <Button
+              className="rounded-xl"
+              disabled={publishing || totalGraded === 0 || allPublished}
+              onClick={() => setPublishOpen(true)}
+            >
+              <Send className="mr-1.5 h-4 w-4" />
+              {allPublished && totalGraded > 0 ? "All Published" : "Publish Semester"}
+            </Button>
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            CSV needs <code>enrollment</code>, <code>course_code</code>, and <code>grade</code> columns — one row
+            per student per course. A course code shared across sections resolves automatically from each
+            student's own enrollment, so no section column is needed. Unmatched rows are skipped and reported,
+            not treated as a failure.
+          </p>
+
+          <div className="overflow-x-auto rounded-xl border border-border/60">
+            <table className="w-full text-sm">
+              <thead className="bg-secondary/60 text-[10px] uppercase tracking-wider text-muted-foreground">
+                <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:text-left">
+                  <th>Course</th>
+                  <th>Section</th>
+                  <th>Graded</th>
+                  <th>Status</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {loadingSummary ? (
+                  <tr><td colSpan={5} className="px-3 py-4 text-center text-sm text-muted-foreground">Loading…</td></tr>
+                ) : summary.length === 0 ? (
+                  <tr><td colSpan={5} className="px-3 py-4 text-center text-sm text-muted-foreground">No courses in semester {sem} yet.</td></tr>
+                ) : (
+                  summary.map((c) => (
+                    <tr key={c.course_id} className="[&>td]:px-3 [&>td]:py-2">
+                      <td>
+                        <div className="text-sm font-semibold">{c.code}</div>
+                        <div className="text-xs text-muted-foreground">{c.name}</div>
+                      </td>
+                      <td className="text-xs">{c.section}</td>
+                      <td className="text-xs">{c.graded} / {c.total_enrolled}</td>
+                      <td>
+                        {c.graded === 0 ? (
+                          <Badge variant="secondary" className="rounded-lg">No results yet</Badge>
+                        ) : c.published ? (
+                          <Badge className="rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">Published</Badge>
+                        ) : (
+                          <Badge variant="secondary" className="rounded-lg">Draft</Badge>
+                        )}
+                      </td>
+                      <td>
+                        <Button size="sm" variant="ghost" className="h-7 rounded-lg text-xs" onClick={() => onOpenCourse(c.course_id)}>
+                          Review <ArrowRight className="ml-1 h-3 w-3" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      )}
+
+      <AlertDialog open={publishOpen} onOpenChange={setPublishOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Publish Semester {sem} Results?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This publishes every graded course in semester {sem} at once ({totalGraded} graded result{totalGraded === 1 ? "" : "s"}
+              {" "}across {summary.filter((c) => c.graded > 0).length} course{summary.filter((c) => c.graded > 0).length === 1 ? "" : "s"}).
+              Students will immediately be able to see this semester in their results. You can still edit and
+              re-publish individual courses afterward.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={publishSemester}>Yes, Publish Semester</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
   );
 }
 

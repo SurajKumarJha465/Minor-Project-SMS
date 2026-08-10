@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { authHeader } from "@/lib/auth";
 import { Megaphone, Pin, Paperclip, Send, CalendarClock, Trash2, X } from "lucide-react";
@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 
 export const Route = createFileRoute("/hod/notices")({
   head: () => ({ meta: [{ title: "Department Notices · HOD" }] }),
@@ -34,12 +33,24 @@ type Notice = {
   author: string;
   date: string;
   scheduled_for: string | null;
+  attachment_url: string | null;
+  attachment_name: string | null;
+  attachment_size: number | null;
 };
 
 function isFutureScheduled(n: Notice): boolean {
   if (!n.scheduled_for) return false;
   return new Date(n.scheduled_for).getTime() > Date.now();
 }
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+const ATTACHMENT_ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt";
+const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 
 function Notices() {
   const [notices, setNotices] = useState<Notice[]>([]);
@@ -55,6 +66,32 @@ function Notices() {
   const [scheduledFor, setScheduledFor] = useState(""); // datetime-local value
   const [submitting, setSubmitting] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
+
+  const [attachment, setAttachment] = useState<{ url: string; name: string; size: number } | null>(null);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleFileSelected(file: File) {
+    if (file.size > ATTACHMENT_MAX_BYTES) {
+      toast.error("File is larger than the 10 MB limit.");
+      return;
+    }
+    setUploadingAttachment(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`${API_URL}/api/hod/notices/attachment`, {
+        method: "POST", headers: { ...authHeader() }, body: form,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail ?? "Failed to upload attachment");
+      setAttachment({ url: data.attachment_url, name: data.attachment_name, size: data.attachment_size });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to upload attachment");
+    } finally {
+      setUploadingAttachment(false);
+    }
+  }
 
   async function loadNotices() {
     setLoading(true);
@@ -80,6 +117,7 @@ function Notices() {
     setPinned(false);
     setScheduleOpen(false);
     setScheduledFor("");
+    setAttachment(null);
   }
 
   async function publish() {
@@ -95,6 +133,9 @@ function Notices() {
         body: JSON.stringify({
           title, body, type, audience, pinned,
           scheduled_for: scheduleOpen && scheduledFor ? new Date(scheduledFor).toISOString() : null,
+          attachment_url: attachment?.url ?? null,
+          attachment_name: attachment?.name ?? null,
+          attachment_size: attachment?.size ?? null,
         }),
       });
       if (!res.ok) {
@@ -153,11 +194,10 @@ function Notices() {
   }
 
   return (
-    <TooltipProvider>
-      <div className="space-y-5">
-        <div>
-          <h1 className="font-display text-2xl font-bold">Department Notice Board</h1>
-          <p className="text-sm text-muted-foreground">Publish and manage department announcements.</p>
+    <div className="space-y-5">
+      <div>
+        <h1 className="font-display text-2xl font-bold">Department Notice Board</h1>
+        <p className="text-sm text-muted-foreground">Publish and manage department announcements.</p>
         </div>
 
         {error && !loading && (
@@ -216,17 +256,39 @@ function Notices() {
                 </div>
               )}
 
+              {attachment && (
+                <div className="flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2.5">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate text-sm font-medium">{attachment.name}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{formatBytes(attachment.size)}</span>
+                  </div>
+                  <button onClick={() => setAttachment(null)} className="shrink-0 text-muted-foreground hover:text-foreground">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+
               <div className="flex flex-wrap items-center gap-2">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <Button variant="outline" className="rounded-xl" disabled>
-                        <Paperclip className="mr-1.5 h-4 w-4" /> Attach
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>File attachments are coming soon</TooltipContent>
-                </Tooltip>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept={ATTACHMENT_ACCEPT}
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleFileSelected(file);
+                    e.target.value = "";
+                  }}
+                />
+                <Button
+                  variant="outline" className="rounded-xl"
+                  disabled={uploadingAttachment}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Paperclip className="mr-1.5 h-4 w-4" />
+                  {uploadingAttachment ? "Uploading…" : attachment ? "Replace attachment" : "Attach"}
+                </Button>
                 <Button
                   variant="outline" className="rounded-xl"
                   onClick={() => setScheduleOpen((v) => !v)}
@@ -269,6 +331,17 @@ function Notices() {
                         )}
                       </div>
                       <div className="mt-0.5 text-xs text-muted-foreground">{n.audience} · {n.author} · {n.date}</div>
+                      {n.attachment_url && (
+                        <a
+                          href={`${API_URL}${n.attachment_url}`}
+                          target="_blank" rel="noreferrer"
+                          className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-background px-2 py-1 text-xs text-primary hover:underline"
+                        >
+                          <Paperclip className="h-3 w-3" />
+                          {n.attachment_name}
+                          {n.attachment_size != null && <span className="text-muted-foreground">({formatBytes(n.attachment_size)})</span>}
+                        </a>
+                      )}
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
                       <Button
@@ -293,6 +366,5 @@ function Notices() {
           </Card>
         </div>
       </div>
-    </TooltipProvider>
   );
 }

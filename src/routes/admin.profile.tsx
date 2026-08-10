@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { SafeAvatarImage, validateImageUrl } from "@/components/safe-avatar-image";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -67,6 +67,7 @@ function ProfilePage() {
   const [editQualification, setEditQualification] = useState("");
   const [editExperience, setEditExperience] = useState("");
   const [editPhoto, setEditPhoto] = useState("");
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
 
   async function loadProfile() {
@@ -96,6 +97,7 @@ function ProfilePage() {
     setEditQualification(admin.qualification ?? "");
     setEditExperience(admin.experience ?? "");
     setEditPhoto(admin.photo ?? "");
+    setPhotoError(null);
     setEditOpen(true);
   }
 
@@ -106,6 +108,12 @@ function ProfilePage() {
   async function submitProfileEdit() {
     if (!editName.trim()) {
       toast.error("Name can't be empty.");
+      return;
+    }
+    const urlErr = validateImageUrl(editPhoto);
+    if (urlErr) {
+      setPhotoError(urlErr);
+      toast.error(urlErr);
       return;
     }
     setEditSaving(true);
@@ -281,10 +289,11 @@ function ProfilePage() {
     <div className="space-y-5">
       <Card className="overflow-hidden rounded-2xl border-0 gradient-brand text-white shadow-glass">
         <div className="grid gap-6 p-8 md:grid-cols-[auto_1fr_auto] md:items-center">
-          <Avatar className="h-24 w-24 ring-4 ring-white/40">
-            <AvatarImage src={admin.photo ?? undefined} />
-            <AvatarFallback>{admin.name[0]}</AvatarFallback>
-          </Avatar>
+          <SafeAvatarImage
+            src={admin.photo}
+            fallback={admin.name[0]}
+            className="h-24 w-24 ring-4 ring-white/40"
+          />
           <div>
             <div className="text-xs uppercase tracking-widest text-white/80">{admin.title || "Super Administrator"}</div>
             <h1 className="font-display text-3xl font-bold">{admin.name}</h1>
@@ -370,23 +379,31 @@ function ProfilePage() {
           </DialogHeader>
           <div className="grid max-h-[60vh] gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
             <div className="flex items-center gap-4 sm:col-span-2">
-              <Avatar className="h-16 w-16">
-                <AvatarImage src={editPhoto || undefined} />
-                <AvatarFallback>{editName ? editName[0] : "A"}</AvatarFallback>
-              </Avatar>
+              <SafeAvatarImage
+                src={editPhoto}
+                fallback={editName ? editName[0] : "A"}
+                className="h-16 w-16"
+              />
               <div className="flex-1 space-y-1.5">
                 <Label htmlFor="edit-photo" className="text-xs text-muted-foreground">Profile Photo URL</Label>
                 <div className="flex gap-2">
                   <Input
                     id="edit-photo"
                     value={editPhoto}
-                    onChange={(e) => setEditPhoto(e.target.value)}
+                    onChange={(e) => {
+                      setEditPhoto(e.target.value);
+                      setPhotoError(null);
+                    }}
                     placeholder="https://…"
+                    className={photoError ? "border-destructive" : ""}
                   />
                   <Button type="button" variant="outline" size="icon" className="shrink-0 rounded-xl" disabled>
                     <Camera className="h-4 w-4" />
                   </Button>
                 </div>
+                {photoError && (
+                  <p className="text-xs text-destructive">{photoError}</p>
+                )}
               </div>
             </div>
             <div className="space-y-1.5 sm:col-span-2">

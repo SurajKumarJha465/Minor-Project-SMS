@@ -1,46 +1,59 @@
-# Why the preview won't update
+# Diagnosis: what bricked the preview
 
-## The breakage
+## Root cause
 
-The new commit's attendance page imports five things that don't exist in the file it imports them from.
+Two files were overwritten with *instruction notes* instead of real code — the "here's the change to make" text (with `BEFORE:` / `AFTER:` comment blocks) was saved directly as the file body, wiping the actual implementation.
 
-`src/routes/teacher.attendance.$courseId.tsx` imports from `@/features/Teacher/lib/attendance-api`:
+### 1. `src/features/Teacher/lib/academic-data.ts` — gutted
 
-- `recognizeAttendanceFrame`
-- `saveAttendance`
-- `getTodayAttendance`
-- type `AttendanceEntry`
-- type `Status`
+The file is now 57 lines and exports only:
 
-But `src/features/Teacher/lib/attendance-api.ts` in this workspace is a near-copy of `academic-data.ts` — it only exports course/roster/marks helpers (`getTeacherCourses`, `getCourseByCompositeId`, `getRosterForCourse`, `getCourseMarks`, `saveCourseMarks`, department/section constants). None of the five attendance exports are there.
+- `parseCourseId`
+- `CourseOffering`, `GroupedTeacherCourse` types
+- `groupTeacherCourses`
 
-Because those imports fail, the route module can't be evaluated, which is exactly the error the preview shows:
+Everything else the Teacher module relied on is gone: `semesters`, `sections`, `deptName`, `sectionLabel`, `getTeacherMe`, `getTeacherCourses`, `getAssignedCourses`, `getRosterFor`, `getCourseByCompositeId`, `getRosterForCourse`, and the `TeacherCourse` / `TeacherMeDto` types. It also references `TeacherCourse` on line 39 without that type existing anymore.
+
+Ten files import from it:
 
 ```text
-TypeError: error loading dynamically imported module: .../@tanstack/react-router/dist/esm/index.dev.js
+src/routes/teacher.courses.tsx        src/routes/teacher.dashboard.tsx
+src/routes/teacher.profile.tsx        src/routes/teacher.marks.tsx
+src/routes/teacher.reports.tsx        src/routes/teacher.performance.tsx
+src/routes/teacher.attendance.index.tsx
+src/routes/teacher.attendance.$courseId.tsx
+src/features/Teacher/components/Topbar.tsx
+src/features/Teacher/components/DrillNav.tsx
 ```
 
-The router import is just the first thing in the failing module — the router itself is fine. Secondary type errors in the same file (`s` implicitly any, `student_id`/`similarity` implicitly any) are fallout from the missing types.
+Those imports now resolve to `undefined`, which is exactly the crash in the dev-server log:
 
-No other file in the project fails to typecheck. This one missing module is what's blocking the preview.
+```text
+Error in renderToReadableStream: TypeError: Cannot read properties of undefined (reading 'map')
+    at CoursesPage (/dev-server/src/routes/teacher.courses.tsx:86:1)
+```
 
-## Fix: add the missing attendance layer
+Line 86 is `{semesters.map(...)}` — `semesters` no longer exists in the module. Because this throws during SSR of the route the user is on (`/teacher/courses`), the whole page renders blank rather than just one broken card.
 
-Add the three attendance functions and two types to `src/features/Teacher/lib/attendance-api.ts`, built on the existing `src/lib/api.ts` helpers (`apiJson`, `apiFormJson`, `authHeader` already wired there), matching how the route already calls them:
+### 2. `src/routes/teacher.profile.tsx` — no longer a valid route
 
-- `type Status = "pending" | "present" | "absent"`
-- `type AttendanceEntry = { status: Status; source: "ai" | "manual"; similarity: number | null }`
-- `getTodayAttendance(courseId)` — GET today's records, returning `{ records: [{ student_id, status, marked_by, similarity }] }`, so an empty/unavailable response leaves the page on a blank roster instead of erroring.
-- `recognizeAttendanceFrame(courseId, imageBlob)` — multipart POST of the captured frame to the recognition endpoint, returning the recognized `{ student_id, similarity }` list.
-- `saveAttendance(courseId, rows)` — POST/PUT the final per-student statuses.
+The file starts with `// --- teacher.profile.tsx ---`, has an import, then commented-out `BEFORE:` code, then a bare top-level `<CardContent>` JSX expression. It has no `createFileRoute`, no `Route` export, and no component. TanStack's route generator expects a `Route` export from every file in `src/routes`, so this file breaks the route tree in addition to being unparseable as a module.
 
-Then remove the duplicated marks/course helpers from `attendance-api.ts` that already live in `academic-data.ts`, so there is one source of truth and the route keeps importing course/roster data from `academic-data.ts` as it does today.
+### 3. Two smaller unrelated breakages in the same batch
 
-## Note on the sync question
+- `src/components/safe-avatar-image.tsx:83` — references a name `parsed` three times that is never declared in the file (`TS2304`).
+- `src/features/SuperAdmin/components/Topbar.tsx:137` — a JSX element is being passed where a `string` is expected (`TS2322`).
 
-This confirms the earlier diagnosis: the commit's route file arrived, but the matching `attendance-api.ts` did not — the two sides are out of step. If you have the repo's version of that file, paste it and I'll use it verbatim instead of reconstructing the functions. Otherwise I'll write them against the endpoint shapes the route already expects.
+A typecheck run confirms all of the above: ~90 errors, and every one of them is either "Module `@/features/Teacher/lib/academic-data` has no exported member X" (cascading from #1) or one of the two items in this section.
 
-## Verification
+## Fix (not applied — analysis only, per your instruction)
 
-- Typecheck clean (currently 9 errors, all in this one file).
-- Load `/teacher/attendance/<courseId>` in the preview and confirm the roster renders with no console error.
+1. Restore `src/features/Teacher/lib/academic-data.ts` to its full prior version, then re-apply only the intended `parseCourseId` parse-from-the-right change and append the new `groupTeacherCourses` helper.
+2. Restore `src/routes/teacher.profile.tsx` to the real route file, then re-apply only the "Assigned Courses" `CardContent` block replacement described in the notes.
+
+The cleanest path is a restore of those two files from the last good commit (History), rather than retyping them — the surrounding code in both files was never meant to change.
+
+## Confirmation checks after any fix
+
+- `/teacher/courses`, `/teacher/dashboard`, `/teacher/profile`, `/teacher/reports`, `/teacher/marks`, `/teacher/performance`, `/teacher/attendance` all render.
+- No `renderToReadableStream` errors in the dev-server log.

@@ -137,7 +137,7 @@ function HodGlobalSearch() {
                       className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-muted"
                     >
                       <Avatar className="h-7 w-7">
-                        <AvatarImage src={item.photo ?? undefined} alt={item.name} />
+                        <AvatarImage src={photoSrc(item.photo)} alt={item.name} />
                         <AvatarFallback><Icon className="h-3.5 w-3.5" /></AvatarFallback>
                       </Avatar>
                       <div className="min-w-0 flex-1">
@@ -156,20 +156,27 @@ function HodGlobalSearch() {
   );
 }
 
-export function HodTopbar({ onMenu }: { onMenu: () => void }) {
+function photoSrc(photo: string | null | undefined): string | undefined {
+  if (!photo) return undefined;
+  return photo.startsWith("http") ? photo : `${API_URL}${photo}`;
+}
+
+export function HodTopbar({ onMenu, hod: hodProp }: { onMenu: () => void; hod?: HodProfile | null }) {
   const { theme, toggle } = useTheme();
   const navigate = useNavigate();
-  const [hod, setHod] = useState<HodProfile | null>(null);
+  const [hodState, setHodState] = useState<HodProfile | null>(null);
 
   useEffect(() => {
+    if (hodProp !== undefined) return; // parent already supplies the profile
     let cancelled = false;
     fetch(`${API_URL}/api/hod/me`, { headers: { ...authHeader() } })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data) => { if (!cancelled && data) setHod(data); })
+      .then((data) => { if (!cancelled && data) setHodState(data); })
       .catch(() => { /* topbar degrades gracefully if this fails */ });
     return () => { cancelled = true; };
-  }, []);
+  }, [hodProp]);
 
+  const hod = hodProp !== undefined ? hodProp : hodState;
   const name = hod?.name ?? "…";
   const lastName = hod ? name.split(" ").slice(-1)[0] : "…";
   const initials = hod ? name.split(" ").map((n) => n[0]).join("") : "";
@@ -196,7 +203,7 @@ export function HodTopbar({ onMenu }: { onMenu: () => void }) {
           <DropdownMenu>
             <DropdownMenuTrigger className="ml-1 flex items-center gap-2 rounded-full border border-border bg-background/60 py-1 pl-1 pr-3 transition hover:bg-background">
               <Avatar className="h-8 w-8">
-                <AvatarImage src={hod?.photo ?? undefined} alt={name} />
+                <AvatarImage src={photoSrc(hod?.photo)} alt={name} />
                 <AvatarFallback>{initials}</AvatarFallback>
               </Avatar>
               <div className="hidden text-left sm:block">

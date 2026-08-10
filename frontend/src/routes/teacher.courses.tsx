@@ -8,12 +8,12 @@ import { Eye } from "lucide-react";
 import { toast } from "sonner";
 import {
   getTeacherCourses,
-  deptName,
+  getTeacherDepartments,
   sectionLabel,
-  departments,
   semesters,
   sections,
   type TeacherCourse,
+  type TeacherDepartmentDto,
 } from "@/features/Teacher/lib/academic-data";
 
 export const Route = createFileRoute("/teacher/courses")({
@@ -24,6 +24,7 @@ export const Route = createFileRoute("/teacher/courses")({
 function CoursesPage() {
   const [courses, setCourses] = useState<TeacherCourse[]>([]);
   const [loading, setLoading] = useState(true);
+  const [myDepartments, setMyDepartments] = useState<TeacherDepartmentDto[]>([]);
 
   const [dept, setDept] = useState<string>("all");
   const [sem, setSem] = useState<string>("all");
@@ -39,6 +40,21 @@ function CoursesPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getTeacherDepartments().then((list) => {
+      if (!cancelled) setMyDepartments(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const deptNameById = useMemo(
+    () => new Map(myDepartments.map((d) => [d.id, d.name])),
+    [myDepartments],
+  );
 
   const filtered = useMemo(() => {
     return courses.filter((c) => {
@@ -63,7 +79,7 @@ function CoursesPage() {
         <CardContent className="grid gap-3 p-4 md:grid-cols-3">
           <select className="rounded-xl border bg-background p-2 text-sm" value={dept} onChange={(e) => setDept(e.target.value)}>
             <option value="all">All Departments</option>
-            {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            {myDepartments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
           <select className="rounded-xl border bg-background p-2 text-sm" value={sem} onChange={(e) => setSem(e.target.value)}>
             <option value="all">All Semesters</option>
@@ -90,7 +106,7 @@ function CoursesPage() {
               return (
                 <Card key={c.id} className="group overflow-hidden rounded-2xl border-border/60 p-0 shadow-soft transition hover:-translate-y-1 hover:shadow-glass">
                   <div className="gradient-brand relative h-24 p-4 text-white">
-                    <div className="text-[10px] uppercase tracking-widest opacity-80">{deptName(c.dept)} · Sem {c.sem} · {sectionLabel(sec)}</div>
+                    <div className="text-[10px] uppercase tracking-widest opacity-80">{deptNameById.get(c.dept) ?? c.dept} · Sem {c.sem} · {sectionLabel(sec)}</div>
                     <div className="mt-1 font-display text-lg font-bold">{c.name}</div>
                     <div className="absolute right-4 top-4 rounded-lg bg-white/15 px-2 py-1 font-mono text-xs backdrop-blur">{c.code}</div>
                   </div>

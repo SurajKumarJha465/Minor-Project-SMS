@@ -161,6 +161,19 @@ export async function getTeacherActivity(limit = 10): Promise<TeacherActivityDto
   }
 }
 
+export type TeacherDepartmentDto = { id: string; name: string; code: string };
+
+/** Real backend read: departments this teacher is actually assigned to —
+ * scoped, not the full institution-wide list (that one's in `departments` above,
+ * which is otherwise-unused mock data for now). */
+export async function getTeacherDepartments(): Promise<TeacherDepartmentDto[]> {
+  try {
+    return await apiJson<TeacherDepartmentDto[]>("/api/teacher/departments");
+  } catch {
+    return [];
+  }
+}
+
 export type MarkFields = {
   p_att: number; p_lab: number; p_exam: number; p_viva: number;
   t_att: number; t_assign: number; t_present: number; t_assess: number;

@@ -1,5 +1,8 @@
+import os
+import uuid
+
 from sqlalchemy import or_
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from datetime import datetime
 
@@ -9,7 +12,7 @@ from api.auth import require_role
 from api.activity import log_teacher_activity
 from api.schemas import (
     CourseOut, StudentMarkRow, SaveMarksRequest, FIELD_MAX, NoticeOut, SearchResultOut,
-    TeacherMeOut, TeacherActivityOut,
+    TeacherMeOut, TeacherActivityOut, UpdateTeacherContactRequest,
 )
 
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
@@ -22,12 +25,7 @@ def _current_teacher(db: Session, current_user: User) -> Teacher:
     return teacher
 
 
-@router.get("/me", response_model=TeacherMeOut)
-def my_profile(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_role(RoleEnum.teacher)),
-):
-    teacher = _current_teacher(db, current_user)
+def _teacher_me_out(teacher: Teacher, current_user: User) -> TeacherMeOut:
     return TeacherMeOut(
         id=teacher.id,
         name=teacher.name,
@@ -44,6 +42,95 @@ def my_profile(
         must_change_password=current_user.must_change_password,
         two_factor_enabled=current_user.totp_enabled,
     )
+
+
+@router.get("/me", response_model=TeacherMeOut)
+def my_profile(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.teacher)),
+):
+    teacher = _current_teacher(db, current_user)
+    return _teacher_me_out(teacher, current_user)
+
+
+@router.patch("/me", response_model=TeacherMeOut)
+def update_my_contact(
+    payload: UpdateTeacherContactRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.teacher)),
+):
+    """Self-service contact edit. Name stays admin-managed, same as the rest
+    of the teacher record."""
+    teacher = _current_teacher(db, current_user)
+    if payload.email is not None:
+        email = payload.email.strip()
+        if not email:
+            raise HTTPException(status_code=400, detail="Email cannot be empty")
+        teacher.email = email
+    if payload.phone is not None:
+        teacher.phone = payload.phone.strip() or None
+    if payload.office is not None:
+        teacher.office = payload.office.strip() or None
+    if payload.office_hours is not None:
+        teacher.office_hours = payload.office_hours.strip() or None
+    if payload.qualification is not None:
+        teacher.qualification = payload.qualification.strip() or None
+    if payload.specialization is not None:
+        teacher.specialization = payload.specialization.strip() or None
+
+    log_teacher_activity(db, teacher.id, icon="message", title="Profile updated", desc="Contact details updated")
+    db.commit()
+    db.refresh(teacher)
+    return _teacher_me_out(teacher, current_user)
+
+
+PROFILE_PHOTOS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "profile_photos"
+)
+PROFILE_PHOTO_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+PROFILE_PHOTO_ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".webp"}
+
+
+@router.post("/me/photo", response_model=TeacherMeOut)
+async def upload_my_photo(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.teacher)),
+):
+    teacher = _current_teacher(db, current_user)
+
+    original_name = file.filename or "photo"
+    ext = os.path.splitext(original_name)[1].lower()
+    if ext not in PROFILE_PHOTO_ALLOWED_EXT:
+        allowed = ", ".join(sorted(PROFILE_PHOTO_ALLOWED_EXT))
+        raise HTTPException(status_code=400, detail=f"Unsupported image type '{ext}'. Allowed: {allowed}")
+
+    data = await file.read()
+    if len(data) > PROFILE_PHOTO_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Image is larger than the 5 MB limit")
+    if not data:
+        raise HTTPException(status_code=400, detail="File is empty")
+
+    os.makedirs(PROFILE_PHOTOS_DIR, exist_ok=True)
+    stored_name = f"teacher-{teacher.id}-{uuid.uuid4().hex}{ext}"
+    with open(os.path.join(PROFILE_PHOTOS_DIR, stored_name), "wb") as f:
+        f.write(data)
+
+    # only clean up the old file if it's one we saved ourselves — an admin
+    # may have set teacher.photo to some external URL, which isn't ours to delete
+    if teacher.photo and teacher.photo.startswith("/uploads/profile-photos/"):
+        old_path = os.path.join(PROFILE_PHOTOS_DIR, os.path.basename(teacher.photo))
+        if os.path.isfile(old_path):
+            try:
+                os.remove(old_path)
+            except OSError:
+                pass
+
+    teacher.photo = f"/uploads/profile-photos/{stored_name}"
+    log_teacher_activity(db, teacher.id, icon="message", title="Profile updated", desc="Profile picture updated")
+    db.commit()
+    db.refresh(teacher)
+    return _teacher_me_out(teacher, current_user)
 
 
 @router.get("/activity", response_model=list[TeacherActivityOut])

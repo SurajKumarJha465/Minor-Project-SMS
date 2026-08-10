@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -10,47 +10,147 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Mail, Phone, MapPin, Clock, Briefcase, GraduationCap, Pencil, Key, Camera, Check, X } from "lucide-react";
-import { teacher as teacherData, courses } from "@/features/Teacher/lib/mock-data";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { authHeader } from "@/lib/auth";
+import { apiJson, apiFormJson } from "@/lib/api";
+import { getTeacherCourses, type TeacherCourse, type TeacherMeDto } from "@/features/Teacher/lib/academic-data";
 
 export const Route = createFileRoute("/teacher/profile")({
   head: () => ({ meta: [{ title: "My Profile · Teacher Portal" }] }),
   component: Profile,
 });
 
+const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+function photoSrc(photo?: string | null): string | undefined {
+  if (!photo) return undefined;
+  return photo.startsWith("http") ? photo : `${API_URL}${photo}`;
+}
+
+function initials(name: string) {
+  return name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
+}
+
 function Profile() {
-  const [teacher, setTeacher] = useState(teacherData);
+  const [teacher, setTeacher] = useState<TeacherMeDto | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [courses, setCourses] = useState<TeacherCourse[]>([]);
+
   const [editOpen, setEditOpen] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
+  const [savingContact, setSavingContact] = useState(false);
+
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState({
-    photo: teacher.photo,
-    name: teacher.name,
-    email: teacher.email,
-    phone: teacher.phone,
-    office: teacher.office,
-    qualification: teacher.qualification,
-    specialization: teacher.specialization,
+    email: "", phone: "", office: "", officeHours: "", qualification: "", specialization: "",
   });
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const data = await apiJson<TeacherMeDto>("/api/teacher/me");
+        if (!cancelled) setTeacher(data);
+      } catch (err) {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load your profile.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getTeacherCourses().then((list) => {
+      if (!cancelled) setCourses(list);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   function openEdit() {
+    if (!teacher) return;
     setForm({
-      photo: teacher.photo,
-      name: teacher.name,
-      email: teacher.email,
-      phone: teacher.phone,
-      office: teacher.office,
-      qualification: teacher.qualification,
-      specialization: teacher.specialization,
+      email: teacher.email ?? "",
+      phone: teacher.phone ?? "",
+      office: teacher.office ?? "",
+      officeHours: teacher.office_hours ?? "",
+      qualification: teacher.qualification ?? "",
+      specialization: teacher.specialization ?? "",
     });
     setEditOpen(true);
   }
 
-  function saveProfile() {
-    setTeacher((t) => ({ ...t, ...form }));
-    setEditOpen(false);
-    toast.success("Profile updated successfully");
+  async function saveProfile() {
+    if (!form.email.trim()) {
+      toast.error("Email cannot be empty.");
+      return;
+    }
+    setSavingContact(true);
+    try {
+      const updated = await apiJson<TeacherMeDto>("/api/teacher/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: form.email.trim(),
+          phone: form.phone.trim() || null,
+          office: form.office.trim() || null,
+          office_hours: form.officeHours.trim() || null,
+          qualification: form.qualification.trim() || null,
+          specialization: form.specialization.trim() || null,
+        }),
+      });
+      setTeacher(updated);
+      setEditOpen(false);
+      toast.success("Profile updated successfully");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update profile");
+    } finally {
+      setSavingContact(false);
+    }
+  }
+
+  async function uploadPhoto(file: File) {
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image is larger than the 5 MB limit.");
+      return;
+    }
+    setUploadingPhoto(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const updated = await apiFormJson<TeacherMeDto>("/api/teacher/me/photo", form);
+      setTeacher(updated);
+      toast.success("Profile picture updated.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to upload photo");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
+        Loading profile…
+      </div>
+    );
+  }
+
+  if (loadError || !teacher) {
+    return (
+      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 text-center">
+        <p className="text-sm text-destructive">{loadError ?? "Profile unavailable."}</p>
+        <Button size="sm" variant="outline" onClick={() => window.location.reload()}>Retry</Button>
+      </div>
+    );
   }
 
   return (
@@ -60,16 +160,44 @@ function Profile() {
         <div className="relative px-6 pb-6">
           <div className="-mt-14 flex flex-col items-start gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div className="flex items-end gap-4">
-              <Avatar className="h-28 w-28 border-4 border-background shadow-glass">
-                <AvatarImage src={teacher.photo} />
-                <AvatarFallback>AS</AvatarFallback>
-              </Avatar>
+              <div className="group relative h-28 w-28 shrink-0">
+                <Avatar className="h-28 w-28 border-4 border-background shadow-glass">
+                  <AvatarImage src={photoSrc(teacher.photo)} />
+                  <AvatarFallback>{initials(teacher.name)}</AvatarFallback>
+                </Avatar>
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept=".png,.jpg,.jpeg,.webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) uploadPhoto(file);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={uploadingPhoto}
+                  onClick={() => photoInputRef.current?.click()}
+                  title="Change profile picture"
+                  className="absolute inset-0 grid place-items-center rounded-full bg-black/0 text-white opacity-0 transition group-hover:bg-black/40 group-hover:opacity-100"
+                >
+                  <Camera className="h-6 w-6" />
+                </button>
+                {uploadingPhoto && (
+                  <div className="absolute inset-0 grid place-items-center rounded-full bg-black/40 text-[10px] font-medium text-white">
+                    Uploading…
+                  </div>
+                )}
+              </div>
               <div className="pb-2">
                 <h1 className="font-display text-2xl font-bold">{teacher.title} {teacher.name}</h1>
-                <p className="text-sm text-muted-foreground">{teacher.specialization}</p>
+                <p className="text-sm text-muted-foreground">{teacher.specialization || "—"}</p>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <Badge variant="secondary" className="rounded-full">{teacher.department}</Badge>
-                  <Badge className="rounded-full bg-primary/10 text-primary hover:bg-primary/20">{teacher.experience} experience</Badge>
+                  {teacher.experience ? (
+                    <Badge className="rounded-full bg-primary/10 text-primary hover:bg-primary/20">{teacher.experience} experience</Badge>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -89,28 +217,32 @@ function Profile() {
         <Card className="rounded-2xl shadow-soft md:col-span-2">
           <CardHeader><CardTitle className="text-base">Contact & Office</CardTitle></CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
-            <Info icon={Mail} label="Email" value={teacher.email} />
-            <Info icon={Phone} label="Phone" value={teacher.phone} />
-            <Info icon={MapPin} label="Office" value={teacher.office} />
-            <Info icon={Clock} label="Office Hours" value={teacher.officeHours} />
-            <Info icon={Briefcase} label="Qualification" value={teacher.qualification} />
-            <Info icon={GraduationCap} label="Specialization" value={teacher.specialization} />
+            <Info icon={Mail} label="Email" value={teacher.email || "—"} />
+            <Info icon={Phone} label="Phone" value={teacher.phone || "—"} />
+            <Info icon={MapPin} label="Office" value={teacher.office || "—"} />
+            <Info icon={Clock} label="Office Hours" value={teacher.office_hours || "—"} />
+            <Info icon={Briefcase} label="Qualification" value={teacher.qualification || "—"} />
+            <Info icon={GraduationCap} label="Specialization" value={teacher.specialization || "—"} />
           </CardContent>
         </Card>
         <Card className="rounded-2xl shadow-soft">
           <CardHeader><CardTitle className="text-base">Assigned Courses</CardTitle></CardHeader>
           <CardContent className="space-y-2.5">
-            {courses.map((c) => (
-              <div key={c.id} className="flex items-center gap-3 rounded-xl border border-border p-3">
-                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-secondary text-primary font-mono text-xs font-bold">
-                  {c.code.split("-")[1]}
+            {courses.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No courses assigned yet.</p>
+            ) : (
+              courses.map((c) => (
+                <div key={c.id} className="flex items-center gap-3 rounded-xl border border-border p-3">
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-secondary text-primary font-mono text-xs font-bold">
+                    {c.code.split("-")[1] ?? c.code}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold">{c.name}</div>
+                    <div className="text-xs text-muted-foreground">{c.code} · Sem {c.sem}</div>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold">{c.name}</div>
-                  <div className="text-xs text-muted-foreground">{c.code} · Sem {c.sem}</div>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </CardContent>
         </Card>
       </div>
@@ -120,36 +252,15 @@ function Profile() {
         <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto rounded-2xl">
           <DialogHeader>
             <DialogTitle>Edit Profile</DialogTitle>
-            <DialogDescription>Update your public profile information.</DialogDescription>
+            <DialogDescription>Update your contact and office information. Name stays admin-managed.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            <div className="flex items-center gap-4">
-              <Avatar className="h-16 w-16">
-                <AvatarImage src={form.photo} />
-                <AvatarFallback>AS</AvatarFallback>
-              </Avatar>
-              <div className="flex-1">
-                <Label className="text-xs text-muted-foreground">Profile Photo URL</Label>
-                <div className="mt-1 flex gap-2">
-                  <Input
-                    value={form.photo}
-                    onChange={(e) => setForm((f) => ({ ...f, photo: e.target.value }))}
-                    className="rounded-xl"
-                    placeholder="https://…"
-                  />
-                  <Button type="button" variant="outline" size="icon" className="shrink-0 rounded-xl">
-                    <Camera className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </div>
-
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Name" value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} />
               <Field label="Email" type="email" value={form.email} onChange={(v) => setForm((f) => ({ ...f, email: v }))} />
               <Field label="Phone" value={form.phone} onChange={(v) => setForm((f) => ({ ...f, phone: v }))} />
               <Field label="Office" value={form.office} onChange={(v) => setForm((f) => ({ ...f, office: v }))} />
+              <Field label="Office Hours" value={form.officeHours} onChange={(v) => setForm((f) => ({ ...f, officeHours: v }))} />
               <Field label="Qualification" value={form.qualification} onChange={(v) => setForm((f) => ({ ...f, qualification: v }))} />
               <Field label="Specialization" value={form.specialization} onChange={(v) => setForm((f) => ({ ...f, specialization: v }))} />
             </div>
@@ -157,7 +268,9 @@ function Profile() {
 
           <DialogFooter>
             <Button variant="outline" className="rounded-xl" onClick={() => setEditOpen(false)}>Cancel</Button>
-            <Button className="rounded-xl" onClick={saveProfile}>Save Changes</Button>
+            <Button className="rounded-xl" onClick={saveProfile} disabled={savingContact}>
+              {savingContact ? "Saving…" : "Save Changes"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -191,8 +304,6 @@ function Info({ icon: Icon, label, value }: { icon: any; label: string; value: s
   );
 }
 
-const CURRENT_PASSWORD_MOCK = "password123";
-
 function passwordStrength(pw: string) {
   let score = 0;
   if (pw.length >= 8) score++;
@@ -207,6 +318,7 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const strength = passwordStrength(next);
   const strengthLabel = ["Very weak", "Weak", "Fair", "Good", "Strong"][strength];
@@ -216,9 +328,10 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
     setCurrent(""); setNext(""); setConfirm(""); setError(null);
   }
 
-  function submit() {
-    if (current !== CURRENT_PASSWORD_MOCK) {
-      setError("Current password is incorrect.");
+  async function submit() {
+    setError(null);
+    if (!current || !next) {
+      setError("Fill in both the current and new password.");
       return;
     }
     if (strength < 2) {
@@ -229,9 +342,26 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
       setError("New password and confirmation do not match.");
       return;
     }
-    toast.success("Password updated successfully");
-    onOpenChange(false);
-    reset();
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/change-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ current_password: current, new_password: next }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setError(err.detail ?? "Failed to update password");
+        return;
+      }
+      toast.success("Password updated successfully");
+      onOpenChange(false);
+      reset();
+    } catch {
+      setError("Could not reach the server. Try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -276,7 +406,9 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
 
         <DialogFooter>
           <Button variant="outline" className="rounded-xl" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button className="rounded-xl" onClick={submit}>Update Password</Button>
+          <Button className="rounded-xl" onClick={submit} disabled={saving}>
+            {saving ? "Updating…" : "Update Password"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

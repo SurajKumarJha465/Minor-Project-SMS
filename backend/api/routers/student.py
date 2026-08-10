@@ -17,6 +17,7 @@ from api.schemas import (
     StudentAttendanceSummary,
     StudentCourseAttendanceOut,
     StudentCourseOut,
+    StudentInternalMarkRow,
     StudentSemesterCourseOut,
     StudentSemesterResultOut,
     StudentResultsResponse,
@@ -289,6 +290,56 @@ def list_my_courses(
                 internal=internal_total,
             )
         )
+    return rows
+
+
+@router.get("/internal-marks", response_model=list[StudentInternalMarkRow])
+def list_my_internal_marks(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.student)),
+):
+    """Per-component internal assessment breakdown for every enrolled course.
+    Same published-only rule as /courses and /results: a course whose marks
+    the teacher/HOD haven't published yet shows up with status="pending" and
+    zeroed fields — never the in-progress numbers a teacher is still editing."""
+    student = _current_student(db, current_user)
+
+    enrollments = db.query(Enrollment).filter(Enrollment.student_id == student.id).all()
+    course_ids = [e.course_id for e in enrollments]
+    if not course_ids:
+        return []
+
+    courses = db.query(Course).filter(Course.id.in_(course_ids)).all()
+    teacher_ids = {c.teacher_id for c in courses if c.teacher_id}
+    teachers = (
+        {t.id: t.name for t in db.query(Teacher).filter(Teacher.id.in_(teacher_ids)).all()}
+        if teacher_ids else {}
+    )
+
+    marks = {
+        m.course_id: m
+        for m in db.query(InternalMark)
+        .filter(InternalMark.student_id == student.id, InternalMark.course_id.in_(course_ids))
+        .all()
+    }
+
+    rows: list[StudentInternalMarkRow] = []
+    for c in sorted(courses, key=lambda c: c.code):
+        m = marks.get(c.id)
+        published = bool(m) and m.status == MarkStatus.published
+        total = (
+            m.p_att + m.p_lab + m.p_exam + m.p_viva + m.t_att + m.t_assign + m.t_present + m.t_assess
+            if published else 0
+        )
+        rows.append(StudentInternalMarkRow(
+            course_id=c.id, code=c.code, name=c.name,
+            teacher=teachers.get(c.teacher_id, "Unassigned"),
+            p_att=m.p_att if published else 0, p_lab=m.p_lab if published else 0,
+            p_exam=m.p_exam if published else 0, p_viva=m.p_viva if published else 0,
+            t_att=m.t_att if published else 0, t_assign=m.t_assign if published else 0,
+            t_present=m.t_present if published else 0, t_assess=m.t_assess if published else 0,
+            total=total, status="published" if published else "pending",
+        ))
     return rows
 
 

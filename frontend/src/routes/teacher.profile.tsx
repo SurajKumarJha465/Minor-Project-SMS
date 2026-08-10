@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { authHeader } from "@/lib/auth";
 import { apiJson, apiFormJson } from "@/lib/api";
-import { getTeacherCourses, type TeacherCourse, type TeacherMeDto } from "@/features/Teacher/lib/academic-data";
+import { getTeacherCourses, sectionLabel, type TeacherCourse, type TeacherMeDto } from "@/features/Teacher/lib/academic-data";
 
 export const Route = createFileRoute("/teacher/profile")({
   head: () => ({ meta: [{ title: "My Profile · Teacher Portal" }] }),
@@ -238,7 +238,7 @@ function Profile() {
                   </div>
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold">{c.name}</div>
-                    <div className="text-xs text-muted-foreground">{c.code} · Sem {c.sem}</div>
+                    <div className="text-xs text-muted-foreground">{c.code} · Sem {c.sem} · Sec {sectionLabel(c.section ?? "d")}</div>
                   </div>
                 </div>
               ))

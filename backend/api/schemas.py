@@ -781,3 +781,12 @@ class TeacherActivityOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class TeacherDepartmentOut(BaseModel):
+    id: str
+    name: str
+    code: str
+
+    class Config:
+        from_attributes = True

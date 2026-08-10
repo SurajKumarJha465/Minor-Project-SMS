@@ -7,12 +7,12 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 
 from api.database import get_db
-from api.models import User, RoleEnum, Teacher, TeacherDepartment, Course, Enrollment, Student, InternalMark, Notice, TeacherActivity
+from api.models import User, RoleEnum, Teacher, TeacherDepartment, Course, Enrollment, Student, InternalMark, Notice, TeacherActivity, Department
 from api.auth import require_role
 from api.activity import log_teacher_activity
 from api.schemas import (
     CourseOut, StudentMarkRow, SaveMarksRequest, FIELD_MAX, NoticeOut, SearchResultOut,
-    TeacherMeOut, TeacherActivityOut, UpdateTeacherContactRequest,
+    TeacherMeOut, TeacherActivityOut, UpdateTeacherContactRequest, TeacherDepartmentOut,
 )
 
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
@@ -145,6 +145,29 @@ def list_recent_activity(
         .filter(TeacherActivity.teacher_id == teacher.id)
         .order_by(TeacherActivity.created_at.desc())
         .limit(min(limit, 50))
+        .all()
+    )
+
+
+@router.get("/departments", response_model=list[TeacherDepartmentOut])
+def list_my_departments(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.teacher)),
+):
+    """Departments this teacher is actually assigned to (TeacherDepartment),
+    not the full institution-wide department list — used to scope filter
+    dropdowns like the one on the My Courses page."""
+    teacher = _current_teacher(db, current_user)
+    dept_ids = [
+        row.department_id
+        for row in db.query(TeacherDepartment).filter(TeacherDepartment.teacher_id == teacher.id).all()
+    ]
+    if not dept_ids:
+        return []
+    return (
+        db.query(Department)
+        .filter(Department.id.in_(dept_ids))
+        .order_by(Department.name.asc())
         .all()
     )
 

@@ -1,6 +1,7 @@
 // Student module manifest — registers navigation + pages.
 import {
   BookOpen,
+  CalendarDays,
   FileBarChart,
   LayoutDashboard,
   ListChecks,
@@ -16,6 +17,7 @@ import Attendance from "./pages/Attendance";
 import InternalMarks from "./pages/InternalMarks";
 import SemesterResults from "./pages/SemesterResults";
 import NoticeBoard from "./pages/NoticeBoard";
+import AcademicCalendar from "./pages/AcademicCalendar";
 
 const crumb = (label) => ["Student", label];
 
@@ -44,6 +46,7 @@ export const studentModule = {
       section: "Tools",
       items: [
         { id: "notice-board", label: "Notice Board", icon: Megaphone, breadcrumb: crumb("Notice Board") },
+        { id: "academic-calendar", label: "Academic Calendar", icon: CalendarDays, breadcrumb: crumb("Academic Calendar") },
       ],
     },
   ],
@@ -55,6 +58,7 @@ export const studentModule = {
     "internal-marks": InternalMarks,
     "semester-results": SemesterResults,
     "notice-board": NoticeBoard,
+    "academic-calendar": AcademicCalendar,
   },
 };
 

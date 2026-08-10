@@ -4,10 +4,12 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 
 from api.database import get_db
-from api.models import User, RoleEnum, Teacher, TeacherDepartment, Course, Enrollment, Student, InternalMark, Notice
+from api.models import User, RoleEnum, Teacher, TeacherDepartment, Course, Enrollment, Student, InternalMark, Notice, TeacherActivity
 from api.auth import require_role
+from api.activity import log_teacher_activity
 from api.schemas import (
     CourseOut, StudentMarkRow, SaveMarksRequest, FIELD_MAX, NoticeOut, SearchResultOut,
+    TeacherMeOut, TeacherActivityOut,
 )
 
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
@@ -18,6 +20,46 @@ def _current_teacher(db: Session, current_user: User) -> Teacher:
     if not teacher:
         raise HTTPException(status_code=400, detail="No teacher profile linked to this account")
     return teacher
+
+
+@router.get("/me", response_model=TeacherMeOut)
+def my_profile(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.teacher)),
+):
+    teacher = _current_teacher(db, current_user)
+    return TeacherMeOut(
+        id=teacher.id,
+        name=teacher.name,
+        title=teacher.title,
+        email=teacher.email or current_user.email,
+        phone=teacher.phone,
+        office=teacher.office,
+        office_hours=teacher.office_hours,
+        qualification=teacher.qualification,
+        specialization=teacher.specialization,
+        experience=teacher.experience,
+        photo=teacher.photo,
+        username=current_user.email.split("@")[0] if current_user.email else str(teacher.id),
+        must_change_password=current_user.must_change_password,
+        two_factor_enabled=current_user.totp_enabled,
+    )
+
+
+@router.get("/activity", response_model=list[TeacherActivityOut])
+def list_recent_activity(
+    limit: int = 10,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.teacher)),
+):
+    teacher = _current_teacher(db, current_user)
+    return (
+        db.query(TeacherActivity)
+        .filter(TeacherActivity.teacher_id == teacher.id)
+        .order_by(TeacherActivity.created_at.desc())
+        .limit(min(limit, 50))
+        .all()
+    )
 
 
 @router.get("/search", response_model=list[SearchResultOut])
@@ -163,7 +205,7 @@ def save_marks(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role(RoleEnum.teacher)),
 ):
-    _get_owned_course(db, current_user, course_id)
+    course = _get_owned_course(db, current_user, course_id)
     enrolled_ids = {e.student_id for e in db.query(Enrollment).filter(Enrollment.course_id == course_id).all()}
 
     for row in payload.rows:
@@ -180,6 +222,13 @@ def save_marks(
         # status is untouched here on purpose — teachers only ever save drafts.
         # Publishing is the HOD's call (see api/routers/hod.py), made after
         # reviewing/adjusting marks — teachers have no publish endpoint here.
+
+    teacher = db.query(Teacher).filter(Teacher.user_id == current_user.id).first()
+    log_teacher_activity(
+        db, teacher.id, icon="award",
+        title="Marks saved",
+        desc=f"{course.code} {course.name} · {len(payload.rows)} student{'s' if len(payload.rows) != 1 else ''}",
+    )
 
     db.commit()
     return {"saved": len(payload.rows)}

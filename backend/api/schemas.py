@@ -741,3 +741,33 @@ class AuditLogOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class TeacherMeOut(BaseModel):
+    id: int
+    name: str
+    title: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    office: Optional[str] = None
+    office_hours: Optional[str] = None
+    qualification: Optional[str] = None
+    specialization: Optional[str] = None
+    experience: Optional[str] = None
+    photo: Optional[str] = None
+    username: str                    # login email's local part, e.g. "aarav.sharma" — mirrors StudentMeOut's pattern
+    must_change_password: bool
+    two_factor_enabled: bool
+
+    class Config:
+        from_attributes = True
+
+
+class TeacherActivityOut(BaseModel):
+    icon: str
+    title: str
+    desc: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

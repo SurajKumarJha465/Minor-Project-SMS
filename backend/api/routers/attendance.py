@@ -13,9 +13,10 @@ from recognition import get_embedding, load_known_embeddings
 
 from ultralytics import YOLO
 from api.database import get_db
-from api.models import Student, Enrollment, AttendanceRecord, AttendanceStatus, RoleEnum, Course
+from api.models import Student, Enrollment, AttendanceRecord, AttendanceStatus, RoleEnum, Course, Teacher
 from api.auth import require_role, get_current_user
 from api.models import User
+from api.activity import log_teacher_activity
 from api.schemas import AttendanceTodayResponse, AttendanceTodayItem
 
 router = APIRouter(prefix="/api/attendance", tags=["attendance"])
@@ -149,6 +150,17 @@ async def save_attendance(
             )
 
         saved += 1
+
+    # Only log to the teacher's own activity feed when a teacher (not admin) took it.
+    if current_user.role == RoleEnum.teacher and saved > 0:
+        teacher = db.query(Teacher).filter(Teacher.user_id == current_user.id).first()
+        course = db.query(Course).filter(Course.id == course_id).first()
+        if teacher and course:
+            log_teacher_activity(
+                db, teacher.id, icon="check",
+                title="Attendance taken",
+                desc=f"{course.code} {course.name} · {saved} student{'s' if saved != 1 else ''}",
+            )
 
     db.commit()
     return {"saved": saved}

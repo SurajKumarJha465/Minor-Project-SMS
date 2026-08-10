@@ -119,6 +119,48 @@ export function sectionLabel(id: string) {
   return sections.find((s) => s.id === id)?.label ?? id;
 }
 
+export type TeacherMeDto = {
+  id: number;
+  name: string;
+  title?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  office?: string | null;
+  office_hours?: string | null;
+  qualification?: string | null;
+  specialization?: string | null;
+  experience?: string | null;
+  photo?: string | null;
+  username: string;
+  must_change_password: boolean;
+  two_factor_enabled: boolean;
+};
+
+export type TeacherActivityDto = {
+  icon: "check" | "award" | "bell" | "file" | "message";
+  title: string;
+  desc: string;
+  created_at: string;
+};
+
+/** Real backend read: current teacher's own profile */
+export async function getTeacherMe(): Promise<TeacherMeDto | null> {
+  try {
+    return await apiJson<TeacherMeDto>("/api/teacher/me");
+  } catch {
+    return null;
+  }
+}
+
+/** Real backend read: current teacher's recent activity feed */
+export async function getTeacherActivity(limit = 10): Promise<TeacherActivityDto[]> {
+  try {
+    return await apiJson<TeacherActivityDto[]>(`/api/teacher/activity?limit=${limit}`);
+  } catch {
+    return [];
+  }
+}
+
 export type MarkFields = {
   p_att: number; p_lab: number; p_exam: number; p_viva: number;
   t_att: number; t_assign: number; t_present: number; t_assess: number;

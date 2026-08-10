@@ -207,6 +207,31 @@ export async function publishCourseMarks(courseId: string) {
   return apiJson<{ published: number }>(`/api/teacher/courses/${courseId}/marks/publish`, { method: "POST" });
 }
 
+export type PerformanceStudentRow = {
+  student_id: string;
+  name: string;
+  enrollment: string;
+  attendance_pct: number;
+  marks_total: number;
+};
+
+export type CoursePerformanceDto = {
+  course_id: string;
+  code: string;
+  name: string;
+  credits: number;
+  enrolled: number;
+  avg_attendance: number;
+  avg_marks: number;
+  total_marks: number;
+  students: PerformanceStudentRow[];
+};
+
+/** Real backend read: per-student attendance % + internal marks total for a course */
+export async function getCoursePerformance(courseId: string): Promise<CoursePerformanceDto> {
+  return apiJson<CoursePerformanceDto>(`/api/teacher/courses/${courseId}/performance`);
+}
+
 export type CourseOffering = {
   id: string;
   sem: number;

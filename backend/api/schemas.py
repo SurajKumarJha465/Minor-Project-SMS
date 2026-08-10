@@ -597,9 +597,18 @@ class NoticeOut(BaseModel):
     author: str
     date: str
     scheduled_for: Optional[str] = None
+    attachment_url: Optional[str] = None
+    attachment_name: Optional[str] = None
+    attachment_size: Optional[int] = None
 
     class Config:
         from_attributes = True
+
+
+class NoticeAttachmentOut(BaseModel):
+    attachment_url: str
+    attachment_name: str
+    attachment_size: int
 
 
 class CreateNoticeRequest(BaseModel):
@@ -609,6 +618,9 @@ class CreateNoticeRequest(BaseModel):
     audience: str = "All Semesters"
     pinned: bool = False
     scheduled_for: Optional[datetime] = None
+    attachment_url: Optional[str] = None    # from a prior POST /notices/attachment upload
+    attachment_name: Optional[str] = None
+    attachment_size: Optional[int] = None
 
 
 class UpdateNoticeRequest(BaseModel):
@@ -617,6 +629,10 @@ class UpdateNoticeRequest(BaseModel):
     type: Optional[str] = None
     audience: Optional[str] = None
     pinned: Optional[bool] = None
+    attachment_url: Optional[str] = None
+    attachment_name: Optional[str] = None
+    attachment_size: Optional[int] = None
+    remove_attachment: bool = False   # explicit clear, since omitted attachment_* just means "don't touch it"
 
 class TwoFactorLoginRequest(BaseModel):
     pending_token: str

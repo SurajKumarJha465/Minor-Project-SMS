@@ -213,6 +213,9 @@ class Notice(Base):
     author_name = Column(String, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     scheduled_for = Column(DateTime, nullable=True)  # null = published immediately
+    attachment_url = Column(String, nullable=True)    # served path, e.g. "/uploads/notices/<file>"
+    attachment_name = Column(String, nullable=True)   # original filename, shown to the reader
+    attachment_size = Column(Integer, nullable=True)  # bytes, for display only
 
 
 class EventType(str, enum.Enum):

@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Mail, Phone, GraduationCap, Award, Pencil, KeyRound, Building2 } from "lucide-react";
+import { Mail, Phone, GraduationCap, Award, Pencil, KeyRound, Building2, Camera } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -18,6 +18,11 @@ export const Route = createFileRoute("/hod/profile")({
 });
 
 const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+function photoSrc(photo: string | null): string | undefined {
+  if (!photo) return undefined;
+  return photo.startsWith("http") ? photo : `${API_URL}${photo}`;
+}
 
 type HodProfile = {
   id: string;
@@ -41,6 +46,14 @@ function Profile() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const [editOpen, setEditOpen] = useState(false);
+  const [editEmail, setEditEmail] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [savingContact, setSavingContact] = useState(false);
+
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -59,6 +72,63 @@ function Profile() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  function openEditDialog() {
+    if (!hod) return;
+    setEditEmail(hod.email ?? "");
+    setEditPhone(hod.phone ?? "");
+    setEditOpen(true);
+  }
+
+  async function submitContactEdit() {
+    if (!editEmail.trim()) {
+      toast.error("Email cannot be empty.");
+      return;
+    }
+    setSavingContact(true);
+    try {
+      const res = await fetch(`${API_URL}/api/hod/me`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ email: editEmail.trim(), phone: editPhone.trim() || null }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail ?? "Failed to update contact details");
+        return;
+      }
+      setHod(await res.json());
+      toast.success("Contact details updated.");
+      setEditOpen(false);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    } finally {
+      setSavingContact(false);
+    }
+  }
+
+  async function uploadPhoto(file: File) {
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image is larger than the 5 MB limit.");
+      return;
+    }
+    setUploadingPhoto(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`${API_URL}/api/hod/me/photo`, {
+        method: "POST", headers: { ...authHeader() }, body: form,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail ?? "Failed to upload photo");
+      setHod(data);
+      toast.success("Profile picture updated.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to upload photo");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }
 
   function closePasswordDialog() {
     setPwOpen(false);
@@ -118,10 +188,37 @@ function Profile() {
     <div className="space-y-5">
       <Card className="overflow-hidden rounded-2xl border-0 gradient-brand text-white shadow-glass">
         <div className="grid gap-6 p-8 md:grid-cols-[auto_1fr_auto] md:items-center">
-          <Avatar className="h-24 w-24 ring-4 ring-white/40">
-            <AvatarImage src={hod.photo ?? undefined} />
-            <AvatarFallback>{hod.name[0]}</AvatarFallback>
-          </Avatar>
+          <div className="group relative h-24 w-24">
+            <Avatar className="h-24 w-24 ring-4 ring-white/40">
+              <AvatarImage src={photoSrc(hod.photo)} />
+              <AvatarFallback>{hod.name[0]}</AvatarFallback>
+            </Avatar>
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept=".png,.jpg,.jpeg,.webp"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) uploadPhoto(file);
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              disabled={uploadingPhoto}
+              onClick={() => photoInputRef.current?.click()}
+              title="Change profile picture"
+              className="absolute inset-0 grid place-items-center rounded-full bg-black/0 text-white opacity-0 transition group-hover:bg-black/40 group-hover:opacity-100"
+            >
+              <Camera className="h-6 w-6" />
+            </button>
+            {uploadingPhoto && (
+              <div className="absolute inset-0 grid place-items-center rounded-full bg-black/40 text-[10px] font-medium text-white">
+                Uploading…
+              </div>
+            )}
+          </div>
           <div>
             <div className="text-xs uppercase tracking-widest text-white/80">Head of Department</div>
             <h1 className="font-display text-3xl font-bold">{hod.name}</h1>
@@ -131,7 +228,7 @@ function Profile() {
             <Button
               variant="secondary"
               className="rounded-xl bg-white text-primary hover:bg-white/90"
-              onClick={() => toast.info("Profile details are managed by your administrator.")}
+              onClick={openEditDialog}
             >
               <Pencil className="mr-1.5 h-4 w-4" /> Edit
             </Button>
@@ -148,7 +245,12 @@ function Profile() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="rounded-2xl shadow-soft">
-          <CardHeader><CardTitle className="text-base">Contact</CardTitle></CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-base">Contact</CardTitle>
+            <Button size="sm" variant="ghost" className="h-7 rounded-lg px-2 text-xs" onClick={openEditDialog}>
+              <Pencil className="mr-1 h-3 w-3" /> Edit
+            </Button>
+          </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <Row icon={Mail} k="Email" v={hod.email} />
             <Row icon={Phone} k="Phone" v={hod.phone ?? "—"} />
@@ -163,6 +265,32 @@ function Profile() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Edit contact details dialog */}
+      <Dialog open={editOpen} onOpenChange={(o) => !o && setEditOpen(false)}>
+        <DialogContent className="rounded-2xl sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Edit Contact Details</DialogTitle>
+            <DialogDescription>Your name and department are managed by your administrator.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-email">Email</Label>
+              <Input id="edit-email" type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-phone">Phone</Label>
+              <Input id="edit-phone" type="tel" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} placeholder="Optional" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button className="rounded-xl gradient-brand text-white" disabled={savingContact} onClick={submitContactEdit}>
+              {savingContact ? "Saving…" : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Change password dialog */}
       <Dialog open={pwOpen} onOpenChange={(o) => !o && closePasswordDialog()}>

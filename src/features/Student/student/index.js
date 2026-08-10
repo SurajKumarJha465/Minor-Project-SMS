@@ -22,7 +22,6 @@ const crumb = (label) => ["Student", label];
 export const studentModule = {
   id: "student",
   label: "Student",
-  user: { name: "Sumit Verma", role: "Student", avatar: "SV" },
   defaultPage: "dashboard",
   nav: [
     {

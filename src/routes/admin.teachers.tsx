@@ -11,16 +11,12 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
-import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
 } from "@/components/ui/alert-dialog";
-import { departmentList } from "@/features/SuperAdmin/lib/superadmin-mock-data";
 import { authHeader } from "@/lib/auth";
 
 export const Route = createFileRoute("/admin/teachers")({
@@ -32,7 +28,7 @@ export const Route = createFileRoute("/admin/teachers")({
 });
 
 type Teacher = {
-  id: string; name: string; specialization: string; department: string; courses: number;
+  id: string; name: string; specialization: string; departments: string[]; courses: number;
   email: string; phone: string; status: string; qualification: string; username: string; photo: string;
 };
 
@@ -41,7 +37,7 @@ function mapApiTeacher(t: any): Teacher {
     id: t.id,
     name: t.name,
     specialization: t.specialization ?? "",
-    department: t.department,
+    departments: t.departments ?? [],
     courses: t.courses ?? 0,
     email: t.email,
     phone: t.phone ?? "",
@@ -63,7 +59,7 @@ function TeachersPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [q, setQ] = useState(initialQ ?? "");
-  const rows = teachers.filter((t) => (t.name + t.specialization + t.department).toLowerCase().includes(q.toLowerCase()));
+  const rows = teachers.filter((t) => (t.name + t.specialization + t.departments.join(" ")).toLowerCase().includes(q.toLowerCase()));
 
   useEffect(() => {
     let cancelled = false;
@@ -91,17 +87,16 @@ function TeachersPage() {
   const [deleteTarget, setDeleteTarget] = useState<Teacher | null>(null);
   const [editForm, setEditForm] = useState(emptyTeacherForm);
 
-  // Create Teacher dialog state. Admin only ever creates a bare account —
-  // department is the one piece of institutional data admin owns; course
-  // and section assignment is the HOD's job from their own courses page.
+  // Create Teacher dialog state. Admin only ever creates a bare account with
+  // no department — each HOD who wants this teacher adds them to their own
+  // department afterward (a teacher can end up in more than one).
   const [createOpen, setCreateOpen] = useState(false);
-  const [dept, setDept] = useState<string | null>(null);
   const [teacherForm, setTeacherForm] = useState(emptyTeacherForm);
   const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
   function resetCreateForm() {
-    setDept(null); setTeacherForm(emptyTeacherForm);
+    setTeacherForm(emptyTeacherForm);
   }
 
   function openEdit(t: Teacher) {
@@ -163,10 +158,6 @@ function TeachersPage() {
   }
 
   async function saveNewTeacher() {
-    if (!dept) {
-      toast.error("Please select a department");
-      return;
-    }
     if (!teacherForm.name || !teacherForm.email) {
       toast.error("Please fill in the teacher's name and email");
       return;
@@ -178,7 +169,6 @@ function TeachersPage() {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeader() },
         body: JSON.stringify({
-          department_name: dept,
           name: teacherForm.name,
           email: teacherForm.email,
           phone: teacherForm.phone,
@@ -196,7 +186,7 @@ function TeachersPage() {
         id: `T${data.teacher_id}`,
         name: teacherForm.name,
         specialization: teacherForm.specialization,
-        department: dept,
+        departments: [],
         courses: 0,
         email: teacherForm.email,
         phone: teacherForm.phone,
@@ -221,7 +211,7 @@ function TeachersPage() {
         <div>
           <h1 className="font-display text-2xl font-bold">Teacher Management</h1>
           <p className="text-sm text-muted-foreground">
-            Create teacher accounts. Course and section assignment is handled by each department's HOD.
+            Create teacher accounts. Each department's HOD then adds them to their department and assigns courses.
           </p>
         </div>
         <Button className="rounded-xl gradient-brand text-white" onClick={() => { resetCreateForm(); setCreateOpen(true); }}>
@@ -273,7 +263,7 @@ function TeachersPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3">{t.specialization}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{t.department}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{t.departments.length ? t.departments.join(", ") : "Unassigned"}</td>
                     <td className="px-4 py-3"><Badge variant="secondary" className="rounded-lg"><BookOpen className="mr-1 h-3 w-3" /> {t.courses} courses</Badge></td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
@@ -317,7 +307,7 @@ function TeachersPage() {
               <div className="grid gap-3 text-sm">
                 <DetailRow icon={Mail} label="Email" value={viewTarget.email} />
                 <DetailRow icon={Phone} label="Phone" value={viewTarget.phone} />
-                <DetailRow icon={Building2} label="Department" value={viewTarget.department} />
+                <DetailRow icon={Building2} label="Department" value={viewTarget.departments.length ? viewTarget.departments.join(", ") : "Unassigned"} />
                 <DetailRow icon={Award} label="Qualification" value={viewTarget.qualification} />
                 <DetailRow icon={GraduationCap} label="Specialization" value={viewTarget.specialization} />
                 <DetailRow icon={BookOpen} label="Assigned Courses" value={`${viewTarget.courses} courses`} />
@@ -415,19 +405,12 @@ function TeachersPage() {
           <DialogHeader>
             <DialogTitle>Create Teacher</DialogTitle>
             <DialogDescription>
-              Creates a bare-bones teacher account. Their HOD assigns courses and sections afterward.
+              Creates a bare-bones teacher account with no department yet. Each HOD who wants
+              this teacher adds them to their department afterward.
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-3">
-            <Field label="Department">
-              <Select value={dept ?? undefined} onValueChange={(v) => setDept(v)}>
-                <SelectTrigger className="rounded-xl"><SelectValue placeholder="Select department" /></SelectTrigger>
-                <SelectContent>
-                  {departmentList.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </Field>
             <Field label="Photo">
               <div className="flex items-center gap-3">
                 <Avatar className="h-12 w-12"><AvatarFallback>{teacherForm.name ? teacherForm.name[0] : "T"}</AvatarFallback></Avatar>

@@ -15,7 +15,7 @@ export default function Topbar({
   collapsed,
   onToggleCollapse,
   onOpenMobile,
-  user = { name: "Sumit Verma", role: "Student", avatar: "SV" },
+  user = { name: "Loading…", role: "Student", avatar: "··" },
   roleId,
   roleOptions = [],
   onRoleChange,

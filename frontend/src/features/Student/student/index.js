@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   ListChecks,
   Megaphone,
+  Settings as SettingsIcon,
   UserCheck,
   UserRound,
 } from "lucide-react";
@@ -18,6 +19,7 @@ import InternalMarks from "./pages/InternalMarks";
 import SemesterResults from "./pages/SemesterResults";
 import NoticeBoard from "./pages/NoticeBoard";
 import AcademicCalendar from "./pages/AcademicCalendar";
+import Settings from "./pages/Settings";
 
 const crumb = (label) => ["Student", label];
 
@@ -49,6 +51,12 @@ export const studentModule = {
         { id: "academic-calendar", label: "Academic Calendar", icon: CalendarDays, breadcrumb: crumb("Academic Calendar") },
       ],
     },
+    {
+      section: "Account",
+      items: [
+        { id: "settings", label: "Settings", icon: SettingsIcon, breadcrumb: crumb("Settings") },
+      ],
+    },
   ],
   pages: {
     dashboard: Dashboard,
@@ -59,6 +67,7 @@ export const studentModule = {
     "semester-results": SemesterResults,
     "notice-board": NoticeBoard,
     "academic-calendar": AcademicCalendar,
+    settings: Settings,
   },
 };
 

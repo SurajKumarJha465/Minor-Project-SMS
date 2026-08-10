@@ -451,6 +451,19 @@ class StudentMarkRow(MarkFields):
         from_attributes = True
 
 
+class StudentInternalMarkRow(MarkFields):
+    """Per-component internal marks breakdown as the student sees it — same
+    fields the HOD publishes, plus the computed total and published/pending
+    status. See GET /api/student/internal-marks."""
+    course_id: str
+    code: str
+    name: str
+    teacher: str
+    total: int
+    max: int = 50
+    status: str  # "published" | "pending"
+
+
 class SaveMarksRow(MarkFields):
     student_id: str
 

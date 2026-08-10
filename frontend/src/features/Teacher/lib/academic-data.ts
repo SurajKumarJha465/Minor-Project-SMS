@@ -232,6 +232,34 @@ export async function getCoursePerformance(courseId: string): Promise<CoursePerf
   return apiJson<CoursePerformanceDto>(`/api/teacher/courses/${courseId}/performance`);
 }
 
+export type CourseOfferingSummary = {
+  id: string;
+  sem: number;
+  section: string;
+  enrolled: number;
+  avg_attendance: number;
+  avg_marks: number;
+};
+
+export type CourseAggregatePerformanceDto = {
+  code: string;
+  name: string;
+  credits: number;
+  enrolled: number;
+  avg_attendance: number;
+  avg_marks: number;
+  total_marks: number;
+  students: PerformanceStudentRow[];
+  offerings: CourseOfferingSummary[];
+};
+
+/** Real backend read: performance combined across every section/semester
+ * offering of a course code — the course-level summary shown before the
+ * teacher drills into one specific offering's dashboard. */
+export async function getCourseAggregatePerformance(code: string): Promise<CourseAggregatePerformanceDto> {
+  return apiJson<CourseAggregatePerformanceDto>(`/api/teacher/courses/by-code/${code}/performance`);
+}
+
 export type CourseOffering = {
   id: string;
   sem: number;

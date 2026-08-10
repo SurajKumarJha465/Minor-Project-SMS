@@ -459,6 +459,26 @@ class SaveMarksRequest(BaseModel):
     rows: list[SaveMarksRow]
 
 
+class TeacherPerformanceStudentRow(BaseModel):
+    student_id: str
+    name: str
+    enrollment: str
+    attendance_pct: float   # real % from AttendanceRecord (present / marked, excludes "pending")
+    marks_total: int        # real sum of InternalMark fields, out of TOTAL_MARKS
+
+
+class TeacherCoursePerformanceOut(BaseModel):
+    course_id: str
+    code: str
+    name: str
+    credits: int
+    enrolled: int
+    avg_attendance: float
+    avg_marks: float
+    total_marks: int        # denominator for marks_total, currently 50
+    students: list[TeacherPerformanceStudentRow]
+
+
 class HodGradeRow(BaseModel):
     student_id: str
     name: str

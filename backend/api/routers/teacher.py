@@ -7,12 +7,16 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 
 from api.database import get_db
-from api.models import User, RoleEnum, Teacher, TeacherDepartment, Course, Enrollment, Student, InternalMark, Notice, TeacherActivity, Department
+from api.models import (
+    User, RoleEnum, Teacher, TeacherDepartment, Course, Enrollment, Student, InternalMark, Notice,
+    TeacherActivity, Department, AttendanceRecord, AttendanceStatus,
+)
 from api.auth import require_role
 from api.activity import log_teacher_activity
 from api.schemas import (
     CourseOut, StudentMarkRow, SaveMarksRequest, FIELD_MAX, NoticeOut, SearchResultOut,
     TeacherMeOut, TeacherActivityOut, UpdateTeacherContactRequest, TeacherDepartmentOut,
+    TeacherPerformanceStudentRow, TeacherCoursePerformanceOut,
 )
 
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
@@ -342,6 +346,68 @@ def save_marks(
 
     db.commit()
     return {"saved": len(payload.rows)}
+
+
+TOTAL_MARKS = sum(FIELD_MAX.values())  # 50
+
+
+def _attendance_pct(records: list[AttendanceRecord]) -> float:
+    """Same rule HOD's attendance report uses: 'pending' rows haven't been
+    marked present/absent yet, so they don't count toward the percentage
+    either way."""
+    marked = [r for r in records if r.status != AttendanceStatus.pending]
+    if not marked:
+        return 0.0
+    present = sum(1 for r in marked if r.status == AttendanceStatus.present)
+    return round(present / len(marked) * 100, 1)
+
+
+@router.get("/courses/{course_id}/performance", response_model=TeacherCoursePerformanceOut)
+def get_course_performance(
+    course_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.teacher)),
+):
+    course = _get_owned_course(db, current_user, course_id)
+
+    student_ids = [e.student_id for e in db.query(Enrollment).filter(Enrollment.course_id == course_id).all()]
+    students = db.query(Student).filter(Student.id.in_(student_ids)).order_by(Student.enrollment.asc()).all()
+
+    marks_by_student = {
+        m.student_id: m for m in db.query(InternalMark).filter(InternalMark.course_id == course_id).all()
+    }
+
+    attendance_by_student: dict[str, list[AttendanceRecord]] = {}
+    for r in db.query(AttendanceRecord).filter(AttendanceRecord.course_id == course_id).all():
+        attendance_by_student.setdefault(r.student_id, []).append(r)
+
+    rows: list[TeacherPerformanceStudentRow] = []
+    for s in students:
+        m = marks_by_student.get(s.id)
+        marks_total = sum(getattr(m, field, 0) for field in FIELD_MAX) if m else 0
+        rows.append(TeacherPerformanceStudentRow(
+            student_id=s.id,
+            name=s.name,
+            enrollment=s.enrollment,
+            attendance_pct=_attendance_pct(attendance_by_student.get(s.id, [])),
+            marks_total=marks_total,
+        ))
+
+    avg_attendance = round(sum(r.attendance_pct for r in rows) / len(rows), 1) if rows else 0.0
+    avg_marks = round(sum(r.marks_total for r in rows) / len(rows), 1) if rows else 0.0
+
+    return TeacherCoursePerformanceOut(
+        course_id=course.id,
+        code=course.code,
+        name=course.name,
+        credits=course.credits or 0,
+        enrolled=len(rows),
+        avg_attendance=avg_attendance,
+        avg_marks=avg_marks,
+        total_marks=TOTAL_MARKS,
+        students=rows,
+    )
+
 
 @router.get("/notices", response_model=list[NoticeOut])
 def list_department_notices(

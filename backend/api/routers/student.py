@@ -10,7 +10,7 @@ from datetime import datetime
 from api.database import get_db
 from api.models import User, RoleEnum, Student, Section, Department, Notice, Enrollment, AttendanceRecord, AttendanceStatus, Course, Teacher, InternalMark, MarkStatus, CourseGrade, CalendarEvent
 from api.grading import grade_point
-from api.auth import require_role
+from api.auth import require_role, hash_password, verify_password
 from api.schemas import (
     NoticeOut,
     StudentAttendanceResponse,
@@ -28,7 +28,9 @@ from api.schemas import (
     TwoFactorVerifyRequest,
     TwoFactorStatusResponse,
     EventOut,
+    ChangePasswordRequest,
 )
+from api.routers.admin import _get_or_create_settings, _log_action
 
 router = APIRouter(prefix="/api/student", tags=["student"])
 
@@ -107,6 +109,29 @@ def update_my_profile(
     db.commit()
     db.refresh(student)
     return _build_student_me(db, student, current_user)
+
+
+@router.post("/change-password")
+def change_my_password(
+    payload: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.student)),
+):
+    """Student-scoped alias for the shared change-password flow. The frontend
+    used to call POST /api/admin/change-password for this — it worked (that
+    route accepts any logged-in user) but namespacing a student action under
+    /api/admin was misleading and fragile. Same logic as admin.change_password,
+    just reusing the shared settings/audit-log helpers from that module."""
+    if not verify_password(payload.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+
+    current_user.hashed_password = hash_password(payload.new_password)
+    current_user.must_change_password = False
+    current_user.password_changed_at = datetime.utcnow()
+    db.commit()
+    settings = _get_or_create_settings(db)
+    _log_action(db, settings, current_user, "account.password_changed")
+    return {"message": "Password updated successfully"}
 
 
 @router.post("/2fa/setup", response_model=TwoFactorSetupResponse)

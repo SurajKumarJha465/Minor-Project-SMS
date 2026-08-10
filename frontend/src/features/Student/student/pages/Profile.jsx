@@ -231,7 +231,7 @@ export default function Profile() {
     }
     setSavingPw(true);
     try {
-      const res = await fetch(`${API_URL}/api/admin/change-password`, {
+      const res = await fetch(`${API_URL}/api/student/change-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeader() },
         body: JSON.stringify({ current_password: currentPw, new_password: newPw }),

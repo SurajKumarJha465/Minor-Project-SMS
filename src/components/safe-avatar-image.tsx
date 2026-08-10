@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 interface SafeAvatarImageProps {
   src: string | null | undefined;
   alt?: string;
-  fallback: string;
+  fallback: React.ReactNode;
   className?: string;
   imageClassName?: string;
   onError?: () => void;
@@ -64,8 +64,9 @@ export function validateImageUrl(url: string): string | null {
   const trimmed = url.trim();
   if (!trimmed) return null; // empty is allowed (clears photo)
 
+  let parsed: URL;
   try {
-    const parsed = new URL(trimmed);
+    parsed = new URL(trimmed);
     if (!parsed.protocol.startsWith("http")) {
       return "URL must start with http:// or https://";
     }

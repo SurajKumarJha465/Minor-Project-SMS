@@ -7,6 +7,15 @@ import { cn } from "@/lib/utils";
 import FloatingModal from "@/features/Student/ui/FloatingModal";
 import Button from "@/features/Student/ui/Button";
 
+const API_URL = import.meta.env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+// Same convention as Profile.jsx: the backend returns a relative
+// /uploads/profile-photos/<file> path that needs the API origin prefixed.
+function photoSrc(photo) {
+  if (!photo) return undefined;
+  return photo.startsWith("http") ? photo : `${API_URL}${photo}`;
+}
+
 /**
  * Topbar — breadcrumb, global search, theme toggle, profile and logout.
  */
@@ -100,8 +109,12 @@ export default function Topbar({
       )}
 
       <div className="flex shrink-0 items-center gap-2 rounded-xl border border-border/60 bg-card py-1 pl-1 pr-3">
-        <div className="grid size-8 place-items-center rounded-lg gradient-primary text-xs font-semibold text-primary-foreground">
-          {user.avatar}
+        <div className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg gradient-primary text-xs font-semibold text-primary-foreground">
+          {user.photo ? (
+            <img src={photoSrc(user.photo)} alt={user.name} className="size-full object-cover" />
+          ) : (
+            user.avatar
+          )}
         </div>
         <div className="hidden leading-tight sm:block">
           <p className="text-xs font-semibold text-foreground">{user.name}</p>

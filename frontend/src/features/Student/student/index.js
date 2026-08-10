@@ -4,6 +4,7 @@ import {
   CalendarDays,
   FileBarChart,
   LayoutDashboard,
+  LineChart,
   ListChecks,
   Megaphone,
   Settings as SettingsIcon,
@@ -17,6 +18,7 @@ import Courses from "./pages/Courses";
 import Attendance from "./pages/Attendance";
 import InternalMarks from "./pages/InternalMarks";
 import SemesterResults from "./pages/SemesterResults";
+import GpaAnalytics from "./pages/GpaAnalytics";
 import NoticeBoard from "./pages/NoticeBoard";
 import AcademicCalendar from "./pages/AcademicCalendar";
 import Settings from "./pages/Settings";
@@ -42,6 +44,7 @@ export const studentModule = {
         { id: "attendance", label: "Attendance", icon: UserCheck, breadcrumb: crumb("Attendance") },
         { id: "internal-marks", label: "Internal Marks", icon: ListChecks, breadcrumb: crumb("Internal Marks") },
         { id: "semester-results", label: "Semester Results", icon: FileBarChart, breadcrumb: crumb("Semester Results") },
+        { id: "gpa-analytics", label: "GPA Analytics", icon: LineChart, breadcrumb: crumb("GPA Analytics") },
       ],
     },
     {
@@ -65,6 +68,7 @@ export const studentModule = {
     attendance: Attendance,
     "internal-marks": InternalMarks,
     "semester-results": SemesterResults,
+    "gpa-analytics": GpaAnalytics,
     "notice-board": NoticeBoard,
     "academic-calendar": AcademicCalendar,
     settings: Settings,

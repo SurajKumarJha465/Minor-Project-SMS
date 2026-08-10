@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 
 from api.database import get_db
-from api.models import User, RoleEnum, Teacher, Course, Enrollment, Student, InternalMark, Notice
+from api.models import User, RoleEnum, Teacher, TeacherDepartment, Course, Enrollment, Student, InternalMark, Notice
 from api.auth import require_role
 from api.schemas import (
     CourseOut, StudentMarkRow, SaveMarksRequest, FIELD_MAX, NoticeOut, SearchResultOut,
@@ -193,10 +193,15 @@ def list_department_notices(
     if not teacher:
         raise HTTPException(status_code=400, detail="No teacher profile linked to this account")
 
+    dept_ids = [
+        row.department_id
+        for row in db.query(TeacherDepartment).filter(TeacherDepartment.teacher_id == teacher.id).all()
+    ]
+
     notices = (
         db.query(Notice)
         .filter(
-            Notice.department_id == teacher.department_id,
+            Notice.department_id.in_(dept_ids) if dept_ids else False,
             or_(Notice.scheduled_for.is_(None), Notice.scheduled_for <= datetime.utcnow()),
         )
         .order_by(Notice.pinned.desc(), Notice.created_at.desc())

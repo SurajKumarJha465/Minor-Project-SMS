@@ -103,7 +103,6 @@ class TwoFactorStatusResponse(BaseModel):
 
 
 class CreateTeacherRequest(BaseModel):
-    department_name: str
     name: str
     email: str
     phone: str
@@ -120,7 +119,7 @@ class CreateTeacherResponse(BaseModel):
 class TeacherListingOut(BaseModel):
     id: str
     name: str
-    department: str
+    departments: list[str] = []
     specialization: Optional[str] = None
     qualification: Optional[str] = None
     email: str
@@ -391,6 +390,20 @@ class HodTeacherOut(BaseModel):
     phone: Optional[str] = None
     photo: Optional[str] = None
     courses: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class HodAvailableTeacherOut(BaseModel):
+    """A teacher not yet in this HOD's department, shown when searching to add one."""
+    id: int
+    name: str
+    specialization: Optional[str] = None
+    qualification: Optional[str] = None
+    email: Optional[str] = None
+    photo: Optional[str] = None
+    departments: list[str] = []  # other departments this teacher is already in, for context
 
     class Config:
         from_attributes = True

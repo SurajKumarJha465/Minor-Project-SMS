@@ -73,7 +73,10 @@ class Teacher(Base):
     user_id = Column(Integer, ForeignKey("users.id"))
     name = Column(String, nullable=False)
     title = Column(String)
-    department_id = Column(String, ForeignKey("departments.id"))
+    # No single department_id here on purpose: admin creates a bare teacher
+    # account with no department, and each HOD who wants this teacher in
+    # their department adds them via the TeacherDepartment join table below —
+    # a teacher can end up in more than one department that way.
     specialization = Column(String)
     qualification = Column(String)
     email = Column(String)
@@ -82,6 +85,19 @@ class Teacher(Base):
     office_hours = Column(String)
     experience = Column(String)
     photo = Column(String)
+
+
+class TeacherDepartment(Base):
+    """Many-to-many: which department(s) a teacher has been added to.
+    Assignment is the HOD's action (adding an existing teacher to their
+    department), not the admin's — admin only creates the bare account."""
+    __tablename__ = "teacher_departments"
+    __table_args__ = (
+        UniqueConstraint("teacher_id", "department_id", name="uq_teacher_department"),
+    )
+    id = Column(Integer, primary_key=True)
+    teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=False)
+    department_id = Column(String, ForeignKey("departments.id"), nullable=False)
 
 
 class Course(Base):

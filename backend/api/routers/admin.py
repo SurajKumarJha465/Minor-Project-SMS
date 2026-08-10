@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from api.database import get_db, engine
 from api.models import (
-    User, RoleEnum, Teacher, Course, HOD, Department, department_slug, Admin, Student,
+    User, RoleEnum, Teacher, TeacherDepartment, Course, HOD, Department, department_slug, Admin, Student,
     Section, Enrollment, SystemSettings, AuditLog,
 )
 from api.schemas import (
@@ -47,6 +47,20 @@ def _derive_batch(student: Student) -> str:
 
 APP_VERSION = "Minor-Project-SMS v0.1.0"
 _APP_START_TIME = datetime.utcnow()  # process start, used for the System Info uptime figure
+
+
+def _teacher_department_names(db: Session, teacher_ids: list[int]) -> dict[int, list[str]]:
+    """teacher_id -> list of department display names, via the TeacherDepartment
+    join table. A teacher with no rows there (bare account, not yet added to
+    any department by an HOD) simply gets an empty list."""
+    if not teacher_ids:
+        return {}
+    dept_map = {d.id: d.name for d in db.query(Department).all()}
+    rows = db.query(TeacherDepartment).filter(TeacherDepartment.teacher_id.in_(teacher_ids)).all()
+    result: dict[int, list[str]] = {tid: [] for tid in teacher_ids}
+    for row in rows:
+        result.setdefault(row.teacher_id, []).append(dept_map.get(row.department_id, row.department_id))
+    return result
 
 
 def _get_or_create_settings(db: Session) -> SystemSettings:
@@ -278,8 +292,9 @@ def global_search(
         .limit(6)
         .all()
     )
+    teacher_dept_names = _teacher_department_names(db, [t.id for t in teachers])
     for t in teachers:
-        dept = dept_map.get(t.department_id, t.department_id or "")
+        dept = ", ".join(teacher_dept_names.get(t.id, [])) or "Unassigned"
         results.append(SearchResultOut(
             type="teacher", id=f"T{t.id}", name=t.name, subtitle=dept, photo=t.photo,
         ))
@@ -307,9 +322,10 @@ def overview(
     dept_map = {d.id: d.name for d in db.query(Department).all()}
 
     # Teachers per department, keyed by display name — drives the dashboard's bar chart.
+    # A teacher in multiple departments counts once toward each.
     teacher_counts: dict[str, int] = {}
-    for t in db.query(Teacher).all():
-        name = dept_map.get(t.department_id, t.department_id)
+    for td in db.query(TeacherDepartment).all():
+        name = dept_map.get(td.department_id, td.department_id)
         teacher_counts[name] = teacher_counts.get(name, 0) + 1
 
     return AdminOverviewOut(
@@ -430,11 +446,9 @@ def create_teacher(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role(RoleEnum.admin)),
 ):
-    dept_id = department_slug(payload.department_name)
-    if not db.query(Department).filter(Department.id == dept_id).first():
-        db.add(Department(id=dept_id, name=payload.department_name, code=dept_id.upper()))
-        db.commit()
-
+    # Admin creates a bare account only — no department here. A teacher can
+    # end up in more than one department, so department membership is each
+    # HOD's own call (see POST /api/hod/teachers/{id}/assign), made afterward.
     if db.query(User).filter(User.email == payload.email).first():
         raise HTTPException(status_code=400, detail="A user with this email already exists")
 
@@ -452,7 +466,6 @@ def create_teacher(
     teacher = Teacher(
         user_id=user.id,
         name=payload.name,
-        department_id=dept_id,
         specialization=payload.specialization,
         qualification=payload.qualification,
         email=payload.email,
@@ -604,7 +617,7 @@ def list_teachers(
     current_user: User = Depends(require_role(RoleEnum.admin)),
 ):
     teachers = db.query(Teacher).all()
-    dept_map = {d.id: d.name for d in db.query(Department).all()}
+    teacher_dept_names = _teacher_department_names(db, [t.id for t in teachers])
 
     result = []
     for t in teachers:
@@ -613,7 +626,7 @@ def list_teachers(
             TeacherListingOut(
                 id=f"T{t.id}",
                 name=t.name,
-                department=dept_map.get(t.department_id, t.department_id),
+                departments=teacher_dept_names.get(t.id, []),
                 specialization=t.specialization,
                 qualification=t.qualification,
                 email=t.email,
@@ -650,13 +663,13 @@ def update_teacher(
     db.commit()
     db.refresh(teacher)
 
-    dept = db.query(Department).filter(Department.id == teacher.department_id).first()
+    dept_names = _teacher_department_names(db, [teacher.id]).get(teacher.id, [])
     course_count = db.query(Course).filter(Course.teacher_id == teacher.id).count()
 
     return TeacherListingOut(
         id=f"T{teacher.id}",
         name=teacher.name,
-        department=dept.name if dept else teacher.department_id,
+        departments=dept_names,
         specialization=teacher.specialization,
         qualification=teacher.qualification,
         email=teacher.email,
@@ -680,6 +693,7 @@ def delete_teacher(
     user_id = teacher.user_id
     # unassign rather than delete their courses — the courses should survive
     db.query(Course).filter(Course.teacher_id == teacher.id).update({Course.teacher_id: None})
+    db.query(TeacherDepartment).filter(TeacherDepartment.teacher_id == teacher.id).delete()
     db.delete(teacher)
     if user_id:
         user = db.query(User).filter(User.id == user_id).first()

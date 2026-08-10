@@ -2,7 +2,7 @@
 REPOSITORY CODE EXPORT
 ====================================================================================================
 Repository: /home/suraj/PycharmProjects/Minor-Project-SMS
-Files: 198
+Files: 201
 ====================================================================================================
 
 
@@ -344,6 +344,25 @@ Demo logins (password: `123456`):
 
 
 ====================================================================================================
+FILE: backend/api/activity.py
+====================================================================================================
+
+from sqlalchemy.orm import Session
+
+from api.models import TeacherActivity
+
+# Kept small and dependency-free (no FastAPI imports) so both attendance.py
+# and teacher.py can import it without risking a circular import.
+
+
+def log_teacher_activity(db: Session, teacher_id: int, icon: str, title: str, desc: str) -> None:
+    """Append one row to the teacher's activity feed. Caller is still
+    responsible for db.commit() — this only adds to the session so it can
+    ride along with the caller's existing commit."""
+    db.add(TeacherActivity(teacher_id=teacher_id, icon=icon, title=title, desc=desc))
+
+
+====================================================================================================
 FILE: backend/api/auth.py
 ====================================================================================================
 
@@ -516,8 +535,11 @@ def grade_point(letter: str) -> float:
 FILE: backend/api/main.py
 ====================================================================================================
 
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from api.database import engine, Base
 from api.routers import attendance, roster
 from api.routers import auth_router
@@ -545,6 +567,19 @@ app.include_router(admin.router)
 app.include_router(hod.router)
 app.include_router(teacher.router)
 app.include_router(student.router)
+
+# Serves uploaded notice attachments back out at the URLs hod.py hands out
+# (e.g. "/uploads/notices/<file>"). Matches the backend/data/ convention
+# already used for face-recognition enrollment photos.
+NOTICE_ATTACHMENTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "notice_attachments")
+os.makedirs(NOTICE_ATTACHMENTS_DIR, exist_ok=True)
+app.mount("/uploads/notices", StaticFiles(directory=NOTICE_ATTACHMENTS_DIR), name="notice_attachments")
+
+# Profile pictures (HOD, teacher, admin, etc.) uploaded via the various
+# "/me/photo" endpoints, served back out at "/uploads/profile-photos/<file>".
+PROFILE_PHOTOS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "profile_photos")
+os.makedirs(PROFILE_PHOTOS_DIR, exist_ok=True)
+app.mount("/uploads/profile-photos", StaticFiles(directory=PROFILE_PHOTOS_DIR), name="profile_photos")
 
 
 @app.get("/")
@@ -631,7 +666,10 @@ class Teacher(Base):
     user_id = Column(Integer, ForeignKey("users.id"))
     name = Column(String, nullable=False)
     title = Column(String)
-    department_id = Column(String, ForeignKey("departments.id"))
+    # No single department_id here on purpose: admin creates a bare teacher
+    # account with no department, and each HOD who wants this teacher in
+    # their department adds them via the TeacherDepartment join table below —
+    # a teacher can end up in more than one department that way.
     specialization = Column(String)
     qualification = Column(String)
     email = Column(String)
@@ -640,6 +678,19 @@ class Teacher(Base):
     office_hours = Column(String)
     experience = Column(String)
     photo = Column(String)
+
+
+class TeacherDepartment(Base):
+    """Many-to-many: which department(s) a teacher has been added to.
+    Assignment is the HOD's action (adding an existing teacher to their
+    department), not the admin's — admin only creates the bare account."""
+    __tablename__ = "teacher_departments"
+    __table_args__ = (
+        UniqueConstraint("teacher_id", "department_id", name="uq_teacher_department"),
+    )
+    id = Column(Integer, primary_key=True)
+    teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=False)
+    department_id = Column(String, ForeignKey("departments.id"), nullable=False)
 
 
 class Course(Base):
@@ -692,6 +743,20 @@ class AttendanceRecord(Base):
     status = Column(SqlEnum(AttendanceStatus), nullable=False)
     similarity = Column(Float, nullable=True)   # populated when marked via face recognition, null if manual
     marked_by = Column(String, nullable=True)   # "ai" or teacher's user id
+
+class TeacherActivity(Base):
+    """Per-teacher activity feed shown on the teacher dashboard. Written
+    inline by the routers that perform teacher actions (attendance.py,
+    teacher.py) — unlike AuditLog, this is always on and scoped to a single
+    teacher rather than being an admin-wide, togglable audit trail."""
+    __tablename__ = "teacher_activities"
+    id = Column(Integer, primary_key=True)
+    teacher_id = Column(Integer, ForeignKey("teachers.id"), nullable=False)
+    icon = Column(String, nullable=False)   # "check" | "award" | "bell" | "file" | "message" — matches frontend's activityIcons map
+    title = Column(String, nullable=False)
+    desc = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
 
 class HOD(Base):
     __tablename__ = "hods"
@@ -771,6 +836,9 @@ class Notice(Base):
     author_name = Column(String, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     scheduled_for = Column(DateTime, nullable=True)  # null = published immediately
+    attachment_url = Column(String, nullable=True)    # served path, e.g. "/uploads/notices/<file>"
+    attachment_name = Column(String, nullable=True)   # original filename, shown to the reader
+    attachment_size = Column(Integer, nullable=True)  # bytes, for display only
 
 
 class EventType(str, enum.Enum):
@@ -844,7 +912,7 @@ from sqlalchemy.orm import Session
 
 from api.database import get_db, engine
 from api.models import (
-    User, RoleEnum, Teacher, Course, HOD, Department, department_slug, Admin, Student,
+    User, RoleEnum, Teacher, TeacherDepartment, Course, HOD, Department, department_slug, Admin, Student,
     Section, Enrollment, SystemSettings, AuditLog,
 )
 from api.schemas import (
@@ -882,6 +950,20 @@ def _derive_batch(student: Student) -> str:
 
 APP_VERSION = "Minor-Project-SMS v0.1.0"
 _APP_START_TIME = datetime.utcnow()  # process start, used for the System Info uptime figure
+
+
+def _teacher_department_names(db: Session, teacher_ids: list[int]) -> dict[int, list[str]]:
+    """teacher_id -> list of department display names, via the TeacherDepartment
+    join table. A teacher with no rows there (bare account, not yet added to
+    any department by an HOD) simply gets an empty list."""
+    if not teacher_ids:
+        return {}
+    dept_map = {d.id: d.name for d in db.query(Department).all()}
+    rows = db.query(TeacherDepartment).filter(TeacherDepartment.teacher_id.in_(teacher_ids)).all()
+    result: dict[int, list[str]] = {tid: [] for tid in teacher_ids}
+    for row in rows:
+        result.setdefault(row.teacher_id, []).append(dept_map.get(row.department_id, row.department_id))
+    return result
 
 
 def _get_or_create_settings(db: Session) -> SystemSettings:
@@ -1113,8 +1195,9 @@ def global_search(
         .limit(6)
         .all()
     )
+    teacher_dept_names = _teacher_department_names(db, [t.id for t in teachers])
     for t in teachers:
-        dept = dept_map.get(t.department_id, t.department_id or "")
+        dept = ", ".join(teacher_dept_names.get(t.id, [])) or "Unassigned"
         results.append(SearchResultOut(
             type="teacher", id=f"T{t.id}", name=t.name, subtitle=dept, photo=t.photo,
         ))
@@ -1142,9 +1225,10 @@ def overview(
     dept_map = {d.id: d.name for d in db.query(Department).all()}
 
     # Teachers per department, keyed by display name — drives the dashboard's bar chart.
+    # A teacher in multiple departments counts once toward each.
     teacher_counts: dict[str, int] = {}
-    for t in db.query(Teacher).all():
-        name = dept_map.get(t.department_id, t.department_id)
+    for td in db.query(TeacherDepartment).all():
+        name = dept_map.get(td.department_id, td.department_id)
         teacher_counts[name] = teacher_counts.get(name, 0) + 1
 
     return AdminOverviewOut(
@@ -1265,11 +1349,9 @@ def create_teacher(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role(RoleEnum.admin)),
 ):
-    dept_id = department_slug(payload.department_name)
-    if not db.query(Department).filter(Department.id == dept_id).first():
-        db.add(Department(id=dept_id, name=payload.department_name, code=dept_id.upper()))
-        db.commit()
-
+    # Admin creates a bare account only — no department here. A teacher can
+    # end up in more than one department, so department membership is each
+    # HOD's own call (see POST /api/hod/teachers/{id}/assign), made afterward.
     if db.query(User).filter(User.email == payload.email).first():
         raise HTTPException(status_code=400, detail="A user with this email already exists")
 
@@ -1287,7 +1369,6 @@ def create_teacher(
     teacher = Teacher(
         user_id=user.id,
         name=payload.name,
-        department_id=dept_id,
         specialization=payload.specialization,
         qualification=payload.qualification,
         email=payload.email,
@@ -1439,7 +1520,7 @@ def list_teachers(
     current_user: User = Depends(require_role(RoleEnum.admin)),
 ):
     teachers = db.query(Teacher).all()
-    dept_map = {d.id: d.name for d in db.query(Department).all()}
+    teacher_dept_names = _teacher_department_names(db, [t.id for t in teachers])
 
     result = []
     for t in teachers:
@@ -1448,7 +1529,7 @@ def list_teachers(
             TeacherListingOut(
                 id=f"T{t.id}",
                 name=t.name,
-                department=dept_map.get(t.department_id, t.department_id),
+                departments=teacher_dept_names.get(t.id, []),
                 specialization=t.specialization,
                 qualification=t.qualification,
                 email=t.email,
@@ -1485,13 +1566,13 @@ def update_teacher(
     db.commit()
     db.refresh(teacher)
 
-    dept = db.query(Department).filter(Department.id == teacher.department_id).first()
+    dept_names = _teacher_department_names(db, [teacher.id]).get(teacher.id, [])
     course_count = db.query(Course).filter(Course.teacher_id == teacher.id).count()
 
     return TeacherListingOut(
         id=f"T{teacher.id}",
         name=teacher.name,
-        department=dept.name if dept else teacher.department_id,
+        departments=dept_names,
         specialization=teacher.specialization,
         qualification=teacher.qualification,
         email=teacher.email,
@@ -1515,6 +1596,7 @@ def delete_teacher(
     user_id = teacher.user_id
     # unassign rather than delete their courses — the courses should survive
     db.query(Course).filter(Course.teacher_id == teacher.id).update({Course.teacher_id: None})
+    db.query(TeacherDepartment).filter(TeacherDepartment.teacher_id == teacher.id).delete()
     db.delete(teacher)
     if user_id:
         user = db.query(User).filter(User.id == user_id).first()
@@ -1545,9 +1627,10 @@ from recognition import get_embedding, load_known_embeddings
 
 from ultralytics import YOLO
 from api.database import get_db
-from api.models import Student, Enrollment, AttendanceRecord, AttendanceStatus, RoleEnum, Course
+from api.models import Student, Enrollment, AttendanceRecord, AttendanceStatus, RoleEnum, Course, Teacher
 from api.auth import require_role, get_current_user
 from api.models import User
+from api.activity import log_teacher_activity
 from api.schemas import AttendanceTodayResponse, AttendanceTodayItem
 
 router = APIRouter(prefix="/api/attendance", tags=["attendance"])
@@ -1681,6 +1764,17 @@ async def save_attendance(
             )
 
         saved += 1
+
+    # Only log to the teacher's own activity feed when a teacher (not admin) took it.
+    if current_user.role == RoleEnum.teacher and saved > 0:
+        teacher = db.query(Teacher).filter(Teacher.user_id == current_user.id).first()
+        course = db.query(Course).filter(Course.id == course_id).first()
+        if teacher and course:
+            log_teacher_activity(
+                db, teacher.id, icon="check",
+                title="Attendance taken",
+                desc=f"{course.code} {course.name} · {saved} student{'s' if saved != 1 else ''}",
+            )
 
     db.commit()
     return {"saved": saved}
@@ -1837,27 +1931,33 @@ FILE: backend/api/routers/hod.py
 
 import csv
 import io
+import os
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from api.models import (
-    User, RoleEnum, HOD, Student, Section, Department, Enrollment, Course, Teacher, department_slug,
+    User, RoleEnum, HOD, Student, Section, Department, Enrollment, Course, Teacher, TeacherDepartment,
+    department_slug,
     InternalMark, MarkStatus, Notice, NoticeType, CalendarEvent, EventType, CourseGrade, AttendanceRecord,
     AttendanceStatus,
 )
 from api.grading import VALID_GRADES, grade_point
 from api.schemas import (
     CreateStudentRequest, CreateStudentResponse, HodStudentOut, UpdateStudentRequest,
-    HodCourseOut, CreateCourseRequest, UpdateCourseRequest, HodTeacherOut, HodCourseRosterStudent,
+    HodCourseOut, CreateCourseRequest, UpdateCourseRequest, HodTeacherOut, HodAvailableTeacherOut,
+    HodCourseRosterStudent,
     EnrollStudentRequest, FIELD_MAX, HodMarksOverview, HodCourseAverage, HodMarkDistributionBucket,
     HodTeacherMarkStatus, HodResultsOverview, HodCoursePassFail, HodRankedStudent,
-    NoticeOut, CreateNoticeRequest, UpdateNoticeRequest, HodListingOut,
+    NoticeOut, CreateNoticeRequest, UpdateNoticeRequest, HodListingOut, NoticeAttachmentOut,
+    UpdateHodContactRequest,
     EventOut, CreateEventRequest, UpdateEventRequest,
     HodGradeRow, SaveGradesRequest, StudentMarkRow, SaveMarksRequest,
     HodAttendanceReport, HodCourseAttendance, HodTeacherAttendance, HodLowAttendanceStudent,
     SearchResultOut,
+    SemesterResultImportResponse, SemesterResultImportSkip, HodSemesterCourseSummary, HodSemesterResultsSummary,
 )
 from api.auth import hash_password, generate_default_password, require_role
 from api.database import get_db
@@ -1870,6 +1970,22 @@ def _current_hod(db: Session, current_user: User) -> HOD:
     if not hod:
         raise HTTPException(status_code=400, detail="No HOD profile linked to this account")
     return hod
+
+def _department_teacher_ids(db: Session, department_id: str) -> list[int]:
+    """Teacher ids that have been added to this department via TeacherDepartment
+    (an HOD's own doing) — a teacher can appear in more than one department's list."""
+    return [
+        row.teacher_id
+        for row in db.query(TeacherDepartment).filter(TeacherDepartment.department_id == department_id).all()
+    ]
+
+
+def _department_teachers(db: Session, department_id: str):
+    ids = _department_teacher_ids(db, department_id)
+    if not ids:
+        return []
+    return db.query(Teacher).filter(Teacher.id.in_(ids)).all()
+
 
 def _get_department_course(db: Session, hod: HOD, course_id: str) -> Course:
     course = db.query(Course).filter(Course.id == course_id, Course.department_id == hod.department_id).first()
@@ -1947,18 +2063,91 @@ def _bulk_student_stats(db: Session, student_ids: list[str]) -> dict[str, dict]:
 
     return stats
 
-@router.get("/me", response_model=HodListingOut)
-def my_profile(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_role(RoleEnum.hod)),
-):
-    hod = _current_hod(db, current_user)
+def _hod_profile_out(db: Session, hod: HOD) -> HodListingOut:
     dept = db.query(Department).filter(Department.id == hod.department_id).first()
     return HodListingOut(
         id=str(hod.id), name=hod.name, department=dept.name if dept else "",
         email=hod.email or "", phone=hod.phone, qualification=hod.qualification,
         experience=hod.experience, photo=hod.photo,
     )
+
+
+@router.get("/me", response_model=HodListingOut)
+def my_profile(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    hod = _current_hod(db, current_user)
+    return _hod_profile_out(db, hod)
+
+
+@router.patch("/me", response_model=HodListingOut)
+def update_my_contact(
+    payload: UpdateHodContactRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    """Self-service contact edit. Deliberately limited to email/phone — name
+    and department stay admin-managed, same as the rest of the HOD record."""
+    hod = _current_hod(db, current_user)
+    if payload.email is not None:
+        email = payload.email.strip()
+        if not email:
+            raise HTTPException(status_code=400, detail="Email cannot be empty")
+        hod.email = email
+    if payload.phone is not None:
+        hod.phone = payload.phone.strip() or None
+    db.commit()
+    db.refresh(hod)
+    return _hod_profile_out(db, hod)
+
+
+PROFILE_PHOTOS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "profile_photos"
+)
+PROFILE_PHOTO_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+PROFILE_PHOTO_ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".webp"}
+
+
+@router.post("/me/photo", response_model=HodListingOut)
+async def upload_my_photo(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    hod = _current_hod(db, current_user)
+
+    original_name = file.filename or "photo"
+    ext = os.path.splitext(original_name)[1].lower()
+    if ext not in PROFILE_PHOTO_ALLOWED_EXT:
+        allowed = ", ".join(sorted(PROFILE_PHOTO_ALLOWED_EXT))
+        raise HTTPException(status_code=400, detail=f"Unsupported image type '{ext}'. Allowed: {allowed}")
+
+    data = await file.read()
+    if len(data) > PROFILE_PHOTO_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Image is larger than the 5 MB limit")
+    if not data:
+        raise HTTPException(status_code=400, detail="File is empty")
+
+    os.makedirs(PROFILE_PHOTOS_DIR, exist_ok=True)
+    stored_name = f"hod-{hod.id}-{uuid.uuid4().hex}{ext}"
+    with open(os.path.join(PROFILE_PHOTOS_DIR, stored_name), "wb") as f:
+        f.write(data)
+
+    # only clean up the old file if it's one we saved ourselves — an admin
+    # may have set hod.photo to some external URL, which isn't ours to delete
+    if hod.photo and hod.photo.startswith("/uploads/profile-photos/"):
+        old_path = os.path.join(PROFILE_PHOTOS_DIR, os.path.basename(hod.photo))
+        if os.path.isfile(old_path):
+            try:
+                os.remove(old_path)
+            except OSError:
+                pass
+
+    hod.photo = f"/uploads/profile-photos/{stored_name}"
+    db.commit()
+    db.refresh(hod)
+    return _hod_profile_out(db, hod)
 
 @router.get("/search", response_model=list[SearchResultOut])
 def search_department(
@@ -1991,10 +2180,11 @@ def search_department(
             sem=s.sem, section=(s.section_id or "").upper() or None,
         ))
 
+    dept_teacher_ids = _department_teacher_ids(db, hod.department_id)
     teachers = (
         db.query(Teacher)
         .filter(
-            Teacher.department_id == hod.department_id,
+            Teacher.id.in_(dept_teacher_ids) if dept_teacher_ids else False,
             (Teacher.name.ilike(like)) | (Teacher.email.ilike(like)),
         )
         .limit(6)
@@ -2307,9 +2497,10 @@ def update_course(
     if payload.unassign_teacher:
         course.teacher_id = None
     elif payload.teacher_id is not None:
+        dept_teacher_ids = _department_teacher_ids(db, hod.department_id)
         teacher = (
             db.query(Teacher)
-            .filter(Teacher.id == payload.teacher_id, Teacher.department_id == hod.department_id)
+            .filter(Teacher.id == payload.teacher_id, Teacher.id.in_(dept_teacher_ids) if dept_teacher_ids else False)
             .first()
         )
         if not teacher:
@@ -2348,7 +2539,7 @@ def list_department_teachers(
     current_user: User = Depends(require_role(RoleEnum.hod)),
 ):
     hod = _current_hod(db, current_user)
-    teachers = db.query(Teacher).filter(Teacher.department_id == hod.department_id).all()
+    teachers = _department_teachers(db, hod.department_id)
     result = []
     for t in teachers:
         course_count = db.query(Course).filter(Course.teacher_id == t.id).count()
@@ -2357,6 +2548,108 @@ def list_department_teachers(
             experience=t.experience, email=t.email, phone=t.phone, photo=t.photo, courses=course_count,
         ))
     return result
+
+
+@router.get("/teachers/available", response_model=list[HodAvailableTeacherOut])
+def search_available_teachers(
+    q: str = "",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    """Teachers not yet in this HOD's department — the pool to pick from when
+    adding a teacher to the department. Search is required (min 2 chars) since
+    this can span every teacher in the system, not just this department."""
+    hod = _current_hod(db, current_user)
+    query = q.strip()
+    if len(query) < 2:
+        return []
+
+    like = f"%{query}%"
+    dept_teacher_ids = _department_teacher_ids(db, hod.department_id)
+    candidates = (
+        db.query(Teacher)
+        .filter((Teacher.name.ilike(like)) | (Teacher.email.ilike(like)))
+        .filter(~Teacher.id.in_(dept_teacher_ids) if dept_teacher_ids else True)
+        .limit(10)
+        .all()
+    )
+    dept_map = {d.id: d.name for d in db.query(Department).all()}
+    other_dept_names: dict[int, list[str]] = {}
+    for row in db.query(TeacherDepartment).filter(TeacherDepartment.teacher_id.in_([t.id for t in candidates])).all() if candidates else []:
+        other_dept_names.setdefault(row.teacher_id, []).append(dept_map.get(row.department_id, row.department_id))
+
+    return [
+        HodAvailableTeacherOut(
+            id=t.id, name=t.name, specialization=t.specialization, qualification=t.qualification,
+            email=t.email, photo=t.photo, departments=other_dept_names.get(t.id, []),
+        )
+        for t in candidates
+    ]
+
+
+@router.post("/teachers/{teacher_id}/assign", response_model=HodTeacherOut)
+def assign_teacher_to_department(
+    teacher_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    """Add an existing teacher account to this HOD's department. This is the
+    only way a teacher ends up in a department — admin no longer sets it at
+    account-creation time — and a teacher can be added to more than one."""
+    hod = _current_hod(db, current_user)
+    teacher = db.query(Teacher).filter(Teacher.id == teacher_id).first()
+    if not teacher:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+
+    existing = (
+        db.query(TeacherDepartment)
+        .filter(TeacherDepartment.teacher_id == teacher_id, TeacherDepartment.department_id == hod.department_id)
+        .first()
+    )
+    if not existing:
+        db.add(TeacherDepartment(teacher_id=teacher_id, department_id=hod.department_id))
+        db.commit()
+
+    course_count = db.query(Course).filter(Course.teacher_id == teacher.id).count()
+    return HodTeacherOut(
+        id=teacher.id, name=teacher.name, specialization=teacher.specialization,
+        qualification=teacher.qualification, experience=teacher.experience,
+        email=teacher.email, phone=teacher.phone, photo=teacher.photo, courses=course_count,
+    )
+
+
+@router.delete("/teachers/{teacher_id}/assign")
+def unassign_teacher_from_department(
+    teacher_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    """Remove a teacher from this HOD's department only — the account and any
+    other department memberships are untouched. Blocked while the teacher
+    still has courses in this department, so a course never ends up pointing
+    at a teacher outside it."""
+    hod = _current_hod(db, current_user)
+    still_teaching = (
+        db.query(Course)
+        .filter(Course.teacher_id == teacher_id, Course.department_id == hod.department_id)
+        .count()
+    )
+    if still_teaching:
+        raise HTTPException(
+            status_code=400,
+            detail="Unassign this teacher from their courses in your department first",
+        )
+
+    row = (
+        db.query(TeacherDepartment)
+        .filter(TeacherDepartment.teacher_id == teacher_id, TeacherDepartment.department_id == hod.department_id)
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Teacher not found in your department")
+    db.delete(row)
+    db.commit()
+    return {"removed": teacher_id}
 
 @router.get("/courses/{course_id}/roster", response_model=list[HodCourseRosterStudent])
 def course_roster(
@@ -2659,6 +2952,147 @@ def publish_grades(
     return {"published": updated}
 
 
+@router.post("/semesters/{sem}/results/import-csv", response_model=SemesterResultImportResponse)
+async def import_semester_results_csv(
+    sem: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    """Bulk-load an entire semester's final results from one exam-office
+    sheet spanning every course, instead of importing course by course.
+    Expected columns: 'enrollment', 'course_code', 'grade' — one row per
+    (student, course) result. A course code can exist in more than one
+    section of the same semester; which exact Course row a row belongs to
+    is resolved by finding the course the student is actually enrolled in,
+    not by a section column, so the sheet doesn't need to name a section.
+    Rows land as drafts — nothing here publishes automatically. Rows that
+    don't resolve to exactly one enrolled course, or carry an unrecognized
+    grade, are skipped and reported back rather than failing the whole
+    import."""
+    hod = _current_hod(db, current_user)
+
+    raw = (await file.read()).decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(raw))
+    headers = {f.strip().lower() for f in (reader.fieldnames or [])}
+    if not {"enrollment", "course_code", "grade"}.issubset(headers):
+        raise HTTPException(status_code=400, detail="CSV must have 'enrollment', 'course_code' and 'grade' columns")
+
+    dept_courses = db.query(Course).filter(Course.department_id == hod.department_id, Course.sem == sem).all()
+    courses_by_code: dict[str, list[Course]] = {}
+    for c in dept_courses:
+        courses_by_code.setdefault(c.code.strip().upper(), []).append(c)
+
+    # not filtered by Student.sem — a repeat/backlog student's *current*
+    # semester may have moved on since this result sheet's semester, but
+    # their Enrollment row still ties them to the right course below
+    students_by_enrollment = {
+        s.enrollment: s for s in db.query(Student).filter(Student.department_id == hod.department_id).all()
+    }
+
+    saved = 0
+    skipped: list[SemesterResultImportSkip] = []
+    for row in reader:
+        row = {k.strip().lower(): v for k, v in row.items()}
+        enrollment = (row.get("enrollment") or "").strip()
+        code = (row.get("course_code") or "").strip().upper()
+        grade = (row.get("grade") or "").strip().upper()
+
+        student = students_by_enrollment.get(enrollment)
+        if not student:
+            skipped.append(SemesterResultImportSkip(
+                enrollment=enrollment, course_code=code, reason="student not found in this department"))
+            continue
+        candidates = courses_by_code.get(code, [])
+        if not candidates:
+            skipped.append(SemesterResultImportSkip(
+                enrollment=enrollment, course_code=code, reason=f"no course '{code}' in semester {sem}"))
+            continue
+        enrolled_course = next(
+            (c for c in candidates if db.query(Enrollment).filter(
+                Enrollment.course_id == c.id, Enrollment.student_id == student.id
+            ).first()),
+            None,
+        )
+        if not enrolled_course:
+            skipped.append(SemesterResultImportSkip(
+                enrollment=enrollment, course_code=code, reason="student is not enrolled in this course"))
+            continue
+        if grade not in VALID_GRADES:
+            skipped.append(SemesterResultImportSkip(
+                enrollment=enrollment, course_code=code, reason=f"unrecognized grade '{grade}'"))
+            continue
+
+        record = db.query(CourseGrade).filter(
+            CourseGrade.course_id == enrolled_course.id, CourseGrade.student_id == student.id
+        ).first()
+        if not record:
+            record = CourseGrade(course_id=enrolled_course.id, student_id=student.id)
+            db.add(record)
+        record.grade = grade
+        saved += 1
+
+    db.commit()
+    return SemesterResultImportResponse(saved=saved, skipped=skipped)
+
+
+@router.get("/semesters/{sem}/results", response_model=HodSemesterResultsSummary)
+def semester_results_summary(
+    sem: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    """Per-course rollup for a semester — how many students are graded vs
+    enrolled, and whether that course's grades are fully published — so the
+    HOD can review an import before publishing the whole semester at once."""
+    hod = _current_hod(db, current_user)
+    courses = db.query(Course).filter(Course.department_id == hod.department_id, Course.sem == sem).all()
+    course_ids = [c.id for c in courses]
+
+    grades = db.query(CourseGrade).filter(CourseGrade.course_id.in_(course_ids)).all() if course_ids else []
+    grades_by_course: dict[str, list[CourseGrade]] = {}
+    for g in grades:
+        grades_by_course.setdefault(g.course_id, []).append(g)
+
+    enrolled_counts = {
+        c.id: db.query(Enrollment).filter(Enrollment.course_id == c.id).count() for c in courses
+    }
+
+    summaries = []
+    for c in courses:
+        rows = grades_by_course.get(c.id, [])
+        graded_rows = [g for g in rows if g.grade]
+        summaries.append(HodSemesterCourseSummary(
+            course_id=c.id, code=c.code, name=c.name, section=(c.section_id or "").upper(),
+            graded=len(graded_rows), total_enrolled=enrolled_counts.get(c.id, 0),
+            published=bool(graded_rows) and all(g.status == MarkStatus.published for g in graded_rows),
+        ))
+    return HodSemesterResultsSummary(semester=sem, courses=summaries)
+
+
+@router.post("/semesters/{sem}/results/publish")
+def publish_semester_results(
+    sem: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    """Publishes every course's CourseGrade rows for this semester in one
+    action, instead of publishing course by course."""
+    hod = _current_hod(db, current_user)
+    course_ids = [
+        c.id for c in db.query(Course).filter(Course.department_id == hod.department_id, Course.sem == sem).all()
+    ]
+    if not course_ids:
+        return {"published": 0}
+    updated = (
+        db.query(CourseGrade)
+        .filter(CourseGrade.course_id.in_(course_ids))
+        .update({CourseGrade.status: MarkStatus.published}, synchronize_session=False)
+    )
+    db.commit()
+    return {"published": updated}
+
+
 TOTAL_MARKS = sum(FIELD_MAX.values())  # 50
 PASS_THRESHOLD_PCT = 50.0  # adjust if your programme's actual internal-pass cutoff differs
 
@@ -2714,7 +3148,12 @@ def marks_overview(
                 avg=round(sum(_mark_pct(m) for m in rows) / len(rows), 1),
             ))
 
-    teachers = db.query(Teacher).filter(Teacher.department_id == hod.department_id).all()
+    # Teachers who actually teach a course in this department — derived from
+    # the courses themselves rather than TeacherDepartment membership, so a
+    # teacher who's since been unassigned from the department but still has
+    # a stray course here isn't silently dropped from the status list.
+    course_teacher_ids = {c.teacher_id for c in courses if c.teacher_id}
+    teachers = db.query(Teacher).filter(Teacher.id.in_(course_teacher_ids)).all() if course_teacher_ids else []
     teacher_status = []
     for t in teachers:
         t_courses = [c for c in courses if c.teacher_id == t.id]
@@ -2825,7 +3264,10 @@ def attendance_report(
         if rows:
             by_course.append(HodCourseAttendance(code=c.code, name=c.name, pct=_attendance_pct(rows)))
 
-    teachers = db.query(Teacher).filter(Teacher.department_id == hod.department_id).all()
+    # same rationale as the marks-overview version above: derive from the
+    # department's own courses, not TeacherDepartment membership.
+    course_teacher_ids = {c.teacher_id for c in courses if c.teacher_id}
+    teachers = db.query(Teacher).filter(Teacher.id.in_(course_teacher_ids)).all() if course_teacher_ids else []
     by_teacher = []
     for t in teachers:
         t_course_ids = {c.id for c in courses if c.teacher_id == t.id}
@@ -2855,12 +3297,73 @@ def attendance_report(
     )
 
 
+NOTICE_ATTACHMENTS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "notice_attachments"
+)
+NOTICE_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+NOTICE_ATTACHMENT_ALLOWED_EXT = {
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".png", ".jpg", ".jpeg", ".txt",
+}
+
+
+@router.post("/notices/attachment", response_model=NoticeAttachmentOut)
+async def upload_notice_attachment(
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+    db: Session = Depends(get_db),
+):
+    """Uploads a file for a notice before the notice itself exists yet — the
+    HOD picks a file while composing, this stores it and hands back a URL,
+    and that URL rides along in the CreateNoticeRequest/UpdateNoticeRequest
+    payload. Kept separate from create/update so the notice form doesn't
+    need to be multipart just to support the (optional) attachment."""
+    _current_hod(db, current_user)  # just an auth/role check here; file isn't tied to a department row
+
+    original_name = file.filename or "attachment"
+    ext = os.path.splitext(original_name)[1].lower()
+    if ext not in NOTICE_ATTACHMENT_ALLOWED_EXT:
+        allowed = ", ".join(sorted(NOTICE_ATTACHMENT_ALLOWED_EXT))
+        raise HTTPException(status_code=400, detail=f"Unsupported file type '{ext}'. Allowed: {allowed}")
+
+    data = await file.read()
+    if len(data) > NOTICE_ATTACHMENT_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="File is larger than the 10 MB limit")
+    if not data:
+        raise HTTPException(status_code=400, detail="File is empty")
+
+    os.makedirs(NOTICE_ATTACHMENTS_DIR, exist_ok=True)
+    # random prefix avoids collisions and stops one HOD's upload from being
+    # guessable/overwritable from another notice with the same filename
+    stored_name = f"{uuid.uuid4().hex}{ext}"
+    with open(os.path.join(NOTICE_ATTACHMENTS_DIR, stored_name), "wb") as f:
+        f.write(data)
+
+    return NoticeAttachmentOut(
+        attachment_url=f"/uploads/notices/{stored_name}",
+        attachment_name=original_name,
+        attachment_size=len(data),
+    )
+
+
+def _delete_attachment_file(attachment_url: str | None):
+    if not attachment_url:
+        return
+    stored_name = os.path.basename(attachment_url)
+    path = os.path.join(NOTICE_ATTACHMENTS_DIR, stored_name)
+    if os.path.isfile(path):
+        try:
+            os.remove(path)
+        except OSError:
+            pass  # not worth failing the request over a stray file on disk
+
+
 def _notice_out(n: Notice) -> NoticeOut:
     return NoticeOut(
         id=n.id, title=n.title, body=n.body, type=n.type.value,
         audience=n.audience, pinned=n.pinned, author=n.author_name,
         date=n.created_at.strftime("%b %d, %Y"),
         scheduled_for=n.scheduled_for.strftime("%b %d, %Y %I:%M %p") if n.scheduled_for else None,
+        attachment_url=n.attachment_url, attachment_name=n.attachment_name, attachment_size=n.attachment_size,
     )
 
 
@@ -2895,6 +3398,8 @@ def create_notice(
         department_id=hod.department_id, title=payload.title, body=payload.body,
         type=notice_type, audience=payload.audience, pinned=payload.pinned,
         author_name=hod.name, scheduled_for=payload.scheduled_for,
+        attachment_url=payload.attachment_url, attachment_name=payload.attachment_name,
+        attachment_size=payload.attachment_size,
     )
     db.add(notice)
     db.commit()
@@ -2927,6 +3432,18 @@ def update_notice(
         notice.audience = payload.audience
     if payload.pinned is not None:
         notice.pinned = payload.pinned
+    if payload.remove_attachment:
+        _delete_attachment_file(notice.attachment_url)
+        notice.attachment_url = None
+        notice.attachment_name = None
+        notice.attachment_size = None
+    elif payload.attachment_url is not None:
+        # swapping to a newly-uploaded file — drop the old one from disk first
+        if notice.attachment_url and notice.attachment_url != payload.attachment_url:
+            _delete_attachment_file(notice.attachment_url)
+        notice.attachment_url = payload.attachment_url
+        notice.attachment_name = payload.attachment_name
+        notice.attachment_size = payload.attachment_size
 
     db.commit()
     db.refresh(notice)
@@ -2943,6 +3460,7 @@ def delete_notice(
     notice = db.query(Notice).filter(Notice.id == notice_id, Notice.department_id == hod.department_id).first()
     if not notice:
         raise HTTPException(status_code=404, detail="Notice not found in your department")
+    _delete_attachment_file(notice.attachment_url)
     db.delete(notice)
     db.commit()
     return {"deleted": notice_id}
@@ -3539,16 +4057,21 @@ def get_my_attendance(
 FILE: backend/api/routers/teacher.py
 ====================================================================================================
 
+import os
+import uuid
+
 from sqlalchemy import or_
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from datetime import datetime
 
 from api.database import get_db
-from api.models import User, RoleEnum, Teacher, Course, Enrollment, Student, InternalMark, Notice
+from api.models import User, RoleEnum, Teacher, TeacherDepartment, Course, Enrollment, Student, InternalMark, Notice, TeacherActivity
 from api.auth import require_role
+from api.activity import log_teacher_activity
 from api.schemas import (
     CourseOut, StudentMarkRow, SaveMarksRequest, FIELD_MAX, NoticeOut, SearchResultOut,
+    TeacherMeOut, TeacherActivityOut, UpdateTeacherContactRequest,
 )
 
 router = APIRouter(prefix="/api/teacher", tags=["teacher"])
@@ -3559,6 +4082,130 @@ def _current_teacher(db: Session, current_user: User) -> Teacher:
     if not teacher:
         raise HTTPException(status_code=400, detail="No teacher profile linked to this account")
     return teacher
+
+
+def _teacher_me_out(teacher: Teacher, current_user: User) -> TeacherMeOut:
+    return TeacherMeOut(
+        id=teacher.id,
+        name=teacher.name,
+        title=teacher.title,
+        email=teacher.email or current_user.email,
+        phone=teacher.phone,
+        office=teacher.office,
+        office_hours=teacher.office_hours,
+        qualification=teacher.qualification,
+        specialization=teacher.specialization,
+        experience=teacher.experience,
+        photo=teacher.photo,
+        username=current_user.email.split("@")[0] if current_user.email else str(teacher.id),
+        must_change_password=current_user.must_change_password,
+        two_factor_enabled=current_user.totp_enabled,
+    )
+
+
+@router.get("/me", response_model=TeacherMeOut)
+def my_profile(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.teacher)),
+):
+    teacher = _current_teacher(db, current_user)
+    return _teacher_me_out(teacher, current_user)
+
+
+@router.patch("/me", response_model=TeacherMeOut)
+def update_my_contact(
+    payload: UpdateTeacherContactRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.teacher)),
+):
+    """Self-service contact edit. Name stays admin-managed, same as the rest
+    of the teacher record."""
+    teacher = _current_teacher(db, current_user)
+    if payload.email is not None:
+        email = payload.email.strip()
+        if not email:
+            raise HTTPException(status_code=400, detail="Email cannot be empty")
+        teacher.email = email
+    if payload.phone is not None:
+        teacher.phone = payload.phone.strip() or None
+    if payload.office is not None:
+        teacher.office = payload.office.strip() or None
+    if payload.office_hours is not None:
+        teacher.office_hours = payload.office_hours.strip() or None
+    if payload.qualification is not None:
+        teacher.qualification = payload.qualification.strip() or None
+    if payload.specialization is not None:
+        teacher.specialization = payload.specialization.strip() or None
+
+    log_teacher_activity(db, teacher.id, icon="message", title="Profile updated", desc="Contact details updated")
+    db.commit()
+    db.refresh(teacher)
+    return _teacher_me_out(teacher, current_user)
+
+
+PROFILE_PHOTOS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "profile_photos"
+)
+PROFILE_PHOTO_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+PROFILE_PHOTO_ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".webp"}
+
+
+@router.post("/me/photo", response_model=TeacherMeOut)
+async def upload_my_photo(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.teacher)),
+):
+    teacher = _current_teacher(db, current_user)
+
+    original_name = file.filename or "photo"
+    ext = os.path.splitext(original_name)[1].lower()
+    if ext not in PROFILE_PHOTO_ALLOWED_EXT:
+        allowed = ", ".join(sorted(PROFILE_PHOTO_ALLOWED_EXT))
+        raise HTTPException(status_code=400, detail=f"Unsupported image type '{ext}'. Allowed: {allowed}")
+
+    data = await file.read()
+    if len(data) > PROFILE_PHOTO_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Image is larger than the 5 MB limit")
+    if not data:
+        raise HTTPException(status_code=400, detail="File is empty")
+
+    os.makedirs(PROFILE_PHOTOS_DIR, exist_ok=True)
+    stored_name = f"teacher-{teacher.id}-{uuid.uuid4().hex}{ext}"
+    with open(os.path.join(PROFILE_PHOTOS_DIR, stored_name), "wb") as f:
+        f.write(data)
+
+    # only clean up the old file if it's one we saved ourselves — an admin
+    # may have set teacher.photo to some external URL, which isn't ours to delete
+    if teacher.photo and teacher.photo.startswith("/uploads/profile-photos/"):
+        old_path = os.path.join(PROFILE_PHOTOS_DIR, os.path.basename(teacher.photo))
+        if os.path.isfile(old_path):
+            try:
+                os.remove(old_path)
+            except OSError:
+                pass
+
+    teacher.photo = f"/uploads/profile-photos/{stored_name}"
+    log_teacher_activity(db, teacher.id, icon="message", title="Profile updated", desc="Profile picture updated")
+    db.commit()
+    db.refresh(teacher)
+    return _teacher_me_out(teacher, current_user)
+
+
+@router.get("/activity", response_model=list[TeacherActivityOut])
+def list_recent_activity(
+    limit: int = 10,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.teacher)),
+):
+    teacher = _current_teacher(db, current_user)
+    return (
+        db.query(TeacherActivity)
+        .filter(TeacherActivity.teacher_id == teacher.id)
+        .order_by(TeacherActivity.created_at.desc())
+        .limit(min(limit, 50))
+        .all()
+    )
 
 
 @router.get("/search", response_model=list[SearchResultOut])
@@ -3704,7 +4351,7 @@ def save_marks(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role(RoleEnum.teacher)),
 ):
-    _get_owned_course(db, current_user, course_id)
+    course = _get_owned_course(db, current_user, course_id)
     enrolled_ids = {e.student_id for e in db.query(Enrollment).filter(Enrollment.course_id == course_id).all()}
 
     for row in payload.rows:
@@ -3722,6 +4369,13 @@ def save_marks(
         # Publishing is the HOD's call (see api/routers/hod.py), made after
         # reviewing/adjusting marks — teachers have no publish endpoint here.
 
+    teacher = db.query(Teacher).filter(Teacher.user_id == current_user.id).first()
+    log_teacher_activity(
+        db, teacher.id, icon="award",
+        title="Marks saved",
+        desc=f"{course.code} {course.name} · {len(payload.rows)} student{'s' if len(payload.rows) != 1 else ''}",
+    )
+
     db.commit()
     return {"saved": len(payload.rows)}
 
@@ -3734,10 +4388,15 @@ def list_department_notices(
     if not teacher:
         raise HTTPException(status_code=400, detail="No teacher profile linked to this account")
 
+    dept_ids = [
+        row.department_id
+        for row in db.query(TeacherDepartment).filter(TeacherDepartment.teacher_id == teacher.id).all()
+    ]
+
     notices = (
         db.query(Notice)
         .filter(
-            Notice.department_id == teacher.department_id,
+            Notice.department_id.in_(dept_ids) if dept_ids else False,
             or_(Notice.scheduled_for.is_(None), Notice.scheduled_for <= datetime.utcnow()),
         )
         .order_by(Notice.pinned.desc(), Notice.created_at.desc())
@@ -3862,7 +4521,6 @@ class TwoFactorStatusResponse(BaseModel):
 
 
 class CreateTeacherRequest(BaseModel):
-    department_name: str
     name: str
     email: str
     phone: str
@@ -3879,7 +4537,7 @@ class CreateTeacherResponse(BaseModel):
 class TeacherListingOut(BaseModel):
     id: str
     name: str
-    department: str
+    departments: list[str] = []
     specialization: Optional[str] = None
     qualification: Optional[str] = None
     email: str
@@ -3925,6 +4583,14 @@ class HodListingOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class UpdateHodContactRequest(BaseModel):
+    """Self-service contact edit for the HOD's own profile — deliberately
+    narrower than UpdateHodRequest (which is for the admin editing a HOD's
+    full record, including name/department)."""
+    email: Optional[str] = None
+    phone: Optional[str] = None
 
 
 class UpdateHodRequest(BaseModel):
@@ -4146,6 +4812,20 @@ class HodTeacherOut(BaseModel):
     class Config:
         from_attributes = True
 
+
+class HodAvailableTeacherOut(BaseModel):
+    """A teacher not yet in this HOD's department, shown when searching to add one."""
+    id: int
+    name: str
+    specialization: Optional[str] = None
+    qualification: Optional[str] = None
+    email: Optional[str] = None
+    photo: Optional[str] = None
+    departments: list[str] = []  # other departments this teacher is already in, for context
+
+    class Config:
+        from_attributes = True
+
 class HodCourseRosterStudent(BaseModel):
     id: str
     name: str
@@ -4215,6 +4895,32 @@ class SaveGradesRow(BaseModel):
 
 class SaveGradesRequest(BaseModel):
     rows: list[SaveGradesRow]
+
+
+class SemesterResultImportSkip(BaseModel):
+    enrollment: str
+    course_code: str
+    reason: str
+
+
+class SemesterResultImportResponse(BaseModel):
+    saved: int
+    skipped: list[SemesterResultImportSkip]
+
+
+class HodSemesterCourseSummary(BaseModel):
+    course_id: str
+    code: str
+    name: str
+    section: str
+    graded: int            # rows with a non-empty grade recorded
+    total_enrolled: int
+    published: bool        # true once every graded row for this course is published
+
+
+class HodSemesterResultsSummary(BaseModel):
+    semester: int
+    courses: list[HodSemesterCourseSummary]
 
 
 class StudentSemesterCourseOut(BaseModel):
@@ -4330,9 +5036,18 @@ class NoticeOut(BaseModel):
     author: str
     date: str
     scheduled_for: Optional[str] = None
+    attachment_url: Optional[str] = None
+    attachment_name: Optional[str] = None
+    attachment_size: Optional[int] = None
 
     class Config:
         from_attributes = True
+
+
+class NoticeAttachmentOut(BaseModel):
+    attachment_url: str
+    attachment_name: str
+    attachment_size: int
 
 
 class CreateNoticeRequest(BaseModel):
@@ -4342,6 +5057,9 @@ class CreateNoticeRequest(BaseModel):
     audience: str = "All Semesters"
     pinned: bool = False
     scheduled_for: Optional[datetime] = None
+    attachment_url: Optional[str] = None    # from a prior POST /notices/attachment upload
+    attachment_name: Optional[str] = None
+    attachment_size: Optional[int] = None
 
 
 class UpdateNoticeRequest(BaseModel):
@@ -4350,6 +5068,10 @@ class UpdateNoticeRequest(BaseModel):
     type: Optional[str] = None
     audience: Optional[str] = None
     pinned: Optional[bool] = None
+    attachment_url: Optional[str] = None
+    attachment_name: Optional[str] = None
+    attachment_size: Optional[int] = None
+    remove_attachment: bool = False   # explicit clear, since omitted attachment_* just means "don't touch it"
 
 class TwoFactorLoginRequest(BaseModel):
     pending_token: str
@@ -4439,6 +5161,46 @@ class AuditLogOut(BaseModel):
         from_attributes = True
 
 
+class TeacherMeOut(BaseModel):
+    id: int
+    name: str
+    title: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    office: Optional[str] = None
+    office_hours: Optional[str] = None
+    qualification: Optional[str] = None
+    specialization: Optional[str] = None
+    experience: Optional[str] = None
+    photo: Optional[str] = None
+    username: str                    # login email's local part, e.g. "aarav.sharma" — mirrors StudentMeOut's pattern
+    must_change_password: bool
+    two_factor_enabled: bool
+
+    class Config:
+        from_attributes = True
+
+
+class UpdateTeacherContactRequest(BaseModel):
+    # Deliberately excludes name — stays admin-managed, same as HOD/Student records.
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    office: Optional[str] = None
+    office_hours: Optional[str] = None
+    qualification: Optional[str] = None
+    specialization: Optional[str] = None
+
+
+class TeacherActivityOut(BaseModel):
+    icon: str
+    title: str
+    desc: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 ====================================================================================================
 FILE: backend/api/seed.py
 ====================================================================================================
@@ -4497,7 +5259,7 @@ import os
 from api.database import SessionLocal, engine, Base
 from api.models import (
     Department, Section, Course, Student, Enrollment, User, RoleEnum,
-    AttendanceRecord, InternalMark, Teacher, HOD, Admin, SystemSettings,
+    AttendanceRecord, InternalMark, Teacher, TeacherDepartment, HOD, Admin, SystemSettings,
 )
 from api.auth import hash_password
 
@@ -5033,7 +5795,10 @@ def seed():
                 db.query(User).filter(User.id.in_(old_user_ids)).delete(synchronize_session=False)
         db.query(Course).filter(Course.department_id == "ce").delete(synchronize_session=False)
 
-        old_teacher_ids = [t.id for t in db.query(Teacher).filter(Teacher.department_id == "ce").all()]
+        old_teacher_ids = [
+            row.teacher_id
+            for row in db.query(TeacherDepartment).filter(TeacherDepartment.department_id == "ce").all()
+        ]
         old_hod_ids = [h.id for h in db.query(HOD).filter(HOD.department_id == "ce").all()]
         if old_teacher_ids or old_hod_ids:
             old_staff_user_ids = [
@@ -5041,6 +5806,7 @@ def seed():
             ] + [
                 h.user_id for h in db.query(HOD).filter(HOD.id.in_(old_hod_ids)).all() if h.user_id
             ]
+            db.query(TeacherDepartment).filter(TeacherDepartment.teacher_id.in_(old_teacher_ids)).delete(synchronize_session=False)
             db.query(Teacher).filter(Teacher.id.in_(old_teacher_ids)).delete(synchronize_session=False)
             db.query(HOD).filter(HOD.id.in_(old_hod_ids)).delete(synchronize_session=False)
             if old_staff_user_ids:
@@ -5116,11 +5882,18 @@ def seed():
 
         # --- teachers + their login accounts — every teacher, including
         # Manil Vaidhya, gets their own firstname.lastname@ncit.edu.np /
-        # teacher123 login, same pattern, no special cases ---
+        # teacher123 login, same pattern, no special cases. Department
+        # membership is a separate TeacherDepartment row (the HOD's own
+        # action in the real app), added right after each teacher here so
+        # the seeded IT roster still ends up assigned to IT. ---
         teacher_id_by_name = {}
+        dept_teacher_ids = {
+            row.teacher_id
+            for row in db.query(TeacherDepartment).filter(TeacherDepartment.department_id == DEPARTMENT_ID).all()
+        }
         for i, (name, title, specialization, qualification, experience) in enumerate(TEACHERS):
             existing = db.query(Teacher).filter(
-                Teacher.name == name, Teacher.department_id == DEPARTMENT_ID
+                Teacher.name == name, Teacher.id.in_(dept_teacher_ids) if dept_teacher_ids else False
             ).first()
             if existing:
                 teacher_id_by_name[name] = existing.id
@@ -5138,7 +5911,7 @@ def seed():
                 db.refresh(user)
 
             teacher = Teacher(
-                user_id=user.id, name=name, title=title, department_id=DEPARTMENT_ID,
+                user_id=user.id, name=name, title=title,
                 specialization=specialization, qualification=qualification,
                 email=user.email, phone=f"+977 98-{4100 + i}-{6200 + i}",
                 office=f"IT Block — Room {201 + i}",
@@ -5149,6 +5922,8 @@ def seed():
             db.add(teacher)
             db.commit()
             db.refresh(teacher)
+            db.add(TeacherDepartment(teacher_id=teacher.id, department_id=DEPARTMENT_ID))
+            db.commit()
             teacher_id_by_name[name] = teacher.id
 
         # --- courses — one row per section per template, matching the
@@ -6725,6 +7500,101 @@ FILE: frontend/package.json
     "typescript-eslint": "^8.56.1",
     "vite": "^8.0.16"
   }
+}
+
+
+
+====================================================================================================
+FILE: frontend/src/components/safe-avatar-image.tsx
+====================================================================================================
+
+"use client";
+
+import * as React from "react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { cn } from "@/lib/utils";
+
+interface SafeAvatarImageProps {
+  src: string | null | undefined;
+  alt?: string;
+  fallback: string;
+  className?: string;
+  imageClassName?: string;
+  onError?: () => void;
+}
+
+/**
+ * A wrapper around AvatarImage that gracefully handles external image URLs.
+ * Radix UI's AvatarImage hides the image on any load error, showing only the fallback.
+ * This component adds crossOrigin support and an onError callback so callers
+ * can react to broken URLs (e.g. show a validation message).
+ */
+export function SafeAvatarImage({
+  src,
+  alt = "",
+  fallback,
+  className,
+  imageClassName,
+  onError,
+}: SafeAvatarImageProps) {
+  const [hasError, setHasError] = React.useState(false);
+
+  React.useEffect(() => {
+    setHasError(false);
+  }, [src]);
+
+  const handleError = React.useCallback(() => {
+    setHasError(true);
+    onError?.();
+  }, [onError]);
+
+  const effectiveSrc = src && src.trim() ? src.trim() : undefined;
+
+  return (
+    <Avatar className={className}>
+      {effectiveSrc && !hasError ? (
+        <AvatarImage
+          src={effectiveSrc}
+          alt={alt}
+          crossOrigin="anonymous"
+          className={imageClassName}
+          onError={handleError}
+        />
+      ) : null}
+      <AvatarFallback>{fallback}</AvatarFallback>
+    </Avatar>
+  );
+}
+
+/**
+ * Validate that a string looks like a reachable image URL.
+ * Returns an error message string if invalid, or null if valid.
+ */
+export function validateImageUrl(url: string): string | null {
+  const trimmed = url.trim();
+  if (!trimmed) return null; // empty is allowed (clears photo)
+
+  try {
+    const parsed = new URL(trimmed);
+    if (!parsed.protocol.startsWith("http")) {
+      return "URL must start with http:// or https://";
+    }
+  } catch {
+    return "Please enter a valid URL";
+  }
+
+  const imageExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp", ".avif"];
+  const lower = trimmed.toLowerCase();
+  const hasImageExt = imageExtensions.some((ext) => lower.endsWith(ext));
+  const hasImageInPath = lower.includes("/image") || lower.includes("img");
+
+  // Allow URLs without extension if they look like image hosting/CDN links
+  // (e.g. Unsplash, Cloudinary, Supabase storage, etc.)
+  if (!hasImageExt && !hasImageInPath && !parsed.hostname.includes("googleusercontent") && !parsed.hostname.includes("cloudinary") && !parsed.hostname.includes("unsplash")) {
+    return "URL does not appear to be an image. Please use a direct image link.";
+  }
+
+  return null;
 }
 
 
@@ -11496,6 +12366,101 @@ export function HodBottomNav() {
 
 
 ====================================================================================================
+FILE: frontend/src/features/HoD/components/Safe-avatar-image.tsx
+====================================================================================================
+
+"use client";
+
+import * as React from "react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { cn } from "@/lib/utils";
+
+interface SafeAvatarImageProps {
+  src: string | null | undefined;
+  alt?: string;
+  fallback: string;
+  className?: string;
+  imageClassName?: string;
+  onError?: () => void;
+}
+
+/**
+ * A wrapper around AvatarImage that gracefully handles external image URLs.
+ * Radix UI's AvatarImage hides the image on any load error, showing only the fallback.
+ * This component adds crossOrigin support and an onError callback so callers
+ * can react to broken URLs (e.g. show a validation message).
+ */
+export function SafeAvatarImage({
+  src,
+  alt = "",
+  fallback,
+  className,
+  imageClassName,
+  onError,
+}: SafeAvatarImageProps) {
+  const [hasError, setHasError] = React.useState(false);
+
+  React.useEffect(() => {
+    setHasError(false);
+  }, [src]);
+
+  const handleError = React.useCallback(() => {
+    setHasError(true);
+    onError?.();
+  }, [onError]);
+
+  const effectiveSrc = src && src.trim() ? src.trim() : undefined;
+
+  return (
+    <Avatar className={className}>
+      {effectiveSrc && !hasError ? (
+        <AvatarImage
+          src={effectiveSrc}
+          alt={alt}
+          crossOrigin="anonymous"
+          className={imageClassName}
+          onError={handleError}
+        />
+      ) : null}
+      <AvatarFallback>{fallback}</AvatarFallback>
+    </Avatar>
+  );
+}
+
+/**
+ * Validate that a string looks like a reachable image URL.
+ * Returns an error message string if invalid, or null if valid.
+ */
+export function validateImageUrl(url: string): string | null {
+  const trimmed = url.trim();
+  if (!trimmed) return null; // empty is allowed (clears photo)
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+    if (!parsed.protocol.startsWith("http")) {
+      return "URL must start with http:// or https://";
+    }
+  } catch {
+    return "Please enter a valid URL";
+  }
+
+  const imageExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp", ".avif"];
+  const lower = trimmed.toLowerCase();
+  const hasImageExt = imageExtensions.some((ext) => lower.endsWith(ext));
+  const hasImageInPath = lower.includes("/image") || lower.includes("img");
+
+  // Allow URLs without extension if they look like image hosting/CDN links
+  // (e.g. Unsplash, Cloudinary, Supabase storage, etc.)
+  if (!hasImageExt && !hasImageInPath && !parsed.hostname.includes("googleusercontent") && !parsed.hostname.includes("cloudinary") && !parsed.hostname.includes("unsplash")) {
+    return "URL does not appear to be an image. Please use a direct image link.";
+  }
+
+  return null;
+}
+
+
+====================================================================================================
 FILE: frontend/src/features/HoD/components/Sidebar.tsx
 ====================================================================================================
 
@@ -11523,7 +12488,9 @@ const nav = [
   { to: "/hod/settings", label: "Settings", icon: Settings },
 ] as const;
 
-export function HodSidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function HodSidebar({
+  open, onClose, department,
+}: { open: boolean; onClose: () => void; department?: string | null }) {
   const { pathname } = useLocation();
 
   return (
@@ -11544,7 +12511,7 @@ export function HodSidebar({ open, onClose }: { open: boolean; onClose: () => vo
             </div>
             <div className="min-w-0">
               <div className="font-display text-sm font-bold leading-tight">EduPortal</div>
-              <div className="truncate text-[11px] text-muted-foreground">HOD · Comp. Engg.</div>
+              <div className="truncate text-[11px] text-muted-foreground">HOD · {department ?? "—"}</div>
             </div>
           </Link>
           <button className="rounded-lg p-1.5 hover:bg-sidebar-accent lg:hidden" onClick={onClose}>
@@ -11770,7 +12737,7 @@ function HodGlobalSearch() {
                       className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-muted"
                     >
                       <Avatar className="h-7 w-7">
-                        <AvatarImage src={item.photo ?? undefined} alt={item.name} />
+                        <AvatarImage src={photoSrc(item.photo)} alt={item.name} />
                         <AvatarFallback><Icon className="h-3.5 w-3.5" /></AvatarFallback>
                       </Avatar>
                       <div className="min-w-0 flex-1">
@@ -11789,20 +12756,27 @@ function HodGlobalSearch() {
   );
 }
 
-export function HodTopbar({ onMenu }: { onMenu: () => void }) {
+function photoSrc(photo: string | null | undefined): string | undefined {
+  if (!photo) return undefined;
+  return photo.startsWith("http") ? photo : `${API_URL}${photo}`;
+}
+
+export function HodTopbar({ onMenu, hod: hodProp }: { onMenu: () => void; hod?: HodProfile | null }) {
   const { theme, toggle } = useTheme();
   const navigate = useNavigate();
-  const [hod, setHod] = useState<HodProfile | null>(null);
+  const [hodState, setHodState] = useState<HodProfile | null>(null);
 
   useEffect(() => {
+    if (hodProp !== undefined) return; // parent already supplies the profile
     let cancelled = false;
     fetch(`${API_URL}/api/hod/me`, { headers: { ...authHeader() } })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data) => { if (!cancelled && data) setHod(data); })
+      .then((data) => { if (!cancelled && data) setHodState(data); })
       .catch(() => { /* topbar degrades gracefully if this fails */ });
     return () => { cancelled = true; };
-  }, []);
+  }, [hodProp]);
 
+  const hod = hodProp !== undefined ? hodProp : hodState;
   const name = hod?.name ?? "…";
   const lastName = hod ? name.split(" ").slice(-1)[0] : "…";
   const initials = hod ? name.split(" ").map((n) => n[0]).join("") : "";
@@ -11829,7 +12803,7 @@ export function HodTopbar({ onMenu }: { onMenu: () => void }) {
           <DropdownMenu>
             <DropdownMenuTrigger className="ml-1 flex items-center gap-2 rounded-full border border-border bg-background/60 py-1 pl-1 pr-3 transition hover:bg-background">
               <Avatar className="h-8 w-8">
-                <AvatarImage src={hod?.photo ?? undefined} alt={name} />
+                <AvatarImage src={photoSrc(hod?.photo)} alt={name} />
                 <AvatarFallback>{initials}</AvatarFallback>
               </Avatar>
               <div className="hidden text-left sm:block">
@@ -15999,7 +16973,7 @@ import {
 import { logout } from "@/lib/auth";
 import { useTheme } from "@/components/theme-provider";
 import { Input } from "@/components/ui/input";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { SafeAvatarImage } from "@/components/safe-avatar-image";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
@@ -16125,10 +17099,11 @@ function GlobalSearch() {
                       onClick={() => goToResult(item)}
                       className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-muted"
                     >
-                      <Avatar className="h-7 w-7">
-                        <AvatarImage src={item.photo ?? undefined} alt={item.name} />
-                        <AvatarFallback><Icon className="h-3.5 w-3.5" /></AvatarFallback>
-                      </Avatar>
+                      <SafeAvatarImage
+                        src={item.photo}
+                        fallback={<Icon className="h-3.5 w-3.5" />}
+                        className="h-7 w-7"
+                      />
                       <div className="min-w-0 flex-1">
                         <div className="truncate font-medium">{item.name}</div>
                         <div className="truncate text-xs text-muted-foreground">{item.subtitle}</div>
@@ -16193,10 +17168,11 @@ export function SaTopbar({ onMenu }: { onMenu: () => void }) {
 
           <DropdownMenu>
             <DropdownMenuTrigger className="ml-1 flex items-center gap-2 rounded-full border border-border bg-background/60 py-1 pl-1 pr-3 transition hover:bg-background">
-              <Avatar className="h-8 w-8">
-                <AvatarImage src={photo} alt={name} />
-                <AvatarFallback>{initials}</AvatarFallback>
-              </Avatar>
+              <SafeAvatarImage
+                src={photo}
+                fallback={initials}
+                className="h-8 w-8"
+              />
               <div className="hidden text-left sm:block">
                 <div className="text-xs font-semibold leading-tight">{name}</div>
                 <div className="text-[10px] text-muted-foreground">Super Admin</div>
@@ -16694,7 +17670,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { teacher } from "@/features/Teacher/lib/mock-data";
+import { getTeacherMe, type TeacherMeDto } from "@/features/Teacher/lib/academic-data";
 
 const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
 
@@ -16838,6 +17814,21 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
   const { theme, toggle } = useTheme();
   const [logoutOpen, setLogoutOpen] = useState(false);
   const navigate = useNavigate();
+  const [me, setMe] = useState<TeacherMeDto | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getTeacherMe().then((data) => {
+      if (!cancelled) setMe(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const displayName = me?.name ?? "";
+  const firstName = displayName.split(" ")[0] ?? "";
+  const initials = displayName ? displayName.split(" ").map((n) => n[0]).join("") : "";
 
   return (
     <header className="sticky top-0 z-30 glass">
@@ -16856,16 +17847,16 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
           <DropdownMenu>
             <DropdownMenuTrigger className="ml-1 flex items-center gap-2 rounded-full border border-border bg-background/60 py-1 pl-1 pr-3 transition hover:bg-background">
               <Avatar className="h-8 w-8">
-                <AvatarImage src={teacher.photo} alt={teacher.name} />
-                <AvatarFallback>{teacher.name.split(" ").map(n=>n[0]).join("")}</AvatarFallback>
+                <AvatarImage src={me?.photo ?? undefined} alt={displayName} />
+                <AvatarFallback>{initials}</AvatarFallback>
               </Avatar>
               <div className="hidden text-left sm:block">
-                <div className="text-xs font-semibold leading-tight">{teacher.title} {teacher.name.split(" ")[0]}</div>
+                <div className="text-xs font-semibold leading-tight">{me?.title} {firstName}</div>
                 <div className="text-[10px] text-muted-foreground">Teacher</div>
               </div>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel>{teacher.title} {teacher.name}</DropdownMenuLabel>
+              <DropdownMenuLabel>{me?.title} {displayName}</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => navigate({ to: "/teacher/profile" })}>
                 <User className="mr-2 h-4 w-4" /> My Profile
@@ -17033,6 +18024,48 @@ export function deptName(id: string) {
 
 export function sectionLabel(id: string) {
   return sections.find((s) => s.id === id)?.label ?? id;
+}
+
+export type TeacherMeDto = {
+  id: number;
+  name: string;
+  title?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  office?: string | null;
+  office_hours?: string | null;
+  qualification?: string | null;
+  specialization?: string | null;
+  experience?: string | null;
+  photo?: string | null;
+  username: string;
+  must_change_password: boolean;
+  two_factor_enabled: boolean;
+};
+
+export type TeacherActivityDto = {
+  icon: "check" | "award" | "bell" | "file" | "message";
+  title: string;
+  desc: string;
+  created_at: string;
+};
+
+/** Real backend read: current teacher's own profile */
+export async function getTeacherMe(): Promise<TeacherMeDto | null> {
+  try {
+    return await apiJson<TeacherMeDto>("/api/teacher/me");
+  } catch {
+    return null;
+  }
+}
+
+/** Real backend read: current teacher's recent activity feed */
+export async function getTeacherActivity(limit = 10): Promise<TeacherActivityDto[]> {
+  try {
+    return await apiJson<TeacherActivityDto[]>(`/api/teacher/activity?limit=${limit}`);
+  } catch {
+    return [];
+  }
 }
 
 export type MarkFields = {
@@ -19930,7 +20963,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { SafeAvatarImage, validateImageUrl } from "@/components/safe-avatar-image";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -19991,6 +21024,7 @@ function ProfilePage() {
   const [editQualification, setEditQualification] = useState("");
   const [editExperience, setEditExperience] = useState("");
   const [editPhoto, setEditPhoto] = useState("");
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const [editSaving, setEditSaving] = useState(false);
 
   async function loadProfile() {
@@ -20020,6 +21054,7 @@ function ProfilePage() {
     setEditQualification(admin.qualification ?? "");
     setEditExperience(admin.experience ?? "");
     setEditPhoto(admin.photo ?? "");
+    setPhotoError(null);
     setEditOpen(true);
   }
 
@@ -20030,6 +21065,12 @@ function ProfilePage() {
   async function submitProfileEdit() {
     if (!editName.trim()) {
       toast.error("Name can't be empty.");
+      return;
+    }
+    const urlErr = validateImageUrl(editPhoto);
+    if (urlErr) {
+      setPhotoError(urlErr);
+      toast.error(urlErr);
       return;
     }
     setEditSaving(true);
@@ -20205,10 +21246,11 @@ function ProfilePage() {
     <div className="space-y-5">
       <Card className="overflow-hidden rounded-2xl border-0 gradient-brand text-white shadow-glass">
         <div className="grid gap-6 p-8 md:grid-cols-[auto_1fr_auto] md:items-center">
-          <Avatar className="h-24 w-24 ring-4 ring-white/40">
-            <AvatarImage src={admin.photo ?? undefined} />
-            <AvatarFallback>{admin.name[0]}</AvatarFallback>
-          </Avatar>
+          <SafeAvatarImage
+            src={admin.photo}
+            fallback={admin.name[0]}
+            className="h-24 w-24 ring-4 ring-white/40"
+          />
           <div>
             <div className="text-xs uppercase tracking-widest text-white/80">{admin.title || "Super Administrator"}</div>
             <h1 className="font-display text-3xl font-bold">{admin.name}</h1>
@@ -20294,23 +21336,31 @@ function ProfilePage() {
           </DialogHeader>
           <div className="grid max-h-[60vh] gap-3 overflow-y-auto pr-1 sm:grid-cols-2">
             <div className="flex items-center gap-4 sm:col-span-2">
-              <Avatar className="h-16 w-16">
-                <AvatarImage src={editPhoto || undefined} />
-                <AvatarFallback>{editName ? editName[0] : "A"}</AvatarFallback>
-              </Avatar>
+              <SafeAvatarImage
+                src={editPhoto}
+                fallback={editName ? editName[0] : "A"}
+                className="h-16 w-16"
+              />
               <div className="flex-1 space-y-1.5">
                 <Label htmlFor="edit-photo" className="text-xs text-muted-foreground">Profile Photo URL</Label>
                 <div className="flex gap-2">
                   <Input
                     id="edit-photo"
                     value={editPhoto}
-                    onChange={(e) => setEditPhoto(e.target.value)}
+                    onChange={(e) => {
+                      setEditPhoto(e.target.value);
+                      setPhotoError(null);
+                    }}
                     placeholder="https://…"
+                    className={photoError ? "border-destructive" : ""}
                   />
                   <Button type="button" variant="outline" size="icon" className="shrink-0 rounded-xl" disabled>
                     <Camera className="h-4 w-4" />
                   </Button>
                 </div>
+                {photoError && (
+                  <p className="text-xs text-destructive">{photoError}</p>
+                )}
               </div>
             </div>
             <div className="space-y-1.5 sm:col-span-2">
@@ -20498,6 +21548,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Server, Database, Shield, Bell, Palette, Globe, ScrollText } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { authHeader } from "@/lib/auth";
 
 export const Route = createFileRoute("/admin/settings")({
@@ -20581,7 +21632,6 @@ function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [backingUp, setBackingUp] = useState(false);
 
   async function loadLogs() {
     setLogsLoading(true);
@@ -20658,28 +21708,6 @@ function SettingsPage() {
     setDirty({});
   }
 
-  async function runBackupNow() {
-    setBackingUp(true);
-    try {
-      const res = await fetch(`${API_URL}/api/admin/settings/backup`, {
-        method: "POST",
-        headers: { ...authHeader() },
-      });
-      if (!res.ok) {
-        toast.error("Failed to trigger backup");
-        return;
-      }
-      const data = await res.json();
-      setSettings((s) => (s ? { ...s, last_backup_at: data.last_backup_at } : s));
-      toast.success("Backup triggered.");
-      if (merged?.audit_logs_enabled) loadLogs();
-    } catch {
-      toast.error("Could not reach the server. Try again.");
-    } finally {
-      setBackingUp(false);
-    }
-  }
-
   if (loading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
@@ -20725,36 +21753,54 @@ function SettingsPage() {
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl shadow-soft">
-          <CardHeader className="flex flex-row items-center gap-2"><Bell className="h-4 w-4 text-primary" /><CardTitle className="text-base">Notifications</CardTitle></CardHeader>
+        <Card className="rounded-2xl shadow-soft opacity-80">
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
+            <div className="flex items-center gap-2"><Bell className="h-4 w-4 text-primary" /><CardTitle className="text-base">Notifications</CardTitle></div>
+            <Badge variant="secondary" className="rounded-lg text-[10px]">Coming soon</Badge>
+          </CardHeader>
           <CardContent className="space-y-4">
-            <Toggle label="Email notifications" desc="System alerts to admin email" checked={merged.email_notifications} onChange={(v) => setField("email_notifications", v)} />
-            <Toggle label="SMS alerts" desc="Critical alerts via SMS" checked={merged.sms_alerts} onChange={(v) => setField("sms_alerts", v)} />
-            <Toggle label="Weekly summary" desc="Every Monday at 9 AM" checked={merged.weekly_summary} onChange={(v) => setField("weekly_summary", v)} />
+            <p className="text-xs text-muted-foreground">
+              These preferences save, but nothing sends an email, SMS, or summary yet.
+            </p>
+            <Toggle label="Email notifications" desc="System alerts to admin email" checked={merged.email_notifications} onChange={(v) => setField("email_notifications", v)} disabled />
+            <Toggle label="SMS alerts" desc="Critical alerts via SMS" checked={merged.sms_alerts} onChange={(v) => setField("sms_alerts", v)} disabled />
+            <Toggle label="Weekly summary" desc="Every Monday at 9 AM" checked={merged.weekly_summary} onChange={(v) => setField("weekly_summary", v)} disabled />
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl shadow-soft">
-          <CardHeader className="flex flex-row items-center gap-2"><Database className="h-4 w-4 text-primary" /><CardTitle className="text-base">Backup & Data</CardTitle></CardHeader>
+        <Card className="rounded-2xl shadow-soft opacity-80">
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
+            <div className="flex items-center gap-2"><Database className="h-4 w-4 text-primary" /><CardTitle className="text-base">Backup & Data</CardTitle></div>
+            <Badge variant="secondary" className="rounded-lg text-[10px]">Coming soon</Badge>
+          </CardHeader>
           <CardContent className="space-y-4">
-            <Toggle label="Automatic backup" desc="Daily backup at 2:00 AM" checked={merged.auto_backup_enabled} onChange={(v) => setField("auto_backup_enabled", v)} />
+            <p className="text-xs text-muted-foreground">
+              No real backup job exists yet — "Run now" only records a timestamp.
+            </p>
+            <Toggle label="Automatic backup" desc="Daily backup at 2:00 AM" checked={merged.auto_backup_enabled} onChange={(v) => setField("auto_backup_enabled", v)} disabled />
             <div className="flex items-center justify-between rounded-xl border border-border/60 p-3">
               <div>
                 <div className="text-sm font-medium">Last backup</div>
                 <div className="text-xs text-muted-foreground">{formatLastBackup(merged.last_backup_at)}</div>
               </div>
-              <Button variant="outline" size="sm" className="rounded-lg" disabled={backingUp} onClick={runBackupNow}>
-                {backingUp ? "Running…" : "Run now"}
+              <Button variant="outline" size="sm" className="rounded-lg" disabled>
+                Run now
               </Button>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl shadow-soft">
-          <CardHeader className="flex flex-row items-center gap-2"><Palette className="h-4 w-4 text-primary" /><CardTitle className="text-base">Appearance</CardTitle></CardHeader>
+        <Card className="rounded-2xl shadow-soft opacity-80">
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
+            <div className="flex items-center gap-2"><Palette className="h-4 w-4 text-primary" /><CardTitle className="text-base">Appearance</CardTitle></div>
+            <Badge variant="secondary" className="rounded-lg text-[10px]">Coming soon</Badge>
+          </CardHeader>
           <CardContent className="space-y-4">
-            <Toggle label="Dark mode by default" desc="New users start in dark mode" checked={merged.dark_mode_default} onChange={(v) => setField("dark_mode_default", v)} />
-            <Toggle label="Compact tables" desc="Denser table rows" checked={merged.compact_tables} onChange={(v) => setField("compact_tables", v)} />
+            <p className="text-xs text-muted-foreground">
+              These preferences save, but the app doesn't apply them anywhere yet.
+            </p>
+            <Toggle label="Dark mode by default" desc="New users start in dark mode" checked={merged.dark_mode_default} onChange={(v) => setField("dark_mode_default", v)} disabled />
+            <Toggle label="Compact tables" desc="Denser table rows" checked={merged.compact_tables} onChange={(v) => setField("compact_tables", v)} disabled />
           </CardContent>
         </Card>
 
@@ -20815,14 +21861,14 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
   );
 }
 
-function Toggle({ label, desc, checked, onChange }: { label: string; desc: string; checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ label, desc, checked, onChange, disabled }: { label: string; desc: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
     <div className="flex items-center justify-between gap-4">
       <div>
         <div className="text-sm font-medium">{label}</div>
         <div className="text-xs text-muted-foreground">{desc}</div>
       </div>
-      <Switch checked={checked} onCheckedChange={onChange} />
+      <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} />
     </div>
   );
 }
@@ -21158,16 +22204,12 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
-import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
 } from "@/components/ui/alert-dialog";
-import { departmentList } from "@/features/SuperAdmin/lib/superadmin-mock-data";
 import { authHeader } from "@/lib/auth";
 
 export const Route = createFileRoute("/admin/teachers")({
@@ -21179,7 +22221,7 @@ export const Route = createFileRoute("/admin/teachers")({
 });
 
 type Teacher = {
-  id: string; name: string; specialization: string; department: string; courses: number;
+  id: string; name: string; specialization: string; departments: string[]; courses: number;
   email: string; phone: string; status: string; qualification: string; username: string; photo: string;
 };
 
@@ -21188,7 +22230,7 @@ function mapApiTeacher(t: any): Teacher {
     id: t.id,
     name: t.name,
     specialization: t.specialization ?? "",
-    department: t.department,
+    departments: t.departments ?? [],
     courses: t.courses ?? 0,
     email: t.email,
     phone: t.phone ?? "",
@@ -21210,7 +22252,7 @@ function TeachersPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [q, setQ] = useState(initialQ ?? "");
-  const rows = teachers.filter((t) => (t.name + t.specialization + t.department).toLowerCase().includes(q.toLowerCase()));
+  const rows = teachers.filter((t) => (t.name + t.specialization + t.departments.join(" ")).toLowerCase().includes(q.toLowerCase()));
 
   useEffect(() => {
     let cancelled = false;
@@ -21238,17 +22280,16 @@ function TeachersPage() {
   const [deleteTarget, setDeleteTarget] = useState<Teacher | null>(null);
   const [editForm, setEditForm] = useState(emptyTeacherForm);
 
-  // Create Teacher dialog state. Admin only ever creates a bare account —
-  // department is the one piece of institutional data admin owns; course
-  // and section assignment is the HOD's job from their own courses page.
+  // Create Teacher dialog state. Admin only ever creates a bare account with
+  // no department — each HOD who wants this teacher adds them to their own
+  // department afterward (a teacher can end up in more than one).
   const [createOpen, setCreateOpen] = useState(false);
-  const [dept, setDept] = useState<string | null>(null);
   const [teacherForm, setTeacherForm] = useState(emptyTeacherForm);
   const [generatedPassword, setGeneratedPassword] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
   function resetCreateForm() {
-    setDept(null); setTeacherForm(emptyTeacherForm);
+    setTeacherForm(emptyTeacherForm);
   }
 
   function openEdit(t: Teacher) {
@@ -21310,10 +22351,6 @@ function TeachersPage() {
   }
 
   async function saveNewTeacher() {
-    if (!dept) {
-      toast.error("Please select a department");
-      return;
-    }
     if (!teacherForm.name || !teacherForm.email) {
       toast.error("Please fill in the teacher's name and email");
       return;
@@ -21325,7 +22362,6 @@ function TeachersPage() {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeader() },
         body: JSON.stringify({
-          department_name: dept,
           name: teacherForm.name,
           email: teacherForm.email,
           phone: teacherForm.phone,
@@ -21343,7 +22379,7 @@ function TeachersPage() {
         id: `T${data.teacher_id}`,
         name: teacherForm.name,
         specialization: teacherForm.specialization,
-        department: dept,
+        departments: [],
         courses: 0,
         email: teacherForm.email,
         phone: teacherForm.phone,
@@ -21368,7 +22404,7 @@ function TeachersPage() {
         <div>
           <h1 className="font-display text-2xl font-bold">Teacher Management</h1>
           <p className="text-sm text-muted-foreground">
-            Create teacher accounts. Course and section assignment is handled by each department's HOD.
+            Create teacher accounts. Each department's HOD then adds them to their department and assigns courses.
           </p>
         </div>
         <Button className="rounded-xl gradient-brand text-white" onClick={() => { resetCreateForm(); setCreateOpen(true); }}>
@@ -21420,7 +22456,7 @@ function TeachersPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3">{t.specialization}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{t.department}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{t.departments.length ? t.departments.join(", ") : "Unassigned"}</td>
                     <td className="px-4 py-3"><Badge variant="secondary" className="rounded-lg"><BookOpen className="mr-1 h-3 w-3" /> {t.courses} courses</Badge></td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
@@ -21464,7 +22500,7 @@ function TeachersPage() {
               <div className="grid gap-3 text-sm">
                 <DetailRow icon={Mail} label="Email" value={viewTarget.email} />
                 <DetailRow icon={Phone} label="Phone" value={viewTarget.phone} />
-                <DetailRow icon={Building2} label="Department" value={viewTarget.department} />
+                <DetailRow icon={Building2} label="Department" value={viewTarget.departments.length ? viewTarget.departments.join(", ") : "Unassigned"} />
                 <DetailRow icon={Award} label="Qualification" value={viewTarget.qualification} />
                 <DetailRow icon={GraduationCap} label="Specialization" value={viewTarget.specialization} />
                 <DetailRow icon={BookOpen} label="Assigned Courses" value={`${viewTarget.courses} courses`} />
@@ -21562,19 +22598,12 @@ function TeachersPage() {
           <DialogHeader>
             <DialogTitle>Create Teacher</DialogTitle>
             <DialogDescription>
-              Creates a bare-bones teacher account. Their HOD assigns courses and sections afterward.
+              Creates a bare-bones teacher account with no department yet. Each HOD who wants
+              this teacher adds them to their department afterward.
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-3">
-            <Field label="Department">
-              <Select value={dept ?? undefined} onValueChange={(v) => setDept(v)}>
-                <SelectTrigger className="rounded-xl"><SelectValue placeholder="Select department" /></SelectTrigger>
-                <SelectContent>
-                  {departmentList.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </Field>
             <Field label="Photo">
               <div className="flex items-center gap-3">
                 <Avatar className="h-12 w-12"><AvatarFallback>{teacherForm.name ? teacherForm.name[0] : "T"}</AvatarFallback></Avatar>
@@ -23254,7 +24283,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowRight, BookOpen, Save, Send, Upload } from "lucide-react";
+import { ArrowRight, BookOpen, ChevronDown, ChevronUp, Save, Send, Upload } from "lucide-react";
 import { authHeader } from "@/lib/auth";
 
 export const Route = createFileRoute("/hod/final-results")({
@@ -23267,6 +24296,7 @@ const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://lo
 // Same scale as backend/api/grading.py (Pokhara University's 4.0 system).
 // Keep these two in sync if the grading scale ever changes.
 const GRADE_OPTIONS = ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "F"];
+const SEMESTERS = [1, 2, 3, 4, 5, 6, 7, 8];
 
 type HodCourse = {
   id: string; code: string; name: string; credits: number; sem: number;
@@ -23274,6 +24304,11 @@ type HodCourse = {
 };
 
 type GradeRow = { student_id: string; name: string; enrollment: string; grade: string; status: "draft" | "published" };
+
+type SemesterCourseSummary = {
+  course_id: string; code: string; name: string; section: string;
+  graded: number; total_enrolled: number; published: boolean;
+};
 
 function FinalResults() {
   const [courses, setCourses] = useState<HodCourse[]>([]);
@@ -23308,45 +24343,253 @@ function FinalResults() {
       <div>
         <h1 className="font-display text-2xl font-bold">Final Results</h1>
         <p className="text-sm text-muted-foreground">
-          Enter or import final grades from the exam office's results sheet, then publish per course.
-          This is separate from internal marks — teachers don't have access to this.
+          Publish the university's end-semester results — upload one sheet for a whole semester, or
+          enter/import grades course by course below. This is separate from internal marks — teachers
+          don't have access to this.
         </p>
       </div>
 
-      {loading ? (
-        <p className="text-sm text-muted-foreground">Loading courses…</p>
-      ) : courses.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No courses in your department yet.</p>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {courses.map((c) => (
-            <Card
-              key={c.id}
-              onClick={() => setCourseId(c.id)}
-              className="group cursor-pointer overflow-hidden rounded-2xl border-border/60 p-0 shadow-soft transition hover:-translate-y-1 hover:shadow-glass"
-            >
-              <div className="gradient-brand relative h-20 p-4 text-white">
-                <div className="text-[10px] uppercase tracking-widest opacity-80">{c.code}</div>
-                <div className="mt-1 font-display text-base font-bold">{c.name}</div>
-              </div>
-              <CardContent className="space-y-2 p-4 text-sm">
-                <div className="flex flex-wrap gap-1.5">
-                  <Badge variant="secondary" className="rounded-full">Sem {c.sem}</Badge>
-                  <Badge variant="secondary" className="rounded-full">Sec {c.section}</Badge>
-                  {c.teacher_name && <Badge variant="secondary" className="rounded-full">{c.teacher_name}</Badge>}
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">{c.enrolled} students</span>
-                  <span className="flex items-center gap-1 text-xs font-medium text-primary">
-                    Enter results <ArrowRight className="h-3 w-3" />
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+      <SemesterImport onOpenCourse={setCourseId} />
+
+      <div className="space-y-3">
+        <div>
+          <h2 className="font-display text-lg font-bold">Browse by Course</h2>
+          <p className="text-xs text-muted-foreground">Enter or import grades for a single course manually.</p>
         </div>
-      )}
+
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Loading courses…</p>
+        ) : courses.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No courses in your department yet.</p>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {courses.map((c) => (
+              <Card
+                key={c.id}
+                onClick={() => setCourseId(c.id)}
+                className="group cursor-pointer overflow-hidden rounded-2xl border-border/60 p-0 shadow-soft transition hover:-translate-y-1 hover:shadow-glass"
+              >
+                <div className="gradient-brand relative h-20 p-4 text-white">
+                  <div className="text-[10px] uppercase tracking-widest opacity-80">{c.code}</div>
+                  <div className="mt-1 font-display text-base font-bold">{c.name}</div>
+                </div>
+                <CardContent className="space-y-2 p-4 text-sm">
+                  <div className="flex flex-wrap gap-1.5">
+                    <Badge variant="secondary" className="rounded-full">Sem {c.sem}</Badge>
+                    <Badge variant="secondary" className="rounded-full">Sec {c.section}</Badge>
+                    {c.teacher_name && <Badge variant="secondary" className="rounded-full">{c.teacher_name}</Badge>}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">{c.enrolled} students</span>
+                    <span className="flex items-center gap-1 text-xs font-medium text-primary">
+                      Enter results <ArrowRight className="h-3 w-3" />
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
+  );
+}
+
+function SemesterImport({ onOpenCourse }: { onOpenCourse: (courseId: string) => void }) {
+  const [expanded, setExpanded] = useState(true);
+  const [sem, setSem] = useState<number>(1);
+  const [summary, setSummary] = useState<SemesterCourseSummary[]>([]);
+  const [loadingSummary, setLoadingSummary] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const loadSummary = async (semester: number) => {
+    setLoadingSummary(true);
+    try {
+      const res = await fetch(`${API_URL}/api/hod/semesters/${semester}/results`, { headers: { ...authHeader() } });
+      if (!res.ok) throw new Error(`Failed to load semester summary (${res.status})`);
+      const data = await res.json();
+      setSummary(data.courses ?? []);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not load semester summary.");
+    } finally {
+      setLoadingSummary(false);
+    }
+  };
+
+  useEffect(() => { loadSummary(sem); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [sem]);
+
+  async function importCsv(file: File) {
+    setImporting(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`${API_URL}/api/hod/semesters/${sem}/results/import-csv`, {
+        method: "POST", headers: { ...authHeader() }, body: form,
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.detail ?? `Import failed (${res.status})`);
+      toast.success(`Imported ${body.saved} result(s)${body.skipped?.length ? `, skipped ${body.skipped.length}` : ""}`);
+      if (body.skipped?.length) {
+        // handy when the sheet only covers some students/courses — makes it
+        // obvious which rows didn't match anything without failing the import
+        console.info("Skipped rows:", body.skipped);
+      }
+      await loadSummary(sem);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to import CSV");
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function publishSemester() {
+    setPublishOpen(false);
+    setPublishing(true);
+    try {
+      const res = await fetch(`${API_URL}/api/hod/semesters/${sem}/results/publish`, {
+        method: "POST", headers: { ...authHeader() },
+      });
+      if (!res.ok) throw new Error(`Failed to publish (${res.status})`);
+      toast.success(`Published semester ${sem} results — students can now see them`);
+      await loadSummary(sem);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to publish semester results");
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  const totalGraded = summary.reduce((n, c) => n + c.graded, 0);
+  const allPublished = summary.length > 0 && summary.every((c) => c.graded === 0 || c.published);
+
+  return (
+    <Card className="rounded-2xl shadow-soft">
+      <CardHeader
+        className="cursor-pointer select-none pb-3"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Upload className="h-4 w-4" /> Publish by Semester
+          </CardTitle>
+          {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Upload one results sheet covering every course in a semester, then publish it all at once.
+        </p>
+      </CardHeader>
+
+      {expanded && (
+        <CardContent className="space-y-4 pt-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={String(sem)} onValueChange={(v) => setSem(Number(v))}>
+              <SelectTrigger className="h-9 w-32 rounded-lg"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {SEMESTERS.map((s) => <SelectItem key={s} value={String(s)}>Semester {s}</SelectItem>)}
+              </SelectContent>
+            </Select>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) importCsv(file);
+                e.target.value = "";
+              }}
+            />
+            <Button variant="outline" className="rounded-xl" disabled={importing} onClick={() => fileInputRef.current?.click()}>
+              <Upload className="mr-1.5 h-4 w-4" />{importing ? "Importing…" : "Upload Result Sheet (CSV)"}
+            </Button>
+
+            <Button
+              className="rounded-xl"
+              disabled={publishing || totalGraded === 0 || allPublished}
+              onClick={() => setPublishOpen(true)}
+            >
+              <Send className="mr-1.5 h-4 w-4" />
+              {allPublished && totalGraded > 0 ? "All Published" : "Publish Semester"}
+            </Button>
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            CSV needs <code>enrollment</code>, <code>course_code</code>, and <code>grade</code> columns — one row
+            per student per course. A course code shared across sections resolves automatically from each
+            student's own enrollment, so no section column is needed. Unmatched rows are skipped and reported,
+            not treated as a failure.
+          </p>
+
+          <div className="overflow-x-auto rounded-xl border border-border/60">
+            <table className="w-full text-sm">
+              <thead className="bg-secondary/60 text-[10px] uppercase tracking-wider text-muted-foreground">
+                <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:text-left">
+                  <th>Course</th>
+                  <th>Section</th>
+                  <th>Graded</th>
+                  <th>Status</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {loadingSummary ? (
+                  <tr><td colSpan={5} className="px-3 py-4 text-center text-sm text-muted-foreground">Loading…</td></tr>
+                ) : summary.length === 0 ? (
+                  <tr><td colSpan={5} className="px-3 py-4 text-center text-sm text-muted-foreground">No courses in semester {sem} yet.</td></tr>
+                ) : (
+                  summary.map((c) => (
+                    <tr key={c.course_id} className="[&>td]:px-3 [&>td]:py-2">
+                      <td>
+                        <div className="text-sm font-semibold">{c.code}</div>
+                        <div className="text-xs text-muted-foreground">{c.name}</div>
+                      </td>
+                      <td className="text-xs">{c.section}</td>
+                      <td className="text-xs">{c.graded} / {c.total_enrolled}</td>
+                      <td>
+                        {c.graded === 0 ? (
+                          <Badge variant="secondary" className="rounded-lg">No results yet</Badge>
+                        ) : c.published ? (
+                          <Badge className="rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">Published</Badge>
+                        ) : (
+                          <Badge variant="secondary" className="rounded-lg">Draft</Badge>
+                        )}
+                      </td>
+                      <td>
+                        <Button size="sm" variant="ghost" className="h-7 rounded-lg text-xs" onClick={() => onOpenCourse(c.course_id)}>
+                          Review <ArrowRight className="ml-1 h-3 w-3" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      )}
+
+      <AlertDialog open={publishOpen} onOpenChange={setPublishOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Publish Semester {sem} Results?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This publishes every graded course in semester {sem} at once ({totalGraded} graded result{totalGraded === 1 ? "" : "s"}
+              {" "}across {summary.filter((c) => c.graded > 0).length} course{summary.filter((c) => c.graded > 0).length === 1 ? "" : "s"}).
+              Students will immediately be able to see this semester in their results. You can still edit and
+              re-publish individual courses afterward.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={publishSemester}>Yes, Publish Semester</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
   );
 }
 
@@ -24124,7 +25367,7 @@ FILE: frontend/src/routes/hod.notices.tsx
 ====================================================================================================
 
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { authHeader } from "@/lib/auth";
 import { Megaphone, Pin, Paperclip, Send, CalendarClock, Trash2, X } from "lucide-react";
@@ -24133,7 +25376,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 
 export const Route = createFileRoute("/hod/notices")({
   head: () => ({ meta: [{ title: "Department Notices · HOD" }] }),
@@ -24159,12 +25401,24 @@ type Notice = {
   author: string;
   date: string;
   scheduled_for: string | null;
+  attachment_url: string | null;
+  attachment_name: string | null;
+  attachment_size: number | null;
 };
 
 function isFutureScheduled(n: Notice): boolean {
   if (!n.scheduled_for) return false;
   return new Date(n.scheduled_for).getTime() > Date.now();
 }
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+const ATTACHMENT_ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt";
+const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
 
 function Notices() {
   const [notices, setNotices] = useState<Notice[]>([]);
@@ -24180,6 +25434,32 @@ function Notices() {
   const [scheduledFor, setScheduledFor] = useState(""); // datetime-local value
   const [submitting, setSubmitting] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
+
+  const [attachment, setAttachment] = useState<{ url: string; name: string; size: number } | null>(null);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleFileSelected(file: File) {
+    if (file.size > ATTACHMENT_MAX_BYTES) {
+      toast.error("File is larger than the 10 MB limit.");
+      return;
+    }
+    setUploadingAttachment(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`${API_URL}/api/hod/notices/attachment`, {
+        method: "POST", headers: { ...authHeader() }, body: form,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail ?? "Failed to upload attachment");
+      setAttachment({ url: data.attachment_url, name: data.attachment_name, size: data.attachment_size });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to upload attachment");
+    } finally {
+      setUploadingAttachment(false);
+    }
+  }
 
   async function loadNotices() {
     setLoading(true);
@@ -24205,6 +25485,7 @@ function Notices() {
     setPinned(false);
     setScheduleOpen(false);
     setScheduledFor("");
+    setAttachment(null);
   }
 
   async function publish() {
@@ -24220,6 +25501,9 @@ function Notices() {
         body: JSON.stringify({
           title, body, type, audience, pinned,
           scheduled_for: scheduleOpen && scheduledFor ? new Date(scheduledFor).toISOString() : null,
+          attachment_url: attachment?.url ?? null,
+          attachment_name: attachment?.name ?? null,
+          attachment_size: attachment?.size ?? null,
         }),
       });
       if (!res.ok) {
@@ -24278,11 +25562,10 @@ function Notices() {
   }
 
   return (
-    <TooltipProvider>
-      <div className="space-y-5">
-        <div>
-          <h1 className="font-display text-2xl font-bold">Department Notice Board</h1>
-          <p className="text-sm text-muted-foreground">Publish and manage department announcements.</p>
+    <div className="space-y-5">
+      <div>
+        <h1 className="font-display text-2xl font-bold">Department Notice Board</h1>
+        <p className="text-sm text-muted-foreground">Publish and manage department announcements.</p>
         </div>
 
         {error && !loading && (
@@ -24341,17 +25624,39 @@ function Notices() {
                 </div>
               )}
 
+              {attachment && (
+                <div className="flex items-center justify-between gap-2 rounded-xl border border-border/60 bg-background/60 px-3 py-2.5">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate text-sm font-medium">{attachment.name}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{formatBytes(attachment.size)}</span>
+                  </div>
+                  <button onClick={() => setAttachment(null)} className="shrink-0 text-muted-foreground hover:text-foreground">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+
               <div className="flex flex-wrap items-center gap-2">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <Button variant="outline" className="rounded-xl" disabled>
-                        <Paperclip className="mr-1.5 h-4 w-4" /> Attach
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>File attachments are coming soon</TooltipContent>
-                </Tooltip>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept={ATTACHMENT_ACCEPT}
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleFileSelected(file);
+                    e.target.value = "";
+                  }}
+                />
+                <Button
+                  variant="outline" className="rounded-xl"
+                  disabled={uploadingAttachment}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Paperclip className="mr-1.5 h-4 w-4" />
+                  {uploadingAttachment ? "Uploading…" : attachment ? "Replace attachment" : "Attach"}
+                </Button>
                 <Button
                   variant="outline" className="rounded-xl"
                   onClick={() => setScheduleOpen((v) => !v)}
@@ -24394,6 +25699,17 @@ function Notices() {
                         )}
                       </div>
                       <div className="mt-0.5 text-xs text-muted-foreground">{n.audience} · {n.author} · {n.date}</div>
+                      {n.attachment_url && (
+                        <a
+                          href={`${API_URL}${n.attachment_url}`}
+                          target="_blank" rel="noreferrer"
+                          className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-background px-2 py-1 text-xs text-primary hover:underline"
+                        >
+                          <Paperclip className="h-3 w-3" />
+                          {n.attachment_name}
+                          {n.attachment_size != null && <span className="text-muted-foreground">({formatBytes(n.attachment_size)})</span>}
+                        </a>
+                      )}
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
                       <Button
@@ -24418,7 +25734,6 @@ function Notices() {
           </Card>
         </div>
       </div>
-    </TooltipProvider>
   );
 }
 
@@ -24591,9 +25906,9 @@ FILE: frontend/src/routes/hod.profile.tsx
 ====================================================================================================
 
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Mail, Phone, GraduationCap, Award, Pencil, KeyRound, Building2 } from "lucide-react";
+import { Mail, Phone, GraduationCap, Award, Pencil, KeyRound, Building2, Camera } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -24610,6 +25925,11 @@ export const Route = createFileRoute("/hod/profile")({
 });
 
 const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+function photoSrc(photo: string | null): string | undefined {
+  if (!photo) return undefined;
+  return photo.startsWith("http") ? photo : `${API_URL}${photo}`;
+}
 
 type HodProfile = {
   id: string;
@@ -24633,6 +25953,14 @@ function Profile() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [saving, setSaving] = useState(false);
 
+  const [editOpen, setEditOpen] = useState(false);
+  const [editEmail, setEditEmail] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [savingContact, setSavingContact] = useState(false);
+
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -24651,6 +25979,63 @@ function Profile() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  function openEditDialog() {
+    if (!hod) return;
+    setEditEmail(hod.email ?? "");
+    setEditPhone(hod.phone ?? "");
+    setEditOpen(true);
+  }
+
+  async function submitContactEdit() {
+    if (!editEmail.trim()) {
+      toast.error("Email cannot be empty.");
+      return;
+    }
+    setSavingContact(true);
+    try {
+      const res = await fetch(`${API_URL}/api/hod/me`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ email: editEmail.trim(), phone: editPhone.trim() || null }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail ?? "Failed to update contact details");
+        return;
+      }
+      setHod(await res.json());
+      toast.success("Contact details updated.");
+      setEditOpen(false);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    } finally {
+      setSavingContact(false);
+    }
+  }
+
+  async function uploadPhoto(file: File) {
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image is larger than the 5 MB limit.");
+      return;
+    }
+    setUploadingPhoto(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`${API_URL}/api/hod/me/photo`, {
+        method: "POST", headers: { ...authHeader() }, body: form,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail ?? "Failed to upload photo");
+      setHod(data);
+      toast.success("Profile picture updated.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to upload photo");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }
 
   function closePasswordDialog() {
     setPwOpen(false);
@@ -24710,10 +26095,37 @@ function Profile() {
     <div className="space-y-5">
       <Card className="overflow-hidden rounded-2xl border-0 gradient-brand text-white shadow-glass">
         <div className="grid gap-6 p-8 md:grid-cols-[auto_1fr_auto] md:items-center">
-          <Avatar className="h-24 w-24 ring-4 ring-white/40">
-            <AvatarImage src={hod.photo ?? undefined} />
-            <AvatarFallback>{hod.name[0]}</AvatarFallback>
-          </Avatar>
+          <div className="group relative h-24 w-24">
+            <Avatar className="h-24 w-24 ring-4 ring-white/40">
+              <AvatarImage src={photoSrc(hod.photo)} />
+              <AvatarFallback>{hod.name[0]}</AvatarFallback>
+            </Avatar>
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept=".png,.jpg,.jpeg,.webp"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) uploadPhoto(file);
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              disabled={uploadingPhoto}
+              onClick={() => photoInputRef.current?.click()}
+              title="Change profile picture"
+              className="absolute inset-0 grid place-items-center rounded-full bg-black/0 text-white opacity-0 transition group-hover:bg-black/40 group-hover:opacity-100"
+            >
+              <Camera className="h-6 w-6" />
+            </button>
+            {uploadingPhoto && (
+              <div className="absolute inset-0 grid place-items-center rounded-full bg-black/40 text-[10px] font-medium text-white">
+                Uploading…
+              </div>
+            )}
+          </div>
           <div>
             <div className="text-xs uppercase tracking-widest text-white/80">Head of Department</div>
             <h1 className="font-display text-3xl font-bold">{hod.name}</h1>
@@ -24723,7 +26135,7 @@ function Profile() {
             <Button
               variant="secondary"
               className="rounded-xl bg-white text-primary hover:bg-white/90"
-              onClick={() => toast.info("Profile details are managed by your administrator.")}
+              onClick={openEditDialog}
             >
               <Pencil className="mr-1.5 h-4 w-4" /> Edit
             </Button>
@@ -24740,7 +26152,12 @@ function Profile() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="rounded-2xl shadow-soft">
-          <CardHeader><CardTitle className="text-base">Contact</CardTitle></CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-base">Contact</CardTitle>
+            <Button size="sm" variant="ghost" className="h-7 rounded-lg px-2 text-xs" onClick={openEditDialog}>
+              <Pencil className="mr-1 h-3 w-3" /> Edit
+            </Button>
+          </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <Row icon={Mail} k="Email" v={hod.email} />
             <Row icon={Phone} k="Phone" v={hod.phone ?? "—"} />
@@ -24755,6 +26172,32 @@ function Profile() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Edit contact details dialog */}
+      <Dialog open={editOpen} onOpenChange={(o) => !o && setEditOpen(false)}>
+        <DialogContent className="rounded-2xl sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Edit Contact Details</DialogTitle>
+            <DialogDescription>Your name and department are managed by your administrator.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-email">Email</Label>
+              <Input id="edit-email" type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-phone">Phone</Label>
+              <Input id="edit-phone" type="tel" value={editPhone} onChange={(e) => setEditPhone(e.target.value)} placeholder="Optional" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button className="rounded-xl gradient-brand text-white" disabled={savingContact} onClick={submitContactEdit}>
+              {savingContact ? "Saving…" : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Change password dialog */}
       <Dialog open={pwOpen} onOpenChange={(o) => !o && closePasswordDialog()}>
@@ -26318,11 +27761,12 @@ import { toast } from "sonner";
 import { authHeader } from "@/lib/auth";
 import {
   Eye, Pencil, UserX, BookOpen, UserPlus, ArrowLeft,
-  CalendarRange, CheckCircle2, GraduationCap, Award, Clock, ChevronRight,
+  CalendarRange, CheckCircle2, GraduationCap, Award, Clock, ChevronRight, Users, Search, X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -26358,6 +27802,16 @@ type Teacher = {
   qualification: string | null;
   experience: string | null;
   photo: string | null;
+};
+
+type AvailableTeacher = {
+  id: number;
+  name: string;
+  specialization: string | null;
+  qualification: string | null;
+  email: string | null;
+  photo: string | null;
+  departments: string[];
 };
 
 type GroupedCourse = {
@@ -26412,6 +27866,15 @@ function TeacherManagement() {
   const [viewCourse, setViewCourse] = useState<Course | null>(null);
   const [removeCourse, setRemoveCourse] = useState<Course | null>(null);
   const [removing, setRemoving] = useState(false);
+
+  // Manage-department-teachers dialog: current roster (with remove) plus a
+  // search over every teacher in the system to add one to this department.
+  const [manageOpen, setManageOpen] = useState(false);
+  const [availQuery, setAvailQuery] = useState("");
+  const [availResults, setAvailResults] = useState<AvailableTeacher[]>([]);
+  const [availLoading, setAvailLoading] = useState(false);
+  const [addingId, setAddingId] = useState<number | null>(null);
+  const [removingDeptId, setRemovingDeptId] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -26550,6 +28013,84 @@ function TeacherManagement() {
     }
   }
 
+  // Debounced search over every teacher in the system, for the "add teacher
+  // to my department" flow — mirrors the min-2-char rule the backend applies.
+  useEffect(() => {
+    if (!manageOpen) return;
+    const query = availQuery.trim();
+    if (query.length < 2) {
+      setAvailResults([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setAvailLoading(true);
+      try {
+        const res = await fetch(`${API_URL}/api/hod/teachers/available?q=${encodeURIComponent(query)}`, {
+          headers: { ...authHeader() },
+        });
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        if (!cancelled) setAvailResults(data);
+      } catch {
+        if (!cancelled) toast.error("Could not search teachers. Try again.");
+      } finally {
+        if (!cancelled) setAvailLoading(false);
+      }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [availQuery, manageOpen]);
+
+  async function addTeacherToDept(t: AvailableTeacher) {
+    setAddingId(t.id);
+    try {
+      const res = await fetch(`${API_URL}/api/hod/teachers/${t.id}/assign`, {
+        method: "POST",
+        headers: { ...authHeader() },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail ?? "Failed to add teacher");
+        return;
+      }
+      const added = await res.json();
+      setTeachers((prev) => (prev.some((x) => x.id === added.id) ? prev : [...prev, added]));
+      setAvailResults((prev) => prev.filter((x) => x.id !== t.id));
+      toast.success(`${t.name} added to your department`);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    } finally {
+      setAddingId(null);
+    }
+  }
+
+  async function removeTeacherFromDept(t: Teacher) {
+    setRemovingDeptId(t.id);
+    try {
+      const res = await fetch(`${API_URL}/api/hod/teachers/${t.id}/assign`, {
+        method: "DELETE",
+        headers: { ...authHeader() },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail ?? "Failed to remove teacher");
+        return;
+      }
+      setTeachers((prev) => prev.filter((x) => x.id !== t.id));
+      toast.success(`${t.name} removed from your department`);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    } finally {
+      setRemovingDeptId(null);
+    }
+  }
+
+  function closeManage() {
+    setManageOpen(false);
+    setAvailQuery("");
+    setAvailResults([]);
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
@@ -26574,9 +28115,14 @@ function TeacherManagement() {
           <h1 className="font-display text-2xl font-bold">Teacher Management</h1>
           <p className="text-sm text-muted-foreground">Assign faculty to courses across semesters.</p>
         </div>
-        <Button className="rounded-xl gradient-brand text-white" onClick={() => openAssignWizard()}>
-          <UserPlus className="mr-1.5 h-4 w-4" /> Assign Teacher
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" className="rounded-xl" onClick={() => setManageOpen(true)}>
+            <Users className="mr-1.5 h-4 w-4" /> Manage Department Teachers
+          </Button>
+          <Button className="rounded-xl gradient-brand text-white" onClick={() => openAssignWizard()}>
+            <UserPlus className="mr-1.5 h-4 w-4" /> Assign Teacher
+          </Button>
+        </div>
       </div>
 
       <Card className="rounded-2xl shadow-soft">
@@ -26864,6 +28410,86 @@ function TeacherManagement() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Manage department teachers: current roster + search-to-add */}
+      <Dialog open={manageOpen} onOpenChange={(o) => !o && closeManage()}>
+        <DialogContent className="rounded-2xl sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Manage Department Teachers</DialogTitle>
+            <DialogDescription>
+              A teacher can belong to more than one department — add anyone from the system to yours,
+              or remove someone who no longer belongs (they must first be off all your courses).
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search teachers by name or email…"
+                value={availQuery}
+                onChange={(e) => setAvailQuery(e.target.value)}
+                className="h-9 rounded-xl pl-9"
+              />
+            </div>
+            {availQuery.trim().length >= 2 && (
+              <div className="max-h-48 space-y-1.5 overflow-y-auto rounded-xl border border-border/60 p-2">
+                {availLoading && <div className="py-3 text-center text-xs text-muted-foreground">Searching…</div>}
+                {!availLoading && availResults.length === 0 && (
+                  <div className="py-3 text-center text-xs text-muted-foreground">No matching teachers found.</div>
+                )}
+                {!availLoading && availResults.map((t) => (
+                  <div key={t.id} className="flex items-center justify-between gap-2 rounded-lg p-1.5 hover:bg-muted/40">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Avatar className="h-8 w-8"><AvatarImage src={t.photo ?? undefined} /><AvatarFallback>{t.name[0]}</AvatarFallback></Avatar>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium">{t.name}</div>
+                        <div className="truncate text-[11px] text-muted-foreground">
+                          {t.email}{t.departments.length ? ` · also in ${t.departments.join(", ")}` : ""}
+                        </div>
+                      </div>
+                    </div>
+                    <Button size="sm" className="h-7 shrink-0 rounded-lg text-xs" disabled={addingId === t.id} onClick={() => addTeacherToDept(t)}>
+                      {addingId === t.id ? "Adding…" : "Add"}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-1.5 border-t border-border/60 pt-3">
+            <div className="text-xs font-semibold text-muted-foreground">Current teachers ({teachers.length})</div>
+            <div className="max-h-56 space-y-1.5 overflow-y-auto">
+              {teachers.map((t) => (
+                <div key={t.id} className="flex items-center justify-between gap-2 rounded-lg p-1.5 hover:bg-muted/40">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <Avatar className="h-8 w-8"><AvatarImage src={t.photo ?? undefined} /><AvatarFallback>{t.name[0]}</AvatarFallback></Avatar>
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">{t.name}</div>
+                      <div className="truncate text-[11px] text-muted-foreground">{t.specialization ?? "—"}</div>
+                    </div>
+                  </div>
+                  <Button
+                    size="icon" variant="ghost" className="h-7 w-7 shrink-0 text-destructive"
+                    title="Remove from department" disabled={removingDeptId === t.id}
+                    onClick={() => removeTeacherFromDept(t)}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+              {teachers.length === 0 && (
+                <div className="py-3 text-center text-xs text-muted-foreground">No teachers in your department yet.</div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={closeManage}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -26883,22 +28509,38 @@ FILE: frontend/src/routes/hod.tsx
 ====================================================================================================
 
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { HodSidebar } from "@/features/HoD/components/Sidebar";
 import { HodTopbar } from "@/features/HoD/components/Topbar";
 import { HodBottomNav } from "@/features/HoD/components/BottomNav";
+import { authHeader } from "@/lib/auth";
 
 export const Route = createFileRoute("/hod")({
   component: HodLayout,
 });
 
+const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+type HodProfile = { name: string; department: string; photo: string | null };
+
 function HodLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [hod, setHod] = useState<HodProfile | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_URL}/api/hod/me`, { headers: { ...authHeader() } })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => { if (!cancelled && data) setHod(data); })
+      .catch(() => { /* sidebar/topbar degrade gracefully if this fails */ });
+    return () => { cancelled = true; };
+  }, []);
+
   return (
     <div className="flex min-h-screen">
-      <HodSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <HodSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} department={hod?.department} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <HodTopbar onMenu={() => setSidebarOpen(true)} />
+        <HodTopbar onMenu={() => setSidebarOpen(true)} hod={hod} />
         <main className="min-w-0 flex-1 px-4 py-6 pb-24 md:px-6 lg:px-8 lg:pb-8">
           <Outlet />
         </main>
@@ -26907,7 +28549,6 @@ function HodLayout() {
     </div>
   );
 }
-
 
 
 ====================================================================================================
@@ -28269,6 +29910,7 @@ FILE: frontend/src/routes/teacher.dashboard.tsx
 
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { formatDistanceToNow } from "date-fns";
 import {
   BookOpen, Users, Camera, Megaphone, PenSquare, Eye, FileBarChart, ArrowRight,
   CheckCheck, Award, Bell, FileText, MessageCircle,
@@ -28276,15 +29918,19 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatCard } from "@/features/Teacher/components/StatCard";
-import { teacher, activities } from "@/features/Teacher/lib/mock-data";
-import { getTeacherCourses, type TeacherCourse } from "@/features/Teacher/lib/academic-data";
+import {
+  getTeacherCourses, getTeacherMe, getTeacherActivity,
+  type TeacherCourse, type TeacherMeDto, type TeacherActivityDto,
+} from "@/features/Teacher/lib/academic-data";
 
 export const Route = createFileRoute("/teacher/dashboard")({
   head: () => ({ meta: [{ title: "Dashboard · Teacher Portal" }] }),
   component: Dashboard,
 });
 
-const activityIcons = { check: CheckCheck, award: Award, bell: Bell, file: FileText, message: MessageCircle };
+const activityIcons: Record<TeacherActivityDto["icon"], typeof CheckCheck> = {
+  check: CheckCheck, award: Award, bell: Bell, file: FileText, message: MessageCircle,
+};
 
 function Dashboard() {
   const today = new Date().toLocaleDateString(undefined, {
@@ -28296,6 +29942,9 @@ function Dashboard() {
 
   const [courses, setCourses] = useState<TeacherCourse[]>([]);
   const [loadingCourses, setLoadingCourses] = useState(true);
+  const [me, setMe] = useState<TeacherMeDto | null>(null);
+  const [activities, setActivities] = useState<TeacherActivityDto[]>([]);
+  const [loadingActivities, setLoadingActivities] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -28312,6 +29961,31 @@ function Dashboard() {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    getTeacherMe().then((data) => {
+      if (!cancelled) setMe(data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingActivities(true);
+    getTeacherActivity(6)
+      .then((list) => {
+        if (!cancelled) setActivities(list);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingActivities(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const totalStudents = useMemo(
     () => courses.reduce((sum, c) => sum + (c.enrolled ?? 0), 0),
     [courses],
@@ -28320,7 +29994,7 @@ function Dashboard() {
   const totalCourses = courses.length;
 
   const welcomeDeptSemester = useMemo(() => {
-    if (courses.length === 0) return `${teacher.department} · ${teacher.semester}`; // fallback to mock
+    if (courses.length === 0) return "";
     const first = courses[0];
     return `${first.dept.toUpperCase()} · Semester ${first.sem}`;
   }, [courses]);
@@ -28333,11 +30007,13 @@ function Dashboard() {
         <div className="relative p-6 md:p-8">
           <div className="text-xs font-medium uppercase tracking-widest text-white/80">{today}</div>
           <h1 className="mt-1 font-display text-2xl font-bold md:text-3xl">
-            Welcome back, {teacher.title} {teacher.name.split(" ")[0]} 👋
+            Welcome back{me ? `, ${me.title ?? ""} ${me.name.split(" ")[0]}`.trim() : ""} 👋
           </h1>
-          <p className="mt-1.5 max-w-xl text-sm text-white/80">
-            {welcomeDeptSemester}
-          </p>
+          {welcomeDeptSemester ? (
+            <p className="mt-1.5 max-w-xl text-sm text-white/80">
+              {welcomeDeptSemester}
+            </p>
+          ) : null}
           <div className="mt-4 flex flex-wrap gap-2">
             <Link to="/teacher/attendance">
               <Button size="sm" variant="secondary" className="rounded-xl bg-white text-primary hover:bg-white/90">
@@ -28386,25 +30062,33 @@ function Dashboard() {
         </CardContent>
       </Card>
 
-      {/* Recent Activity (mock for now) */}
+      {/* Recent Activity */}
       <Card className="rounded-2xl shadow-soft">
         <CardHeader className="pb-2"><CardTitle className="text-base">Recent Activity</CardTitle></CardHeader>
         <CardContent>
-          <ol className="relative space-y-4 border-l border-border pl-5">
-            {activities.map((a, i) => {
-              const Icon = activityIcons[a.icon as keyof typeof activityIcons];
-              return (
-                <li key={i} className="relative">
-                  <span className="absolute -left-[26px] grid h-6 w-6 place-items-center rounded-full bg-secondary text-primary ring-4 ring-background">
-                    <Icon className="h-3 w-3" />
-                  </span>
-                  <div className="text-sm font-medium">{a.title}</div>
-                  <div className="text-xs text-muted-foreground">{a.desc}</div>
-                  <div className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground/80">{a.time}</div>
-                </li>
-              );
-            })}
-          </ol>
+          {loadingActivities ? (
+            <div className="py-4 text-sm text-muted-foreground">Loading…</div>
+          ) : activities.length === 0 ? (
+            <div className="py-4 text-sm text-muted-foreground">No recent activity yet. Take attendance or save marks to see it here.</div>
+          ) : (
+            <ol className="relative space-y-4 border-l border-border pl-5">
+              {activities.map((a, i) => {
+                const Icon = activityIcons[a.icon] ?? CheckCheck;
+                return (
+                  <li key={i} className="relative">
+                    <span className="absolute -left-[26px] grid h-6 w-6 place-items-center rounded-full bg-secondary text-primary ring-4 ring-background">
+                      <Icon className="h-3 w-3" />
+                    </span>
+                    <div className="text-sm font-medium">{a.title}</div>
+                    <div className="text-xs text-muted-foreground">{a.desc}</div>
+                    <div className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground/80">
+                      {formatDistanceToNow(new Date(a.created_at), { addSuffix: true })}
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -29039,7 +30723,7 @@ FILE: frontend/src/routes/teacher.profile.tsx
 ====================================================================================================
 
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -29050,47 +30734,147 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Mail, Phone, MapPin, Clock, Briefcase, GraduationCap, Pencil, Key, Camera, Check, X } from "lucide-react";
-import { teacher as teacherData, courses } from "@/features/Teacher/lib/mock-data";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { authHeader } from "@/lib/auth";
+import { apiJson, apiFormJson } from "@/lib/api";
+import { getTeacherCourses, type TeacherCourse, type TeacherMeDto } from "@/features/Teacher/lib/academic-data";
 
 export const Route = createFileRoute("/teacher/profile")({
   head: () => ({ meta: [{ title: "My Profile · Teacher Portal" }] }),
   component: Profile,
 });
 
+const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+function photoSrc(photo?: string | null): string | undefined {
+  if (!photo) return undefined;
+  return photo.startsWith("http") ? photo : `${API_URL}${photo}`;
+}
+
+function initials(name: string) {
+  return name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
+}
+
 function Profile() {
-  const [teacher, setTeacher] = useState(teacherData);
+  const [teacher, setTeacher] = useState<TeacherMeDto | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [courses, setCourses] = useState<TeacherCourse[]>([]);
+
   const [editOpen, setEditOpen] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
+  const [savingContact, setSavingContact] = useState(false);
+
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState({
-    photo: teacher.photo,
-    name: teacher.name,
-    email: teacher.email,
-    phone: teacher.phone,
-    office: teacher.office,
-    qualification: teacher.qualification,
-    specialization: teacher.specialization,
+    email: "", phone: "", office: "", officeHours: "", qualification: "", specialization: "",
   });
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const data = await apiJson<TeacherMeDto>("/api/teacher/me");
+        if (!cancelled) setTeacher(data);
+      } catch (err) {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load your profile.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getTeacherCourses().then((list) => {
+      if (!cancelled) setCourses(list);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
   function openEdit() {
+    if (!teacher) return;
     setForm({
-      photo: teacher.photo,
-      name: teacher.name,
-      email: teacher.email,
-      phone: teacher.phone,
-      office: teacher.office,
-      qualification: teacher.qualification,
-      specialization: teacher.specialization,
+      email: teacher.email ?? "",
+      phone: teacher.phone ?? "",
+      office: teacher.office ?? "",
+      officeHours: teacher.office_hours ?? "",
+      qualification: teacher.qualification ?? "",
+      specialization: teacher.specialization ?? "",
     });
     setEditOpen(true);
   }
 
-  function saveProfile() {
-    setTeacher((t) => ({ ...t, ...form }));
-    setEditOpen(false);
-    toast.success("Profile updated successfully");
+  async function saveProfile() {
+    if (!form.email.trim()) {
+      toast.error("Email cannot be empty.");
+      return;
+    }
+    setSavingContact(true);
+    try {
+      const updated = await apiJson<TeacherMeDto>("/api/teacher/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: form.email.trim(),
+          phone: form.phone.trim() || null,
+          office: form.office.trim() || null,
+          office_hours: form.officeHours.trim() || null,
+          qualification: form.qualification.trim() || null,
+          specialization: form.specialization.trim() || null,
+        }),
+      });
+      setTeacher(updated);
+      setEditOpen(false);
+      toast.success("Profile updated successfully");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update profile");
+    } finally {
+      setSavingContact(false);
+    }
+  }
+
+  async function uploadPhoto(file: File) {
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image is larger than the 5 MB limit.");
+      return;
+    }
+    setUploadingPhoto(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const updated = await apiFormJson<TeacherMeDto>("/api/teacher/me/photo", form);
+      setTeacher(updated);
+      toast.success("Profile picture updated.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to upload photo");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground">
+        Loading profile…
+      </div>
+    );
+  }
+
+  if (loadError || !teacher) {
+    return (
+      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 text-center">
+        <p className="text-sm text-destructive">{loadError ?? "Profile unavailable."}</p>
+        <Button size="sm" variant="outline" onClick={() => window.location.reload()}>Retry</Button>
+      </div>
+    );
   }
 
   return (
@@ -29100,16 +30884,44 @@ function Profile() {
         <div className="relative px-6 pb-6">
           <div className="-mt-14 flex flex-col items-start gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div className="flex items-end gap-4">
-              <Avatar className="h-28 w-28 border-4 border-background shadow-glass">
-                <AvatarImage src={teacher.photo} />
-                <AvatarFallback>AS</AvatarFallback>
-              </Avatar>
+              <div className="group relative h-28 w-28 shrink-0">
+                <Avatar className="h-28 w-28 border-4 border-background shadow-glass">
+                  <AvatarImage src={photoSrc(teacher.photo)} />
+                  <AvatarFallback>{initials(teacher.name)}</AvatarFallback>
+                </Avatar>
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept=".png,.jpg,.jpeg,.webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) uploadPhoto(file);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={uploadingPhoto}
+                  onClick={() => photoInputRef.current?.click()}
+                  title="Change profile picture"
+                  className="absolute inset-0 grid place-items-center rounded-full bg-black/0 text-white opacity-0 transition group-hover:bg-black/40 group-hover:opacity-100"
+                >
+                  <Camera className="h-6 w-6" />
+                </button>
+                {uploadingPhoto && (
+                  <div className="absolute inset-0 grid place-items-center rounded-full bg-black/40 text-[10px] font-medium text-white">
+                    Uploading…
+                  </div>
+                )}
+              </div>
               <div className="pb-2">
                 <h1 className="font-display text-2xl font-bold">{teacher.title} {teacher.name}</h1>
-                <p className="text-sm text-muted-foreground">{teacher.specialization}</p>
+                <p className="text-sm text-muted-foreground">{teacher.specialization || "—"}</p>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <Badge variant="secondary" className="rounded-full">{teacher.department}</Badge>
-                  <Badge className="rounded-full bg-primary/10 text-primary hover:bg-primary/20">{teacher.experience} experience</Badge>
+                  {teacher.experience ? (
+                    <Badge className="rounded-full bg-primary/10 text-primary hover:bg-primary/20">{teacher.experience} experience</Badge>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -29129,28 +30941,32 @@ function Profile() {
         <Card className="rounded-2xl shadow-soft md:col-span-2">
           <CardHeader><CardTitle className="text-base">Contact & Office</CardTitle></CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
-            <Info icon={Mail} label="Email" value={teacher.email} />
-            <Info icon={Phone} label="Phone" value={teacher.phone} />
-            <Info icon={MapPin} label="Office" value={teacher.office} />
-            <Info icon={Clock} label="Office Hours" value={teacher.officeHours} />
-            <Info icon={Briefcase} label="Qualification" value={teacher.qualification} />
-            <Info icon={GraduationCap} label="Specialization" value={teacher.specialization} />
+            <Info icon={Mail} label="Email" value={teacher.email || "—"} />
+            <Info icon={Phone} label="Phone" value={teacher.phone || "—"} />
+            <Info icon={MapPin} label="Office" value={teacher.office || "—"} />
+            <Info icon={Clock} label="Office Hours" value={teacher.office_hours || "—"} />
+            <Info icon={Briefcase} label="Qualification" value={teacher.qualification || "—"} />
+            <Info icon={GraduationCap} label="Specialization" value={teacher.specialization || "—"} />
           </CardContent>
         </Card>
         <Card className="rounded-2xl shadow-soft">
           <CardHeader><CardTitle className="text-base">Assigned Courses</CardTitle></CardHeader>
           <CardContent className="space-y-2.5">
-            {courses.map((c) => (
-              <div key={c.id} className="flex items-center gap-3 rounded-xl border border-border p-3">
-                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-secondary text-primary font-mono text-xs font-bold">
-                  {c.code.split("-")[1]}
+            {courses.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No courses assigned yet.</p>
+            ) : (
+              courses.map((c) => (
+                <div key={c.id} className="flex items-center gap-3 rounded-xl border border-border p-3">
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-secondary text-primary font-mono text-xs font-bold">
+                    {c.code.split("-")[1] ?? c.code}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold">{c.name}</div>
+                    <div className="text-xs text-muted-foreground">{c.code} · Sem {c.sem}</div>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold">{c.name}</div>
-                  <div className="text-xs text-muted-foreground">{c.code} · Sem {c.sem}</div>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </CardContent>
         </Card>
       </div>
@@ -29160,36 +30976,15 @@ function Profile() {
         <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto rounded-2xl">
           <DialogHeader>
             <DialogTitle>Edit Profile</DialogTitle>
-            <DialogDescription>Update your public profile information.</DialogDescription>
+            <DialogDescription>Update your contact and office information. Name stays admin-managed.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            <div className="flex items-center gap-4">
-              <Avatar className="h-16 w-16">
-                <AvatarImage src={form.photo} />
-                <AvatarFallback>AS</AvatarFallback>
-              </Avatar>
-              <div className="flex-1">
-                <Label className="text-xs text-muted-foreground">Profile Photo URL</Label>
-                <div className="mt-1 flex gap-2">
-                  <Input
-                    value={form.photo}
-                    onChange={(e) => setForm((f) => ({ ...f, photo: e.target.value }))}
-                    className="rounded-xl"
-                    placeholder="https://…"
-                  />
-                  <Button type="button" variant="outline" size="icon" className="shrink-0 rounded-xl">
-                    <Camera className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </div>
-
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Name" value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} />
               <Field label="Email" type="email" value={form.email} onChange={(v) => setForm((f) => ({ ...f, email: v }))} />
               <Field label="Phone" value={form.phone} onChange={(v) => setForm((f) => ({ ...f, phone: v }))} />
               <Field label="Office" value={form.office} onChange={(v) => setForm((f) => ({ ...f, office: v }))} />
+              <Field label="Office Hours" value={form.officeHours} onChange={(v) => setForm((f) => ({ ...f, officeHours: v }))} />
               <Field label="Qualification" value={form.qualification} onChange={(v) => setForm((f) => ({ ...f, qualification: v }))} />
               <Field label="Specialization" value={form.specialization} onChange={(v) => setForm((f) => ({ ...f, specialization: v }))} />
             </div>
@@ -29197,7 +30992,9 @@ function Profile() {
 
           <DialogFooter>
             <Button variant="outline" className="rounded-xl" onClick={() => setEditOpen(false)}>Cancel</Button>
-            <Button className="rounded-xl" onClick={saveProfile}>Save Changes</Button>
+            <Button className="rounded-xl" onClick={saveProfile} disabled={savingContact}>
+              {savingContact ? "Saving…" : "Save Changes"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -29231,8 +31028,6 @@ function Info({ icon: Icon, label, value }: { icon: any; label: string; value: s
   );
 }
 
-const CURRENT_PASSWORD_MOCK = "password123";
-
 function passwordStrength(pw: string) {
   let score = 0;
   if (pw.length >= 8) score++;
@@ -29247,6 +31042,7 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const strength = passwordStrength(next);
   const strengthLabel = ["Very weak", "Weak", "Fair", "Good", "Strong"][strength];
@@ -29256,9 +31052,10 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
     setCurrent(""); setNext(""); setConfirm(""); setError(null);
   }
 
-  function submit() {
-    if (current !== CURRENT_PASSWORD_MOCK) {
-      setError("Current password is incorrect.");
+  async function submit() {
+    setError(null);
+    if (!current || !next) {
+      setError("Fill in both the current and new password.");
       return;
     }
     if (strength < 2) {
@@ -29269,9 +31066,26 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
       setError("New password and confirmation do not match.");
       return;
     }
-    toast.success("Password updated successfully");
-    onOpenChange(false);
-    reset();
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/change-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ current_password: current, new_password: next }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setError(err.detail ?? "Failed to update password");
+        return;
+      }
+      toast.success("Password updated successfully");
+      onOpenChange(false);
+      reset();
+    } catch {
+      setError("Could not reach the server. Try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -29316,13 +31130,14 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
 
         <DialogFooter>
           <Button variant="outline" className="rounded-xl" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button className="rounded-xl" onClick={submit}>Update Password</Button>
+          <Button className="rounded-xl" onClick={submit} disabled={saving}>
+            {saving ? "Updating…" : "Update Password"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
-
 
 
 ====================================================================================================

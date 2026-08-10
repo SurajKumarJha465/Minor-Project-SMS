@@ -3620,7 +3620,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 
 from api.database import get_db
-from api.models import User, RoleEnum, Student, Section, Department, Notice, Enrollment, AttendanceRecord, AttendanceStatus, Course, Teacher, InternalMark, MarkStatus, CourseGrade
+from api.models import User, RoleEnum, Student, Section, Department, Notice, Enrollment, AttendanceRecord, AttendanceStatus, Course, Teacher, InternalMark, MarkStatus, CourseGrade, CalendarEvent
 from api.grading import grade_point
 from api.auth import require_role
 from api.schemas import (
@@ -3638,6 +3638,7 @@ from api.schemas import (
     TwoFactorSetupResponse,
     TwoFactorVerifyRequest,
     TwoFactorStatusResponse,
+    EventOut,
 )
 
 router = APIRouter(prefix="/api/student", tags=["student"])
@@ -3803,6 +3804,30 @@ def list_my_notices(
             date=n.created_at.strftime("%b %d, %Y"), scheduled_for=None,
         )
         for n in notices
+    ]
+
+
+@router.get("/calendar", response_model=list[EventOut])
+def list_my_calendar(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.student)),
+):
+    """Academic calendar events for the student's own department. Read-only —
+    events are created and managed by the HOD (see hod.py's /events routes)."""
+    student = _current_student(db, current_user)
+
+    events = (
+        db.query(CalendarEvent)
+        .filter(CalendarEvent.department_id == student.department_id)
+        .order_by(CalendarEvent.date.asc())
+        .all()
+    )
+    return [
+        EventOut(
+            id=e.id, title=e.title, type=e.type.value,
+            date=e.date.isoformat(), display_date=e.date.strftime("%b %d, %Y"),
+        )
+        for e in events
     ]
 
 
@@ -7270,56 +7295,27 @@ if __name__ == "__main__":
 
 
 ====================================================================================================
-FILE: frontend/.lovable/plan.md
+FILE: frontend/.lovable/plan/fix-current-type-errors-then-verify-github-sync-2026-08-10.md
 ====================================================================================================
 
-# Why the preview won't update
+# Fix current type errors, then verify GitHub sync
 
-## The breakage
+## Confirmed issues
 
-The new commit's attendance page imports five things that don't exist in the file it imports them from.
+- `src/components/safe-avatar-image.tsx` declares `parsed` inside the URL-validation `try` block, but uses it afterward; the hostname checks therefore reference an out-of-scope variable.
+- `src/features/SuperAdmin/components/Topbar.tsx` passes a Lucide icon element as `SafeAvatarImage`’s `fallback`, while that prop currently accepts only a string.
 
-`src/routes/teacher.attendance.$courseId.tsx` imports from `@/features/Teacher/lib/attendance-api`:
+## Implementation steps
 
-- `recognizeAttendanceFrame`
-- `saveAttendance`
-- `getTodayAttendance`
-- type `AttendanceEntry`
-- type `Status`
+1. Adjust the image URL validation so the parsed hostname is available to the later allow-list check without changing the validation behavior.
+2. Update the avatar fallback contract and rendering so both text fallbacks and icon fallbacks are supported safely.
+3. Run the project’s existing typecheck/build verification and confirm these two errors are gone.
+4. Open the project’s **+ menu → GitHub** integration, inspect the connected repository and branch, and re-trigger sync if the control is available.
+5. Confirm whether the connected repository is `eduflow-hub` and whether the active branch matches the branch currently selected in that repository; report any mismatch if the integration does not expose a sync/branch control.
 
-But `src/features/Teacher/lib/attendance-api.ts` in this workspace is a near-copy of `academic-data.ts` — it only exports course/roster/marks helpers (`getTeacherCourses`, `getCourseByCompositeId`, `getRosterForCourse`, `getCourseMarks`, `saveCourseMarks`, department/section constants). None of the five attendance exports are there.
+## Scope
 
-Because those imports fail, the route module can't be evaluated, which is exactly the error the preview shows:
-
-```text
-TypeError: error loading dynamically imported module: .../@tanstack/react-router/dist/esm/index.dev.js
-```
-
-The router import is just the first thing in the failing module — the router itself is fine. Secondary type errors in the same file (`s` implicitly any, `student_id`/`similarity` implicitly any) are fallout from the missing types.
-
-No other file in the project fails to typecheck. This one missing module is what's blocking the preview.
-
-## Fix: add the missing attendance layer
-
-Add the three attendance functions and two types to `src/features/Teacher/lib/attendance-api.ts`, built on the existing `src/lib/api.ts` helpers (`apiJson`, `apiFormJson`, `authHeader` already wired there), matching how the route already calls them:
-
-- `type Status = "pending" | "present" | "absent"`
-- `type AttendanceEntry = { status: Status; source: "ai" | "manual"; similarity: number | null }`
-- `getTodayAttendance(courseId)` — GET today's records, returning `{ records: [{ student_id, status, marked_by, similarity }] }`, so an empty/unavailable response leaves the page on a blank roster instead of erroring.
-- `recognizeAttendanceFrame(courseId, imageBlob)` — multipart POST of the captured frame to the recognition endpoint, returning the recognized `{ student_id, similarity }` list.
-- `saveAttendance(courseId, rows)` — POST/PUT the final per-student statuses.
-
-Then remove the duplicated marks/course helpers from `attendance-api.ts` that already live in `academic-data.ts`, so there is one source of truth and the route keeps importing course/roster data from `academic-data.ts` as it does today.
-
-## Note on the sync question
-
-This confirms the earlier diagnosis: the commit's route file arrived, but the matching `attendance-api.ts` did not — the two sides are out of step. If you have the repo's version of that file, paste it and I'll use it verbatim instead of reconstructing the functions. Otherwise I'll write them against the endpoint shapes the route already expects.
-
-## Verification
-
-- Typecheck clean (currently 9 errors, all in this one file).
-- Load `/teacher/attendance/<courseId>` in the preview and confirm the roster renders with no console error.
-
+Only the two reported type errors and the requested GitHub sync verification will be addressed; no other feature behavior or source files will be changed.
 
 
 ====================================================================================================
@@ -7549,7 +7545,7 @@ import { cn } from "@/lib/utils";
 interface SafeAvatarImageProps {
   src: string | null | undefined;
   alt?: string;
-  fallback: string;
+  fallback: React.ReactNode;
   className?: string;
   imageClassName?: string;
   onError?: () => void;
@@ -7606,8 +7602,9 @@ export function validateImageUrl(url: string): string | null {
   const trimmed = url.trim();
   if (!trimmed) return null; // empty is allowed (clears photo)
 
+  let parsed: URL;
   try {
-    const parsed = new URL(trimmed);
+    parsed = new URL(trimmed);
     if (!parsed.protocol.startsWith("http")) {
       return "URL must start with http:// or https://";
     }
@@ -13193,7 +13190,7 @@ export default function StudentApp() {
         user={user ?? undefined}
         brandLabel="Student Portal"
       >
-        {Page ? <Page /> : null}
+        {Page ? <Page onNavigate={setActiveId} /> : null}
       </DashboardShell>
     </ThemeProvider>
   );
@@ -13927,6 +13924,7 @@ FILE: frontend/src/features/Student/student/index.js
 // Student module manifest — registers navigation + pages.
 import {
   BookOpen,
+  CalendarDays,
   FileBarChart,
   LayoutDashboard,
   ListChecks,
@@ -13942,6 +13940,7 @@ import Attendance from "./pages/Attendance";
 import InternalMarks from "./pages/InternalMarks";
 import SemesterResults from "./pages/SemesterResults";
 import NoticeBoard from "./pages/NoticeBoard";
+import AcademicCalendar from "./pages/AcademicCalendar";
 
 const crumb = (label) => ["Student", label];
 
@@ -13970,6 +13969,7 @@ export const studentModule = {
       section: "Tools",
       items: [
         { id: "notice-board", label: "Notice Board", icon: Megaphone, breadcrumb: crumb("Notice Board") },
+        { id: "academic-calendar", label: "Academic Calendar", icon: CalendarDays, breadcrumb: crumb("Academic Calendar") },
       ],
     },
   ],
@@ -13981,6 +13981,7 @@ export const studentModule = {
     "internal-marks": InternalMarks,
     "semester-results": SemesterResults,
     "notice-board": NoticeBoard,
+    "academic-calendar": AcademicCalendar,
   },
 };
 
@@ -13991,27 +13992,100 @@ export default studentModule;
 FILE: frontend/src/features/Student/student/pages/AcademicCalendar.jsx
 ====================================================================================================
 
-import { BookMarked, CalendarDays, FileText, PartyPopper, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Award, Bell, CalendarDays, ChevronLeft, ChevronRight, FileText, GraduationCap, PartyPopper, Users,
+} from "lucide-react";
 
 import SectionCard from "@/features/Student/ui/SectionCard";
 import Pill from "@/features/Student/ui/Pill";
-import { calendarEvents } from "@/features/Student/data/mock/student";
+import Button from "@/features/Student/ui/Button";
+import { authHeader } from "@/lib/auth";
 
+const API_URL = import.meta.env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+// Mirrors the EventType enum on the backend (see hod.calendar.tsx, which
+// manages these events — students only ever view them).
 const TYPE = {
-  exam: { tone: "danger", icon: FileText, label: "Exam" },
-  assignment: { tone: "warning", icon: BookMarked, label: "Assignment" },
-  event: { tone: "primary", icon: Sparkles, label: "Event" },
-  holiday: { tone: "success", icon: PartyPopper, label: "Holiday" },
+  Exam: { tone: "danger", icon: GraduationCap },
+  Deadline: { tone: "warning", icon: FileText },
+  Meeting: { tone: "info", icon: Users },
+  Event: { tone: "primary", icon: Bell },
+  Holiday: { tone: "success", icon: PartyPopper },
+  Result: { tone: "primary", icon: Award },
+};
+const DOT_CLASS = {
+  danger: "bg-destructive", warning: "bg-warning", info: "bg-info", success: "bg-success", primary: "bg-primary",
+};
+const ICON_WRAP_CLASS = {
+  danger: "bg-destructive/12 text-destructive",
+  warning: "bg-warning/20 text-warning-foreground",
+  info: "bg-info/15 text-info-foreground",
+  success: "bg-success/15 text-success",
+  primary: "bg-primary/12 text-primary",
 };
 
-// Simple month grid (July 2026) with event markers.
-const daysInMonth = 31;
-const firstWeekday = 2; // Wed
-const eventDays = calendarEvents
-  .filter((e) => e.date.includes("Jul"))
-  .map((e) => ({ day: parseInt(e.date, 10), type: e.type, title: e.title }));
+function todayISODate() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 export default function AcademicCalendar() {
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [viewDate, setViewDate] = useState(() => new Date());
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`${API_URL}/api/student/calendar`, { headers: { ...authHeader() } });
+        if (!res.ok) throw new Error(`Failed to load calendar (${res.status})`);
+        const data = await res.json();
+        if (!cancelled) setEvents(data);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load the calendar.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  const monthLabel = viewDate.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstWeekday = new Date(year, month, 1).getDay();
+  const todayStr = todayISODate();
+
+  const cells = [
+    ...Array.from({ length: firstWeekday }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+
+  const eventsByDay = useMemo(() => {
+    const map = new Map();
+    for (const e of events) {
+      const d = new Date(e.date);
+      if (d.getFullYear() === year && d.getMonth() === month) {
+        const list = map.get(d.getDate()) ?? [];
+        list.push(e);
+        map.set(d.getDate(), list);
+      }
+    }
+    return map;
+  }, [events, year, month]);
+
+  const upcoming = useMemo(
+    () => events.filter((e) => e.date.slice(0, 10) >= todayStr).sort((a, b) => a.date.localeCompare(b.date)),
+    [events, todayStr],
+  );
+
   return (
     <div className="space-y-6">
       <div>
@@ -14019,71 +14093,92 @@ export default function AcademicCalendar() {
         <p className="mt-1 text-sm text-muted-foreground">Exams, deadlines, holidays and events at a glance.</p>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-5">
-        {/* Month grid */}
-        <SectionCard title="July 2026" icon={CalendarDays} className="lg:col-span-3">
-          <div className="mb-3 flex flex-wrap gap-3">
-            {Object.entries(TYPE).map(([k, v]) => (
-              <span key={k} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span className={`size-2.5 rounded-full ${
-                  v.tone === "danger" ? "bg-destructive" : v.tone === "warning" ? "bg-warning" : v.tone === "success" ? "bg-success" : "bg-primary"
-                }`} /> {v.label}
-              </span>
-            ))}
-          </div>
-          <div className="grid grid-cols-7 gap-1.5 text-center text-[11px] font-medium text-muted-foreground">
-            {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => <span key={i} className="py-1">{d}</span>)}
-            {Array.from({ length: firstWeekday }).map((_, i) => <span key={`e${i}`} />)}
-            {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((day) => {
-              const ev = eventDays.find((e) => e.day === day);
-              const t = ev ? TYPE[ev.type] : null;
-              return (
-                <div
-                  key={day}
-                  title={ev?.title}
-                  className={`relative grid aspect-square place-items-center rounded-lg text-xs font-semibold ${
-                    ev ? "gradient-mist text-primary" : "text-foreground hover:bg-accent/50"
-                  }`}
-                >
-                  {day}
-                  {t && (
-                    <span className={`absolute bottom-1 size-1.5 rounded-full ${
-                      t.tone === "danger" ? "bg-destructive" : t.tone === "warning" ? "bg-warning" : t.tone === "success" ? "bg-success" : "bg-primary"
-                    }`} />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </SectionCard>
+      {error && (
+        <p className="rounded-2xl border border-destructive/40 bg-destructive/5 p-8 text-center text-sm text-destructive">
+          {error}
+        </p>
+      )}
 
-        {/* Upcoming schedule */}
-        <SectionCard title="Upcoming Schedule" icon={Sparkles} className="lg:col-span-2" bodyClassName="p-3">
-          <div className="space-y-2">
-            {calendarEvents.map((e, i) => {
-              const t = TYPE[e.type];
-              return (
-                <div key={i} className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-3">
-                  <span className={`grid size-9 shrink-0 place-items-center rounded-lg ${
-                    t.tone === "danger" ? "bg-destructive/12 text-destructive" : t.tone === "warning" ? "bg-warning/20 text-warning-foreground" : t.tone === "success" ? "bg-success/15 text-success" : "bg-primary/12 text-primary"
-                  }`}>
-                    <t.icon className="size-4" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-foreground">{e.title}</p>
-                    <p className="text-xs text-muted-foreground">{e.date}</p>
+      {!error && (
+        <div className="grid gap-4 lg:grid-cols-5">
+          {/* Month grid */}
+          <SectionCard
+            title={monthLabel}
+            icon={CalendarDays}
+            className="lg:col-span-3"
+            action={
+              <div className="flex items-center gap-1">
+                <Button size="icon" variant="ghost" onClick={() => setViewDate(new Date(year, month - 1, 1))}>
+                  <ChevronLeft className="size-4" />
+                </Button>
+                <Button size="icon" variant="ghost" onClick={() => setViewDate(new Date(year, month + 1, 1))}>
+                  <ChevronRight className="size-4" />
+                </Button>
+              </div>
+            }
+          >
+            <div className="mb-3 flex flex-wrap gap-3">
+              {Object.entries(TYPE).map(([label, v]) => (
+                <span key={label} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className={`size-2.5 rounded-full ${DOT_CLASS[v.tone]}`} /> {label}
+                </span>
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-1.5 text-center text-[11px] font-medium text-muted-foreground">
+              {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => <span key={i} className="py-1">{d}</span>)}
+              {cells.map((day, i) => {
+                if (day === null) return <span key={`e${i}`} />;
+                const dayEvents = eventsByDay.get(day) ?? [];
+                const isToday = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}` === todayStr;
+                const primary = dayEvents[0] ? TYPE[dayEvents[0].type] : null;
+                return (
+                  <div
+                    key={day}
+                    title={dayEvents.map((e) => e.title).join(", ")}
+                    className={`relative grid aspect-square place-items-center rounded-lg text-xs font-semibold ${
+                      dayEvents.length ? "gradient-mist text-primary" : "text-foreground hover:bg-accent/50"
+                    } ${isToday ? "ring-2 ring-primary" : ""}`}
+                  >
+                    {day}
+                    {primary && (
+                      <span className={`absolute bottom-1 size-1.5 rounded-full ${DOT_CLASS[primary.tone]}`} />
+                    )}
                   </div>
-                  <Pill tone={t.tone}>{t.label}</Pill>
-                </div>
-              );
-            })}
-          </div>
-        </SectionCard>
-      </div>
+                );
+              })}
+            </div>
+          </SectionCard>
+
+          {/* Upcoming schedule */}
+          <SectionCard title="Upcoming Schedule" icon={Bell} className="lg:col-span-2" bodyClassName="p-3">
+            <div className="space-y-2">
+              {loading && <p className="py-6 text-center text-sm text-muted-foreground">Loading…</p>}
+              {!loading && upcoming.length === 0 && (
+                <p className="py-6 text-center text-sm text-muted-foreground">No upcoming events.</p>
+              )}
+              {upcoming.map((e) => {
+                const t = TYPE[e.type] ?? TYPE.Event;
+                const Icon = t.icon;
+                return (
+                  <div key={e.id} className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-3">
+                    <span className={`grid size-9 shrink-0 place-items-center rounded-lg ${ICON_WRAP_CLASS[t.tone]}`}>
+                      <Icon className="size-4" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">{e.title}</p>
+                      <p className="text-xs text-muted-foreground">{e.display_date}</p>
+                    </div>
+                    <Pill tone={t.tone}>{e.type}</Pill>
+                  </div>
+                );
+              })}
+            </div>
+          </SectionCard>
+        </div>
+      )}
     </div>
   );
 }
-
 
 
 ====================================================================================================
@@ -14740,7 +14835,7 @@ FILE: frontend/src/features/Student/student/pages/Dashboard.jsx
 ====================================================================================================
 
 import { toast } from "sonner";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -14757,10 +14852,8 @@ import {
 import {
   BellRing,
   BookOpen,
-  Download,
   GraduationCap,
   ListChecks,
-  Paperclip,
   TrendingUp,
   UserCheck,
 } from "lucide-react";
@@ -14772,21 +14865,18 @@ import Button from "@/features/Student/ui/Button";
 import Pill from "@/features/Student/ui/Pill";
 import FloatingModal from "@/features/Student/ui/FloatingModal";
 import { CHART, tooltipStyle } from "@/features/Student/lib/chart-colors";
-import {
-  attendanceTrend,
-  coursePerformance,
-  notices,
-  quickStats,
-  semesterGpaTrend,
-  studentProfile,
-} from "@/features/Student/data/mock/student";
+import { authHeader } from "@/lib/auth";
 
-const CAT_TONE = { Important: "danger", Academic: "info", Department: "primary", Exam: "warning" };
+const API_URL = import.meta.env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+// Same category → colour mapping NoticeBoard.jsx uses, so a notice looks the
+// same whether you see it here or on the full board.
+const CAT_TONE = { Department: "primary", Semester: "info", Exam: "warning", Emergency: "danger" };
 
 const QUICK_ACTIONS = [
   { label: "View Attendance", icon: UserCheck, page: "attendance" },
   { label: "View Marks", icon: ListChecks, page: "internal-marks" },
-  { label: "Download Result", icon: Download, page: "semester-results" },
+  { label: "Download Result", icon: BookOpen, page: "semester-results" },
   { label: "Open Notices", icon: BellRing, page: "notice-board" },
 ];
 
@@ -14798,19 +14888,114 @@ const formatToday = () =>
     year: "numeric",
   });
 
+// The backend only tracks attendance day-by-day (no monthly rollup), so the
+// "trend" chart is built here from the raw calendar: bucket days into weeks
+// and take the % present per week, most recent 8 weeks.
+function buildWeeklyAttendanceTrend(calendar) {
+  if (!calendar?.length) return [];
+  const buckets = new Map();
+  for (const day of calendar) {
+    const d = new Date(day.date);
+    if (Number.isNaN(d.getTime())) continue;
+    const weekStart = new Date(d);
+    weekStart.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // Monday of that week
+    const key = weekStart.toISOString().slice(0, 10);
+    const bucket = buckets.get(key) ?? { present: 0, total: 0 };
+    bucket.total += 1;
+    if (day.status === "present") bucket.present += 1;
+    buckets.set(key, bucket);
+  }
+  return Array.from(buckets.entries())
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .slice(-8)
+    .map(([key, b]) => ({
+      name: new Date(key).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }),
+      value: Math.round((b.present / b.total) * 100),
+    }));
+}
+
 export default function Dashboard({ onNavigate }) {
   const [today, setToday] = useState("");
   const [noticeOpen, setNoticeOpen] = useState(null);
+
+  const [profile, setProfile] = useState(null);
+  const [attendance, setAttendance] = useState(null);
+  const [courses, setCourses] = useState([]);
+  const [results, setResults] = useState(null);
+  const [notices, setNotices] = useState([]);
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => setToday(formatToday()), []);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      try {
+        const headers = { ...authHeader() };
+        const [meRes, attRes, coursesRes, resultsRes, noticesRes] = await Promise.all([
+          fetch(`${API_URL}/api/student/me`, { headers }),
+          fetch(`${API_URL}/api/student/attendance`, { headers }),
+          fetch(`${API_URL}/api/student/courses`, { headers }),
+          fetch(`${API_URL}/api/student/results`, { headers }),
+          fetch(`${API_URL}/api/student/notices`, { headers }),
+        ]);
+        if (!meRes.ok) throw new Error(`Failed to load profile (${meRes.status})`);
+        if (!attRes.ok) throw new Error(`Failed to load attendance (${attRes.status})`);
+        if (!coursesRes.ok) throw new Error(`Failed to load courses (${coursesRes.status})`);
+        if (!resultsRes.ok) throw new Error(`Failed to load results (${resultsRes.status})`);
+        if (!noticesRes.ok) throw new Error(`Failed to load notices (${noticesRes.status})`);
+
+        const [me, att, courseList, resultsData, noticeList] = await Promise.all([
+          meRes.json(),
+          attRes.json(),
+          coursesRes.json(),
+          resultsRes.json(),
+          noticesRes.json(),
+        ]);
+
+        if (cancelled) return;
+        setProfile(me);
+        setAttendance(att);
+        setCourses(courseList);
+        setResults(resultsData);
+        setNotices(noticeList);
+      } catch (err) {
+        if (!cancelled) toast.error(err instanceof Error ? err.message : "Could not load dashboard data.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const stats = [
-    { icon: UserCheck, label: "Attendance", value: `${quickStats.attendance}%`, tone: "primary" },
-    { icon: TrendingUp, label: "CGPA", value: studentProfile.cgpa, tone: "info" },
-    { icon: BookOpen, label: "Courses Enrolled", value: quickStats.coursesEnrolled, tone: "mist" },
-    { icon: GraduationCap, label: "Semester Progress", value: `${quickStats.semesterProgress}%`, tone: "mist" },
+    { icon: UserCheck, label: "Attendance", value: attendance ? `${attendance.summary.overall}%` : "—", tone: "primary" },
+    { icon: TrendingUp, label: "CGPA", value: results ? results.cgpa : "—", tone: "info" },
+    { icon: BookOpen, label: "Courses Enrolled", value: courses.length, tone: "mist" },
+    { icon: GraduationCap, label: "Semester", value: profile ? profile.semester : "—", tone: "mist" },
   ];
 
+  const weeklyAttendanceTrend = useMemo(
+    () => buildWeeklyAttendanceTrend(attendance?.calendar),
+    [attendance],
+  );
+
+  const semesterGpaTrend = useMemo(
+    () => (results?.results ?? []).map((r) => ({ name: `Sem ${r.semester}`, gpa: r.gpa })),
+    [results],
+  );
+
+  const coursePerformance = useMemo(
+    () => courses.map((c) => ({ name: c.code, score: Math.round((c.internal / (c.internal_max || 50)) * 100) })),
+    [courses],
+  );
+
   const quickNotices = notices.slice(0, 4);
+  const firstName = profile?.name?.split(" ")[0] ?? "";
 
   return (
     <div className="space-y-6">
@@ -14822,16 +15007,20 @@ export default function Dashboard({ onNavigate }) {
           <div className="min-w-0 text-primary-foreground">
             <p className="text-sm font-medium opacity-80">{today}</p>
             <h1 className="mt-1 font-display text-2xl font-bold tracking-tight sm:text-3xl">
-              Welcome back, {studentProfile.firstName}! 👋
+              Welcome back{firstName ? `, ${firstName}` : ""}! 👋
             </h1>
             <p className="mt-1.5 text-sm opacity-90">
-              Semester {studentProfile.semester} · {studentProfile.department} · Enrollment {studentProfile.enrollment}
+              {profile
+                ? `Semester ${profile.semester} · ${profile.department} · Enrollment ${profile.enrollment}`
+                : loading
+                  ? "Loading your details…"
+                  : ""}
             </p>
           </div>
           <div className="flex items-center gap-3 rounded-2xl bg-white/15 px-5 py-3 backdrop-blur">
             <div className="text-primary-foreground">
               <p className="text-xs opacity-80">Current CGPA</p>
-              <p className="font-display text-2xl font-bold">{studentProfile.cgpa}</p>
+              <p className="font-display text-2xl font-bold">{results ? results.cgpa : "—"}</p>
             </div>
           </div>
         </div>
@@ -14864,8 +15053,8 @@ export default function Dashboard({ onNavigate }) {
 
       {/* Analytics */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <ChartCard title="Attendance Trend" subtitle="Monthly average %" icon={TrendingUp}>
-          <AreaChart data={attendanceTrend} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+        <ChartCard title="Attendance Trend" subtitle="Weekly average %" icon={TrendingUp}>
+          <AreaChart data={weeklyAttendanceTrend} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
             <defs>
               <linearGradient id="attGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={CHART.c1} stopOpacity={0.35} />
@@ -14874,7 +15063,7 @@ export default function Dashboard({ onNavigate }) {
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke={CHART.grid} vertical={false} />
             <XAxis dataKey="name" stroke={CHART.axis} fontSize={12} tickLine={false} axisLine={false} />
-            <YAxis domain={[70, 100]} stroke={CHART.axis} fontSize={12} tickLine={false} axisLine={false} />
+            <YAxis domain={[0, 100]} stroke={CHART.axis} fontSize={12} tickLine={false} axisLine={false} />
             <Tooltip {...tooltipStyle} />
             <Area type="monotone" dataKey="value" stroke={CHART.c1} strokeWidth={2.5} fill="url(#attGrad)" />
           </AreaChart>
@@ -14884,13 +15073,13 @@ export default function Dashboard({ onNavigate }) {
           <LineChart data={semesterGpaTrend} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={CHART.grid} vertical={false} />
             <XAxis dataKey="name" stroke={CHART.axis} fontSize={12} tickLine={false} axisLine={false} />
-            <YAxis domain={[7, 10]} stroke={CHART.axis} fontSize={12} tickLine={false} axisLine={false} />
+            <YAxis domain={[0, 10]} stroke={CHART.axis} fontSize={12} tickLine={false} axisLine={false} />
             <Tooltip {...tooltipStyle} />
             <Line type="monotone" dataKey="gpa" stroke={CHART.c2} strokeWidth={2.5} dot={{ r: 4, fill: CHART.c2 }} activeDot={{ r: 6 }} />
           </LineChart>
         </ChartCard>
 
-        <ChartCard title="Course Performance" subtitle="Score % per course" icon={BookOpen}>
+        <ChartCard title="Course Performance" subtitle="Internal marks %" icon={BookOpen}>
           <BarChart data={coursePerformance} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={CHART.grid} vertical={false} />
             <XAxis dataKey="name" stroke={CHART.axis} fontSize={11} tickLine={false} axisLine={false} />
@@ -14907,14 +15096,19 @@ export default function Dashboard({ onNavigate }) {
         {/* Quick Notices */}
         <SectionCard title="Quick Notices" icon={BellRing} action={<Button variant="ghost" size="sm" onClick={() => onNavigate("notice-board")}>View all</Button>}>
           <div className="space-y-3">
+            {quickNotices.length === 0 && (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                {loading ? "Loading…" : "No notices yet."}
+              </p>
+            )}
             {quickNotices.map((n) => (
               <div key={n.id} className="rounded-xl border border-border/60 bg-card p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-foreground">{n.title}</p>
-                    <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{n.summary}</p>
+                    <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{n.body}</p>
                   </div>
-                  <Pill tone={n.priority === "High" ? "danger" : "neutral"}>{n.priority}</Pill>
+                  <Pill tone={CAT_TONE[n.type] ?? "neutral"}>{n.type}</Pill>
                 </div>
                 <div className="mt-3 flex items-center justify-between">
                   <span className="text-[11px] text-muted-foreground">{n.date}</span>
@@ -14931,21 +15125,15 @@ export default function Dashboard({ onNavigate }) {
         open={!!noticeOpen}
         onClose={() => setNoticeOpen(null)}
         title={noticeOpen?.title}
-        description={noticeOpen ? `${noticeOpen.category} · ${noticeOpen.date}` : ""}
+        description={noticeOpen ? `${noticeOpen.audience} · ${noticeOpen.author} · ${noticeOpen.date}` : ""}
       >
         {noticeOpen && (
           <div className="space-y-4">
-            <p className="text-sm text-foreground">{noticeOpen.description}</p>
+            <p className="whitespace-pre-wrap text-sm text-foreground">{noticeOpen.body}</p>
             <div className="flex flex-wrap items-center gap-2">
-              <Pill tone={CAT_TONE[noticeOpen.category]} dot>{noticeOpen.category}</Pill>
-              <Pill tone={noticeOpen.priority === "High" ? "danger" : "neutral"}>{noticeOpen.priority} priority</Pill>
+              <Pill tone={CAT_TONE[noticeOpen.type] ?? "neutral"} dot>{noticeOpen.type}</Pill>
+              {noticeOpen.pinned && <Pill tone="danger">Pinned</Pill>}
             </div>
-            {noticeOpen.attachment && (
-              <div className="flex items-center justify-between rounded-xl border border-border/60 bg-accent/30 px-4 py-2.5 text-sm">
-                <span className="flex items-center gap-2 text-foreground"><Paperclip className="size-4" /> {noticeOpen.attachment}</span>
-                <Button size="sm" variant="ghost" onClick={() => toast.success(`Downloading ${noticeOpen.attachment}`)}>Download</Button>
-              </div>
-            )}
             <div className="flex justify-end">
               <Button variant="ghost" onClick={() => setNoticeOpen(null)}>Close</Button>
             </div>
@@ -14955,7 +15143,6 @@ export default function Dashboard({ onNavigate }) {
     </div>
   );
 }
-
 
 
 ====================================================================================================
@@ -18035,9 +18222,17 @@ export function getRosterFor(deptId: string, sem: number, sectionId: string) {
   return Array.from({ length: count }, (_, i) => baseStudents[(seed + i) % baseStudents.length]);
 }
 
+/** Composite course id is `{dept}-{sem}-{section}-{code}`. `dept` (e.g.
+ * "information-technology") can itself contain dashes, so this must be
+ * parsed from the right: `code` and `section` are never dash-bearing
+ * (code has dashes stripped on creation), only `dept` is free-form. */
 export function parseCourseId(compositeId: string) {
-  const [dept, semStr, section] = compositeId.split("-");
-  return { dept, sem: Number(semStr), section };
+  const parts = compositeId.split("-");
+  const code = parts.pop() ?? "";
+  const section = parts.pop() ?? "d";
+  const semStr = parts.pop() ?? "0";
+  const dept = parts.join("-");
+  return { dept, sem: Number(semStr), section, code };
 }
 
 /** Real backend read: current teacher's assigned courses */
@@ -18164,6 +18359,43 @@ export async function saveCourseMarks(courseId: string, rows: (MarkFields & { st
 
 export async function publishCourseMarks(courseId: string) {
   return apiJson<{ published: number }>(`/api/teacher/courses/${courseId}/marks/publish`, { method: "POST" });
+}
+
+export type CourseOffering = {
+  id: string;
+  sem: number;
+  section: string;
+};
+
+export type GroupedTeacherCourse = {
+  code: string;
+  name: string;
+  credits: number;
+  dept: string;
+  offerings: CourseOffering[];
+};
+
+/** Groups a teacher's flat course list (one row per section/semester, since
+ * each is a distinct Course row on the backend) into one entry per course
+ * code, with every (sem, section) offering attached — so the UI can render
+ * "DBMS · Sem 5 · Sec M1, M2" instead of duplicate cards for the same course. */
+export function groupTeacherCourses(courses: TeacherCourse[]): GroupedTeacherCourse[] {
+  const map = new Map<string, GroupedTeacherCourse>();
+
+  for (const c of courses) {
+    const key = c.code;
+    if (!map.has(key)) {
+      map.set(key, { code: c.code, name: c.name, credits: c.credits, dept: c.dept, offerings: [] });
+    }
+    map.get(key)!.offerings.push({ id: c.id, sem: c.sem, section: c.section ?? "d" });
+  }
+
+  const groups = Array.from(map.values());
+  for (const g of groups) {
+    g.offerings.sort((a, b) => a.sem - b.sem || a.section.localeCompare(b.section));
+  }
+  groups.sort((a, b) => (a.offerings[0]?.sem ?? 0) - (b.offerings[0]?.sem ?? 0) || a.code.localeCompare(b.code));
+  return groups;
 }
 
 
@@ -19139,72 +19371,52 @@ FILE: frontend/src/routeTree.gen.ts
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as AdminRouteImport } from './routes/admin'
-import { Route as HodRouteImport } from './routes/hod'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
-import { Route as StudentRouteImport } from './routes/student'
 import { Route as TeacherRouteImport } from './routes/teacher'
-import { Route as AdminIndexRouteImport } from './routes/admin.index'
-import { Route as AdminDashboardRouteImport } from './routes/admin.dashboard'
-import { Route as AdminHodsRouteImport } from './routes/admin.hods'
-import { Route as AdminProfileRouteImport } from './routes/admin.profile'
-import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
-import { Route as AdminStudentsRouteImport } from './routes/admin.students'
-import { Route as AdminTeachersRouteImport } from './routes/admin.teachers'
-import { Route as HodIndexRouteImport } from './routes/hod.index'
-import { Route as HodAttendanceRouteImport } from './routes/hod.attendance'
-import { Route as HodCalendarRouteImport } from './routes/hod.calendar'
-import { Route as HodCoursesRouteImport } from './routes/hod.courses'
-import { Route as HodDashboardRouteImport } from './routes/hod.dashboard'
-import { Route as HodEnrollmentsRouteImport } from './routes/hod.enrollments'
-import { Route as HodFinalResultsRouteImport } from './routes/hod.final-results'
-import { Route as HodInternalResultsRouteImport } from './routes/hod.internal-results'
-import { Route as HodMarksRouteImport } from './routes/hod.marks'
-import { Route as HodNoticesRouteImport } from './routes/hod.notices'
-import { Route as HodOverviewRouteImport } from './routes/hod.overview'
-import { Route as HodProfileRouteImport } from './routes/hod.profile'
-import { Route as HodReportsRouteImport } from './routes/hod.reports'
-import { Route as HodResultsRouteImport } from './routes/hod.results'
-import { Route as HodSemestersRouteImport } from './routes/hod.semesters'
-import { Route as HodSettingsRouteImport } from './routes/hod.settings'
-import { Route as HodStudentsRouteImport } from './routes/hod.students'
-import { Route as HodTeachersRouteImport } from './routes/hod.teachers'
+import { Route as StudentRouteImport } from './routes/student'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as HodRouteImport } from './routes/hod'
+import { Route as AdminRouteImport } from './routes/admin'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as TeacherIndexRouteImport } from './routes/teacher.index'
-import { Route as TeacherCoursesRouteImport } from './routes/teacher.courses'
-import { Route as TeacherDashboardRouteImport } from './routes/teacher.dashboard'
-import { Route as TeacherMarksRouteImport } from './routes/teacher.marks'
-import { Route as TeacherNoticesRouteImport } from './routes/teacher.notices'
-import { Route as TeacherPerformanceRouteImport } from './routes/teacher.performance'
-import { Route as TeacherProfileRouteImport } from './routes/teacher.profile'
+import { Route as HodIndexRouteImport } from './routes/hod.index'
+import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as TeacherReportsRouteImport } from './routes/teacher.reports'
+import { Route as TeacherProfileRouteImport } from './routes/teacher.profile'
+import { Route as TeacherPerformanceRouteImport } from './routes/teacher.performance'
+import { Route as TeacherNoticesRouteImport } from './routes/teacher.notices'
+import { Route as TeacherMarksRouteImport } from './routes/teacher.marks'
+import { Route as TeacherDashboardRouteImport } from './routes/teacher.dashboard'
+import { Route as TeacherCoursesRouteImport } from './routes/teacher.courses'
+import { Route as HodTeachersRouteImport } from './routes/hod.teachers'
+import { Route as HodStudentsRouteImport } from './routes/hod.students'
+import { Route as HodSettingsRouteImport } from './routes/hod.settings'
+import { Route as HodSemestersRouteImport } from './routes/hod.semesters'
+import { Route as HodResultsRouteImport } from './routes/hod.results'
+import { Route as HodReportsRouteImport } from './routes/hod.reports'
+import { Route as HodProfileRouteImport } from './routes/hod.profile'
+import { Route as HodOverviewRouteImport } from './routes/hod.overview'
+import { Route as HodNoticesRouteImport } from './routes/hod.notices'
+import { Route as HodMarksRouteImport } from './routes/hod.marks'
+import { Route as HodInternalResultsRouteImport } from './routes/hod.internal-results'
+import { Route as HodFinalResultsRouteImport } from './routes/hod.final-results'
+import { Route as HodEnrollmentsRouteImport } from './routes/hod.enrollments'
+import { Route as HodDashboardRouteImport } from './routes/hod.dashboard'
+import { Route as HodCoursesRouteImport } from './routes/hod.courses'
+import { Route as HodCalendarRouteImport } from './routes/hod.calendar'
+import { Route as HodAttendanceRouteImport } from './routes/hod.attendance'
+import { Route as AdminTeachersRouteImport } from './routes/admin.teachers'
+import { Route as AdminStudentsRouteImport } from './routes/admin.students'
+import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
+import { Route as AdminProfileRouteImport } from './routes/admin.profile'
+import { Route as AdminHodsRouteImport } from './routes/admin.hods'
+import { Route as AdminDashboardRouteImport } from './routes/admin.dashboard'
 import { Route as TeacherAttendanceIndexRouteImport } from './routes/teacher.attendance.index'
 import { Route as TeacherAttendanceCourseIdRouteImport } from './routes/teacher.attendance.$courseId'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AdminRoute = AdminRouteImport.update({
-  id: '/admin',
-  path: '/admin',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const HodRoute = HodRouteImport.update({
-  id: '/hod',
-  path: '/hod',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
-  id: '/sitemap.xml',
-  path: '/sitemap.xml',
+const TeacherRoute = TeacherRouteImport.update({
+  id: '/teacher',
+  path: '/teacher',
   getParentRoute: () => rootRouteImport,
 } as any)
 const StudentRoute = StudentRouteImport.update({
@@ -19212,164 +19424,49 @@ const StudentRoute = StudentRouteImport.update({
   path: '/student',
   getParentRoute: () => rootRouteImport,
 } as any)
-const TeacherRoute = TeacherRouteImport.update({
-  id: '/teacher',
-  path: '/teacher',
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AdminIndexRoute = AdminIndexRouteImport.update({
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HodRoute = HodRouteImport.update({
+  id: '/hod',
+  path: '/hod',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminDashboardRoute = AdminDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminHodsRoute = AdminHodsRouteImport.update({
-  id: '/hods',
-  path: '/hods',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminProfileRoute = AdminProfileRouteImport.update({
-  id: '/profile',
-  path: '/profile',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminSettingsRoute = AdminSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminStudentsRoute = AdminStudentsRouteImport.update({
-  id: '/students',
-  path: '/students',
-  getParentRoute: () => AdminRoute,
-} as any)
-const AdminTeachersRoute = AdminTeachersRouteImport.update({
-  id: '/teachers',
-  path: '/teachers',
-  getParentRoute: () => AdminRoute,
-} as any)
-const HodIndexRoute = HodIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => HodRoute,
-} as any)
-const HodAttendanceRoute = HodAttendanceRouteImport.update({
-  id: '/attendance',
-  path: '/attendance',
-  getParentRoute: () => HodRoute,
-} as any)
-const HodCalendarRoute = HodCalendarRouteImport.update({
-  id: '/calendar',
-  path: '/calendar',
-  getParentRoute: () => HodRoute,
-} as any)
-const HodCoursesRoute = HodCoursesRouteImport.update({
-  id: '/courses',
-  path: '/courses',
-  getParentRoute: () => HodRoute,
-} as any)
-const HodDashboardRoute = HodDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => HodRoute,
-} as any)
-const HodEnrollmentsRoute = HodEnrollmentsRouteImport.update({
-  id: '/enrollments',
-  path: '/enrollments',
-  getParentRoute: () => HodRoute,
-} as any)
-const HodFinalResultsRoute = HodFinalResultsRouteImport.update({
-  id: '/final-results',
-  path: '/final-results',
-  getParentRoute: () => HodRoute,
-} as any)
-const HodInternalResultsRoute = HodInternalResultsRouteImport.update({
-  id: '/internal-results',
-  path: '/internal-results',
-  getParentRoute: () => HodRoute,
-} as any)
-const HodMarksRoute = HodMarksRouteImport.update({
-  id: '/marks',
-  path: '/marks',
-  getParentRoute: () => HodRoute,
-} as any)
-const HodNoticesRoute = HodNoticesRouteImport.update({
-  id: '/notices',
-  path: '/notices',
-  getParentRoute: () => HodRoute,
-} as any)
-const HodOverviewRoute = HodOverviewRouteImport.update({
-  id: '/overview',
-  path: '/overview',
-  getParentRoute: () => HodRoute,
-} as any)
-const HodProfileRoute = HodProfileRouteImport.update({
-  id: '/profile',
-  path: '/profile',
-  getParentRoute: () => HodRoute,
-} as any)
-const HodReportsRoute = HodReportsRouteImport.update({
-  id: '/reports',
-  path: '/reports',
-  getParentRoute: () => HodRoute,
-} as any)
-const HodResultsRoute = HodResultsRouteImport.update({
-  id: '/results',
-  path: '/results',
-  getParentRoute: () => HodRoute,
-} as any)
-const HodSemestersRoute = HodSemestersRouteImport.update({
-  id: '/semesters',
-  path: '/semesters',
-  getParentRoute: () => HodRoute,
-} as any)
-const HodSettingsRoute = HodSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => HodRoute,
-} as any)
-const HodStudentsRoute = HodStudentsRouteImport.update({
-  id: '/students',
-  path: '/students',
-  getParentRoute: () => HodRoute,
-} as any)
-const HodTeachersRoute = HodTeachersRouteImport.update({
-  id: '/teachers',
-  path: '/teachers',
-  getParentRoute: () => HodRoute,
+  getParentRoute: () => rootRouteImport,
 } as any)
 const TeacherIndexRoute = TeacherIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => TeacherRoute,
 } as any)
-const TeacherCoursesRoute = TeacherCoursesRouteImport.update({
-  id: '/courses',
-  path: '/courses',
-  getParentRoute: () => TeacherRoute,
+const HodIndexRoute = HodIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => HodRoute,
 } as any)
-const TeacherDashboardRoute = TeacherDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => TeacherRoute,
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminRoute,
 } as any)
-const TeacherMarksRoute = TeacherMarksRouteImport.update({
-  id: '/marks',
-  path: '/marks',
-  getParentRoute: () => TeacherRoute,
-} as any)
-const TeacherNoticesRoute = TeacherNoticesRouteImport.update({
-  id: '/notices',
-  path: '/notices',
-  getParentRoute: () => TeacherRoute,
-} as any)
-const TeacherPerformanceRoute = TeacherPerformanceRouteImport.update({
-  id: '/performance',
-  path: '/performance',
+const TeacherReportsRoute = TeacherReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
   getParentRoute: () => TeacherRoute,
 } as any)
 const TeacherProfileRoute = TeacherProfileRouteImport.update({
@@ -19377,10 +19474,145 @@ const TeacherProfileRoute = TeacherProfileRouteImport.update({
   path: '/profile',
   getParentRoute: () => TeacherRoute,
 } as any)
-const TeacherReportsRoute = TeacherReportsRouteImport.update({
+const TeacherPerformanceRoute = TeacherPerformanceRouteImport.update({
+  id: '/performance',
+  path: '/performance',
+  getParentRoute: () => TeacherRoute,
+} as any)
+const TeacherNoticesRoute = TeacherNoticesRouteImport.update({
+  id: '/notices',
+  path: '/notices',
+  getParentRoute: () => TeacherRoute,
+} as any)
+const TeacherMarksRoute = TeacherMarksRouteImport.update({
+  id: '/marks',
+  path: '/marks',
+  getParentRoute: () => TeacherRoute,
+} as any)
+const TeacherDashboardRoute = TeacherDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => TeacherRoute,
+} as any)
+const TeacherCoursesRoute = TeacherCoursesRouteImport.update({
+  id: '/courses',
+  path: '/courses',
+  getParentRoute: () => TeacherRoute,
+} as any)
+const HodTeachersRoute = HodTeachersRouteImport.update({
+  id: '/teachers',
+  path: '/teachers',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodStudentsRoute = HodStudentsRouteImport.update({
+  id: '/students',
+  path: '/students',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodSettingsRoute = HodSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodSemestersRoute = HodSemestersRouteImport.update({
+  id: '/semesters',
+  path: '/semesters',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodResultsRoute = HodResultsRouteImport.update({
+  id: '/results',
+  path: '/results',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodReportsRoute = HodReportsRouteImport.update({
   id: '/reports',
   path: '/reports',
-  getParentRoute: () => TeacherRoute,
+  getParentRoute: () => HodRoute,
+} as any)
+const HodProfileRoute = HodProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodOverviewRoute = HodOverviewRouteImport.update({
+  id: '/overview',
+  path: '/overview',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodNoticesRoute = HodNoticesRouteImport.update({
+  id: '/notices',
+  path: '/notices',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodMarksRoute = HodMarksRouteImport.update({
+  id: '/marks',
+  path: '/marks',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodInternalResultsRoute = HodInternalResultsRouteImport.update({
+  id: '/internal-results',
+  path: '/internal-results',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodFinalResultsRoute = HodFinalResultsRouteImport.update({
+  id: '/final-results',
+  path: '/final-results',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodEnrollmentsRoute = HodEnrollmentsRouteImport.update({
+  id: '/enrollments',
+  path: '/enrollments',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodDashboardRoute = HodDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodCoursesRoute = HodCoursesRouteImport.update({
+  id: '/courses',
+  path: '/courses',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodCalendarRoute = HodCalendarRouteImport.update({
+  id: '/calendar',
+  path: '/calendar',
+  getParentRoute: () => HodRoute,
+} as any)
+const HodAttendanceRoute = HodAttendanceRouteImport.update({
+  id: '/attendance',
+  path: '/attendance',
+  getParentRoute: () => HodRoute,
+} as any)
+const AdminTeachersRoute = AdminTeachersRouteImport.update({
+  id: '/teachers',
+  path: '/teachers',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminStudentsRoute = AdminStudentsRouteImport.update({
+  id: '/students',
+  path: '/students',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminSettingsRoute = AdminSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminProfileRoute = AdminProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminHodsRoute = AdminHodsRouteImport.update({
+  id: '/hods',
+  path: '/hods',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminDashboardRoute = AdminDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AdminRoute,
 } as any)
 const TeacherAttendanceIndexRoute = TeacherAttendanceIndexRouteImport.update({
   id: '/attendance/',
@@ -19668,39 +19900,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/admin': {
-      id: '/admin'
-      path: '/admin'
-      fullPath: '/admin'
-      preLoaderRoute: typeof AdminRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/hod': {
-      id: '/hod'
-      path: '/hod'
-      fullPath: '/hod'
-      preLoaderRoute: typeof HodRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/sitemap.xml': {
-      id: '/sitemap.xml'
-      path: '/sitemap.xml'
-      fullPath: '/sitemap.xml'
-      preLoaderRoute: typeof SitemapDotxmlRouteImport
+    '/teacher': {
+      id: '/teacher'
+      path: '/teacher'
+      fullPath: '/teacher'
+      preLoaderRoute: typeof TeacherRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/student': {
@@ -19710,187 +19914,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StudentRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/teacher': {
-      id: '/teacher'
-      path: '/teacher'
-      fullPath: '/teacher'
-      preLoaderRoute: typeof TeacherRouteImport
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/admin/': {
-      id: '/admin/'
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/hod': {
+      id: '/hod'
+      path: '/hod'
+      fullPath: '/hod'
+      preLoaderRoute: typeof HodRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/': {
+      id: '/'
       path: '/'
-      fullPath: '/admin/'
-      preLoaderRoute: typeof AdminIndexRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/dashboard': {
-      id: '/admin/dashboard'
-      path: '/dashboard'
-      fullPath: '/admin/dashboard'
-      preLoaderRoute: typeof AdminDashboardRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/hods': {
-      id: '/admin/hods'
-      path: '/hods'
-      fullPath: '/admin/hods'
-      preLoaderRoute: typeof AdminHodsRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/profile': {
-      id: '/admin/profile'
-      path: '/profile'
-      fullPath: '/admin/profile'
-      preLoaderRoute: typeof AdminProfileRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/settings': {
-      id: '/admin/settings'
-      path: '/settings'
-      fullPath: '/admin/settings'
-      preLoaderRoute: typeof AdminSettingsRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/students': {
-      id: '/admin/students'
-      path: '/students'
-      fullPath: '/admin/students'
-      preLoaderRoute: typeof AdminStudentsRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/admin/teachers': {
-      id: '/admin/teachers'
-      path: '/teachers'
-      fullPath: '/admin/teachers'
-      preLoaderRoute: typeof AdminTeachersRouteImport
-      parentRoute: typeof AdminRoute
-    }
-    '/hod/': {
-      id: '/hod/'
-      path: '/'
-      fullPath: '/hod/'
-      preLoaderRoute: typeof HodIndexRouteImport
-      parentRoute: typeof HodRoute
-    }
-    '/hod/attendance': {
-      id: '/hod/attendance'
-      path: '/attendance'
-      fullPath: '/hod/attendance'
-      preLoaderRoute: typeof HodAttendanceRouteImport
-      parentRoute: typeof HodRoute
-    }
-    '/hod/calendar': {
-      id: '/hod/calendar'
-      path: '/calendar'
-      fullPath: '/hod/calendar'
-      preLoaderRoute: typeof HodCalendarRouteImport
-      parentRoute: typeof HodRoute
-    }
-    '/hod/courses': {
-      id: '/hod/courses'
-      path: '/courses'
-      fullPath: '/hod/courses'
-      preLoaderRoute: typeof HodCoursesRouteImport
-      parentRoute: typeof HodRoute
-    }
-    '/hod/dashboard': {
-      id: '/hod/dashboard'
-      path: '/dashboard'
-      fullPath: '/hod/dashboard'
-      preLoaderRoute: typeof HodDashboardRouteImport
-      parentRoute: typeof HodRoute
-    }
-    '/hod/enrollments': {
-      id: '/hod/enrollments'
-      path: '/enrollments'
-      fullPath: '/hod/enrollments'
-      preLoaderRoute: typeof HodEnrollmentsRouteImport
-      parentRoute: typeof HodRoute
-    }
-    '/hod/final-results': {
-      id: '/hod/final-results'
-      path: '/final-results'
-      fullPath: '/hod/final-results'
-      preLoaderRoute: typeof HodFinalResultsRouteImport
-      parentRoute: typeof HodRoute
-    }
-    '/hod/internal-results': {
-      id: '/hod/internal-results'
-      path: '/internal-results'
-      fullPath: '/hod/internal-results'
-      preLoaderRoute: typeof HodInternalResultsRouteImport
-      parentRoute: typeof HodRoute
-    }
-    '/hod/marks': {
-      id: '/hod/marks'
-      path: '/marks'
-      fullPath: '/hod/marks'
-      preLoaderRoute: typeof HodMarksRouteImport
-      parentRoute: typeof HodRoute
-    }
-    '/hod/notices': {
-      id: '/hod/notices'
-      path: '/notices'
-      fullPath: '/hod/notices'
-      preLoaderRoute: typeof HodNoticesRouteImport
-      parentRoute: typeof HodRoute
-    }
-    '/hod/overview': {
-      id: '/hod/overview'
-      path: '/overview'
-      fullPath: '/hod/overview'
-      preLoaderRoute: typeof HodOverviewRouteImport
-      parentRoute: typeof HodRoute
-    }
-    '/hod/profile': {
-      id: '/hod/profile'
-      path: '/profile'
-      fullPath: '/hod/profile'
-      preLoaderRoute: typeof HodProfileRouteImport
-      parentRoute: typeof HodRoute
-    }
-    '/hod/reports': {
-      id: '/hod/reports'
-      path: '/reports'
-      fullPath: '/hod/reports'
-      preLoaderRoute: typeof HodReportsRouteImport
-      parentRoute: typeof HodRoute
-    }
-    '/hod/results': {
-      id: '/hod/results'
-      path: '/results'
-      fullPath: '/hod/results'
-      preLoaderRoute: typeof HodResultsRouteImport
-      parentRoute: typeof HodRoute
-    }
-    '/hod/semesters': {
-      id: '/hod/semesters'
-      path: '/semesters'
-      fullPath: '/hod/semesters'
-      preLoaderRoute: typeof HodSemestersRouteImport
-      parentRoute: typeof HodRoute
-    }
-    '/hod/settings': {
-      id: '/hod/settings'
-      path: '/settings'
-      fullPath: '/hod/settings'
-      preLoaderRoute: typeof HodSettingsRouteImport
-      parentRoute: typeof HodRoute
-    }
-    '/hod/students': {
-      id: '/hod/students'
-      path: '/students'
-      fullPath: '/hod/students'
-      preLoaderRoute: typeof HodStudentsRouteImport
-      parentRoute: typeof HodRoute
-    }
-    '/hod/teachers': {
-      id: '/hod/teachers'
-      path: '/teachers'
-      fullPath: '/hod/teachers'
-      preLoaderRoute: typeof HodTeachersRouteImport
-      parentRoute: typeof HodRoute
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/teacher/': {
       id: '/teacher/'
@@ -19899,39 +19956,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeacherIndexRouteImport
       parentRoute: typeof TeacherRoute
     }
-    '/teacher/courses': {
-      id: '/teacher/courses'
-      path: '/courses'
-      fullPath: '/teacher/courses'
-      preLoaderRoute: typeof TeacherCoursesRouteImport
-      parentRoute: typeof TeacherRoute
+    '/hod/': {
+      id: '/hod/'
+      path: '/'
+      fullPath: '/hod/'
+      preLoaderRoute: typeof HodIndexRouteImport
+      parentRoute: typeof HodRoute
     }
-    '/teacher/dashboard': {
-      id: '/teacher/dashboard'
-      path: '/dashboard'
-      fullPath: '/teacher/dashboard'
-      preLoaderRoute: typeof TeacherDashboardRouteImport
-      parentRoute: typeof TeacherRoute
+    '/admin/': {
+      id: '/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRoute
     }
-    '/teacher/marks': {
-      id: '/teacher/marks'
-      path: '/marks'
-      fullPath: '/teacher/marks'
-      preLoaderRoute: typeof TeacherMarksRouteImport
-      parentRoute: typeof TeacherRoute
-    }
-    '/teacher/notices': {
-      id: '/teacher/notices'
-      path: '/notices'
-      fullPath: '/teacher/notices'
-      preLoaderRoute: typeof TeacherNoticesRouteImport
-      parentRoute: typeof TeacherRoute
-    }
-    '/teacher/performance': {
-      id: '/teacher/performance'
-      path: '/performance'
-      fullPath: '/teacher/performance'
-      preLoaderRoute: typeof TeacherPerformanceRouteImport
+    '/teacher/reports': {
+      id: '/teacher/reports'
+      path: '/reports'
+      fullPath: '/teacher/reports'
+      preLoaderRoute: typeof TeacherReportsRouteImport
       parentRoute: typeof TeacherRoute
     }
     '/teacher/profile': {
@@ -19941,12 +19984,201 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeacherProfileRouteImport
       parentRoute: typeof TeacherRoute
     }
-    '/teacher/reports': {
-      id: '/teacher/reports'
-      path: '/reports'
-      fullPath: '/teacher/reports'
-      preLoaderRoute: typeof TeacherReportsRouteImport
+    '/teacher/performance': {
+      id: '/teacher/performance'
+      path: '/performance'
+      fullPath: '/teacher/performance'
+      preLoaderRoute: typeof TeacherPerformanceRouteImport
       parentRoute: typeof TeacherRoute
+    }
+    '/teacher/notices': {
+      id: '/teacher/notices'
+      path: '/notices'
+      fullPath: '/teacher/notices'
+      preLoaderRoute: typeof TeacherNoticesRouteImport
+      parentRoute: typeof TeacherRoute
+    }
+    '/teacher/marks': {
+      id: '/teacher/marks'
+      path: '/marks'
+      fullPath: '/teacher/marks'
+      preLoaderRoute: typeof TeacherMarksRouteImport
+      parentRoute: typeof TeacherRoute
+    }
+    '/teacher/dashboard': {
+      id: '/teacher/dashboard'
+      path: '/dashboard'
+      fullPath: '/teacher/dashboard'
+      preLoaderRoute: typeof TeacherDashboardRouteImport
+      parentRoute: typeof TeacherRoute
+    }
+    '/teacher/courses': {
+      id: '/teacher/courses'
+      path: '/courses'
+      fullPath: '/teacher/courses'
+      preLoaderRoute: typeof TeacherCoursesRouteImport
+      parentRoute: typeof TeacherRoute
+    }
+    '/hod/teachers': {
+      id: '/hod/teachers'
+      path: '/teachers'
+      fullPath: '/hod/teachers'
+      preLoaderRoute: typeof HodTeachersRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/students': {
+      id: '/hod/students'
+      path: '/students'
+      fullPath: '/hod/students'
+      preLoaderRoute: typeof HodStudentsRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/settings': {
+      id: '/hod/settings'
+      path: '/settings'
+      fullPath: '/hod/settings'
+      preLoaderRoute: typeof HodSettingsRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/semesters': {
+      id: '/hod/semesters'
+      path: '/semesters'
+      fullPath: '/hod/semesters'
+      preLoaderRoute: typeof HodSemestersRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/results': {
+      id: '/hod/results'
+      path: '/results'
+      fullPath: '/hod/results'
+      preLoaderRoute: typeof HodResultsRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/reports': {
+      id: '/hod/reports'
+      path: '/reports'
+      fullPath: '/hod/reports'
+      preLoaderRoute: typeof HodReportsRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/profile': {
+      id: '/hod/profile'
+      path: '/profile'
+      fullPath: '/hod/profile'
+      preLoaderRoute: typeof HodProfileRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/overview': {
+      id: '/hod/overview'
+      path: '/overview'
+      fullPath: '/hod/overview'
+      preLoaderRoute: typeof HodOverviewRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/notices': {
+      id: '/hod/notices'
+      path: '/notices'
+      fullPath: '/hod/notices'
+      preLoaderRoute: typeof HodNoticesRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/marks': {
+      id: '/hod/marks'
+      path: '/marks'
+      fullPath: '/hod/marks'
+      preLoaderRoute: typeof HodMarksRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/internal-results': {
+      id: '/hod/internal-results'
+      path: '/internal-results'
+      fullPath: '/hod/internal-results'
+      preLoaderRoute: typeof HodInternalResultsRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/final-results': {
+      id: '/hod/final-results'
+      path: '/final-results'
+      fullPath: '/hod/final-results'
+      preLoaderRoute: typeof HodFinalResultsRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/enrollments': {
+      id: '/hod/enrollments'
+      path: '/enrollments'
+      fullPath: '/hod/enrollments'
+      preLoaderRoute: typeof HodEnrollmentsRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/dashboard': {
+      id: '/hod/dashboard'
+      path: '/dashboard'
+      fullPath: '/hod/dashboard'
+      preLoaderRoute: typeof HodDashboardRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/courses': {
+      id: '/hod/courses'
+      path: '/courses'
+      fullPath: '/hod/courses'
+      preLoaderRoute: typeof HodCoursesRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/calendar': {
+      id: '/hod/calendar'
+      path: '/calendar'
+      fullPath: '/hod/calendar'
+      preLoaderRoute: typeof HodCalendarRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/hod/attendance': {
+      id: '/hod/attendance'
+      path: '/attendance'
+      fullPath: '/hod/attendance'
+      preLoaderRoute: typeof HodAttendanceRouteImport
+      parentRoute: typeof HodRoute
+    }
+    '/admin/teachers': {
+      id: '/admin/teachers'
+      path: '/teachers'
+      fullPath: '/admin/teachers'
+      preLoaderRoute: typeof AdminTeachersRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/students': {
+      id: '/admin/students'
+      path: '/students'
+      fullPath: '/admin/students'
+      preLoaderRoute: typeof AdminStudentsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/settings': {
+      id: '/admin/settings'
+      path: '/settings'
+      fullPath: '/admin/settings'
+      preLoaderRoute: typeof AdminSettingsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/profile': {
+      id: '/admin/profile'
+      path: '/profile'
+      fullPath: '/admin/profile'
+      preLoaderRoute: typeof AdminProfileRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/hods': {
+      id: '/admin/hods'
+      path: '/hods'
+      fullPath: '/admin/hods'
+      preLoaderRoute: typeof AdminHodsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/dashboard': {
+      id: '/admin/dashboard'
+      path: '/dashboard'
+      fullPath: '/admin/dashboard'
+      preLoaderRoute: typeof AdminDashboardRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/teacher/attendance/': {
       id: '/teacher/attendance/'
@@ -20073,15 +20305,6 @@ export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
 
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
 
 
 ====================================================================================================
@@ -29725,12 +29948,13 @@ import { Badge } from "@/components/ui/badge";
 import { Camera, ArrowRight } from "lucide-react";
 import {
   getTeacherCourses,
+  getTeacherDepartments,
   deptName,
   sectionLabel,
-  departments,
   semesters,
   sections,
   type TeacherCourse,
+  type TeacherDepartmentDto,
 } from "@/features/Teacher/lib/academic-data";
 
 export const Route = createFileRoute("/teacher/attendance/")({
@@ -29741,6 +29965,7 @@ export const Route = createFileRoute("/teacher/attendance/")({
 function AttendanceIndex() {
   const [courses, setCourses] = useState<TeacherCourse[]>([]);
   const [loading, setLoading] = useState(true);
+  const [myDepartments, setMyDepartments] = useState<TeacherDepartmentDto[]>([]);
 
   const [dept, setDept] = useState<string>("all");
   const [sem, setSem] = useState<string>("all");
@@ -29758,6 +29983,21 @@ function AttendanceIndex() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getTeacherDepartments().then((list) => {
+      if (!cancelled) setMyDepartments(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const deptNameById = useMemo(
+    () => new Map(myDepartments.map((d) => [d.id, d.name])),
+    [myDepartments],
+  );
 
   const filtered = useMemo(() => {
     return courses.filter((c) => {
@@ -29782,7 +30022,7 @@ function AttendanceIndex() {
         <CardContent className="grid gap-3 p-4 md:grid-cols-3">
           <select className="rounded-xl border bg-background p-2 text-sm" value={dept} onChange={(e) => setDept(e.target.value)}>
             <option value="all">All Departments</option>
-            {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            {myDepartments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
 
           <select className="rounded-xl border bg-background p-2 text-sm" value={sem} onChange={(e) => setSem(e.target.value)}>
@@ -29816,7 +30056,7 @@ function AttendanceIndex() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="secondary" className="rounded-full">{deptName(c.dept)}</Badge>
+                    <Badge variant="secondary" className="rounded-full">{deptNameById.get(c.dept) ?? deptName(c.dept)}</Badge>
                     <Badge variant="secondary" className="rounded-full">Semester {c.sem}</Badge>
                     <Badge variant="secondary" className="rounded-full">Section {sectionLabel(sec)}</Badge>
                   </div>
@@ -30212,9 +30452,9 @@ import { Badge } from "@/components/ui/badge";
 import { Save, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import {
-  getTeacherCourses, getCourseMarks, saveCourseMarks,
-  deptName, sectionLabel, departments, semesters, sections,
-  type TeacherCourse, type MarkRow, type MarkFields,
+  getTeacherCourses, getCourseMarks, saveCourseMarks, getTeacherDepartments,
+  deptName, sectionLabel, semesters, sections,
+  type TeacherCourse, type MarkRow, type MarkFields, type TeacherDepartmentDto,
 } from "@/features/Teacher/lib/academic-data";
 
 export const Route = createFileRoute("/teacher/marks")({
@@ -30246,6 +30486,7 @@ function MarksPage() {
   const [courses, setCourses] = useState<TeacherCourse[]>([]);
   const [loading, setLoading] = useState(true);
   const [courseId, setCourseId] = useState<string | null>(initialCourseId ?? null);
+  const [myDepartments, setMyDepartments] = useState<TeacherDepartmentDto[]>([]);
 
   const [dept, setDept] = useState<string>("all");
   const [sem, setSem] = useState<string>("all");
@@ -30259,6 +30500,21 @@ function MarksPage() {
       .finally(() => !cancelled && setLoading(false));
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getTeacherDepartments().then((list) => {
+      if (!cancelled) setMyDepartments(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const deptNameById = useMemo(
+    () => new Map(myDepartments.map((d) => [d.id, d.name])),
+    [myDepartments],
+  );
 
   const filtered = useMemo(() => {
     return courses.filter((c) => {
@@ -30286,7 +30542,7 @@ function MarksPage() {
         <CardContent className="grid gap-3 p-4 md:grid-cols-3">
           <select className="rounded-xl border bg-background p-2 text-sm" value={dept} onChange={(e) => setDept(e.target.value)}>
             <option value="all">All Departments</option>
-            {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            {myDepartments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
           <select className="rounded-xl border bg-background p-2 text-sm" value={sem} onChange={(e) => setSem(e.target.value)}>
             <option value="all">All Semesters</option>
@@ -30319,7 +30575,7 @@ function MarksPage() {
                 </div>
                 <CardContent className="space-y-2 p-4 text-sm">
                   <div className="flex flex-wrap gap-1.5">
-                    <Badge variant="secondary" className="rounded-full">{deptName(c.dept)}</Badge>
+                    <Badge variant="secondary" className="rounded-full">{deptNameById.get(c.dept) ?? deptName(c.dept)}</Badge>
                     <Badge variant="secondary" className="rounded-full">Sem {c.sem}</Badge>
                     <Badge variant="secondary" className="rounded-full">Sec {sectionLabel(sec)}</Badge>
                   </div>
@@ -30827,7 +31083,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { authHeader } from "@/lib/auth";
 import { apiJson, apiFormJson } from "@/lib/api";
-import { getTeacherCourses, sectionLabel, type TeacherCourse, type TeacherMeDto } from "@/features/Teacher/lib/academic-data";
+import { getTeacherCourses, groupTeacherCourses, sectionLabel, type TeacherCourse, type TeacherMeDto } from "@/features/Teacher/lib/academic-data";
 
 export const Route = createFileRoute("/teacher/profile")({
   head: () => ({ meta: [{ title: "My Profile · Teacher Portal" }] }),
@@ -31044,14 +31300,24 @@ function Profile() {
             {courses.length === 0 ? (
               <p className="text-sm text-muted-foreground">No courses assigned yet.</p>
             ) : (
-              courses.map((c) => (
-                <div key={c.id} className="flex items-center gap-3 rounded-xl border border-border p-3">
+              groupTeacherCourses(courses).map((g) => (
+                <div key={g.code} className="flex items-start gap-3 rounded-xl border border-border p-3">
                   <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-secondary text-primary font-mono text-xs font-bold">
-                    {c.code.split("-")[1] ?? c.code}
+                    {g.code.split("-")[1] ?? g.code}
                   </div>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold">{c.name}</div>
-                    <div className="text-xs text-muted-foreground">{c.code} · Sem {c.sem} · Sec {sectionLabel(c.section ?? "d")}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold">{g.name}</div>
+                    <div className="text-xs text-muted-foreground">{g.code}</div>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {g.offerings.map((o) => (
+                        <span
+                          key={o.id}
+                          className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary"
+                        >
+                          Sem {o.sem} · Sec {sectionLabel(o.section)}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
               ))

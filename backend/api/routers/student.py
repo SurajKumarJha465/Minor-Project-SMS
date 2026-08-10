@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 
 from api.database import get_db
-from api.models import User, RoleEnum, Student, Section, Department, Notice, Enrollment, AttendanceRecord, AttendanceStatus, Course, Teacher, InternalMark, MarkStatus, CourseGrade
+from api.models import User, RoleEnum, Student, Section, Department, Notice, Enrollment, AttendanceRecord, AttendanceStatus, Course, Teacher, InternalMark, MarkStatus, CourseGrade, CalendarEvent
 from api.grading import grade_point
 from api.auth import require_role
 from api.schemas import (
@@ -26,6 +26,7 @@ from api.schemas import (
     TwoFactorSetupResponse,
     TwoFactorVerifyRequest,
     TwoFactorStatusResponse,
+    EventOut,
 )
 
 router = APIRouter(prefix="/api/student", tags=["student"])
@@ -191,6 +192,30 @@ def list_my_notices(
             date=n.created_at.strftime("%b %d, %Y"), scheduled_for=None,
         )
         for n in notices
+    ]
+
+
+@router.get("/calendar", response_model=list[EventOut])
+def list_my_calendar(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.student)),
+):
+    """Academic calendar events for the student's own department. Read-only —
+    events are created and managed by the HOD (see hod.py's /events routes)."""
+    student = _current_student(db, current_user)
+
+    events = (
+        db.query(CalendarEvent)
+        .filter(CalendarEvent.department_id == student.department_id)
+        .order_by(CalendarEvent.date.asc())
+        .all()
+    )
+    return [
+        EventOut(
+            id=e.id, title=e.title, type=e.type.value,
+            date=e.date.isoformat(), display_date=e.date.strftime("%b %d, %Y"),
+        )
+        for e in events
     ]
 
 

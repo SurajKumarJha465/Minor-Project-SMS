@@ -1,9 +1,11 @@
+import os
 import re
+import uuid
 from collections import defaultdict
 
 import pyotp
 from sqlalchemy import or_
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from datetime import datetime
 
@@ -106,6 +108,57 @@ def update_my_profile(
     if payload.guardian_phone is not None:
         student.guardian_phone = payload.guardian_phone
 
+    db.commit()
+    db.refresh(student)
+    return _build_student_me(db, student, current_user)
+
+
+# Same convention as teacher.py / hod.py: saved under data/profile_photos/
+# and served back out at /uploads/profile-photos/<file> (mounted in main.py).
+PROFILE_PHOTOS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "profile_photos"
+)
+PROFILE_PHOTO_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+PROFILE_PHOTO_ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".webp"}
+
+
+@router.post("/me/photo", response_model=StudentMeOut)
+async def upload_my_photo(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.student)),
+):
+    student = _current_student(db, current_user)
+
+    original_name = file.filename or "photo"
+    ext = os.path.splitext(original_name)[1].lower()
+    if ext not in PROFILE_PHOTO_ALLOWED_EXT:
+        allowed = ", ".join(sorted(PROFILE_PHOTO_ALLOWED_EXT))
+        raise HTTPException(status_code=400, detail=f"Unsupported image type '{ext}'. Allowed: {allowed}")
+
+    data = await file.read()
+    if len(data) > PROFILE_PHOTO_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Image is larger than the 5 MB limit")
+    if not data:
+        raise HTTPException(status_code=400, detail="File is empty")
+
+    os.makedirs(PROFILE_PHOTOS_DIR, exist_ok=True)
+    stored_name = f"student-{student.id}-{uuid.uuid4().hex}{ext}"
+    with open(os.path.join(PROFILE_PHOTOS_DIR, stored_name), "wb") as f:
+        f.write(data)
+
+    # only clean up the old file if it's one we saved ourselves — this is a
+    # separate display photo from the face-recognition enrollment photo under
+    # data/enrollment_photos/<id>/, which this endpoint never touches
+    if student.photo and student.photo.startswith("/uploads/profile-photos/"):
+        old_path = os.path.join(PROFILE_PHOTOS_DIR, os.path.basename(student.photo))
+        if os.path.isfile(old_path):
+            try:
+                os.remove(old_path)
+            except OSError:
+                pass
+
+    student.photo = f"/uploads/profile-photos/{stored_name}"
     db.commit()
     db.refresh(student)
     return _build_student_me(db, student, current_user)

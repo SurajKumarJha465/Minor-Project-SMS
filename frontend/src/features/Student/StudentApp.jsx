@@ -29,20 +29,20 @@ export default function StudentApp() {
   // fake "Sumit Verma" placeholder regardless of who was signed in.
   const [user, setUser] = useState(null);
 
-  useEffect(() => {
-    let cancelled = false;
+  const loadUser = () => {
     fetch(`${API_URL}/api/student/me`, { headers: { ...authHeader() } })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (cancelled || !data) return;
-        setUser({ name: data.name, role: "Student", avatar: initialsOf(data.name) });
+        if (!data) return;
+        setUser({ name: data.name, role: "Student", avatar: initialsOf(data.name), photo: data.photo });
       })
       .catch(() => {
         /* topbar degrades to its default placeholder if this fails */
       });
-    return () => {
-      cancelled = true;
-    };
+  };
+
+  useEffect(() => {
+    loadUser();
   }, []);
 
   return (
@@ -55,7 +55,9 @@ export default function StudentApp() {
         user={user ?? undefined}
         brandLabel="Student Portal"
       >
-        {Page ? <Page onNavigate={setActiveId} /> : null}
+        {/* onUserRefresh lets a page (e.g. Profile, after a photo upload)
+            tell the topbar to re-fetch the name/avatar/photo it shows. */}
+        {Page ? <Page onNavigate={setActiveId} onUserRefresh={loadUser} /> : null}
       </DashboardShell>
     </ThemeProvider>
   );

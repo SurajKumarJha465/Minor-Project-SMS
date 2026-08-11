@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Mail, Phone, GraduationCap, Award, Pencil, KeyRound, Building2, Camera, AlertTriangle } from "lucide-react";
+import { Mail, Phone, GraduationCap, Award, Pencil, KeyRound, Building2, Camera, AlertTriangle, ShieldCheck, ShieldOff, Copy } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -34,6 +34,7 @@ type HodProfile = {
   experience: string | null;
   photo: string | null;
   must_change_password: boolean;
+  two_factor_enabled: boolean;
 };
 
 function Profile() {
@@ -54,6 +55,18 @@ function Profile() {
 
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
+
+  // 2FA setup (secret shown for manual entry, then a 6-digit code confirms it)
+  const [twoFaOpen, setTwoFaOpen] = useState(false);
+  const [twoFaSecret, setTwoFaSecret] = useState("");
+  const [twoFaCode, setTwoFaCode] = useState("");
+  const [twoFaBusy, setTwoFaBusy] = useState(false);
+
+  // 2FA disable — also requires a current code, so a stolen session token
+  // alone can't turn protection off
+  const [disableOpen, setDisableOpen] = useState(false);
+  const [disableCode, setDisableCode] = useState("");
+  const [disableBusy, setDisableBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -138,6 +151,89 @@ function Profile() {
       toast.error(err instanceof Error ? err.message : "Failed to upload photo");
     } finally {
       setUploadingPhoto(false);
+    }
+  }
+
+  async function startTwoFaSetup() {
+    setTwoFaBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/api/hod/2fa/setup`, {
+        method: "POST",
+        headers: { ...authHeader() },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail ?? "Could not start 2FA setup");
+        return;
+      }
+      const data = await res.json();
+      setTwoFaSecret(data.secret);
+      setTwoFaOpen(true);
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    } finally {
+      setTwoFaBusy(false);
+    }
+  }
+
+  function closeTwoFaModal() {
+    setTwoFaOpen(false);
+    setTwoFaSecret("");
+    setTwoFaCode("");
+  }
+
+  async function confirmTwoFa() {
+    if (twoFaCode.trim().length !== 6) {
+      toast.error("Enter the 6-digit code from your authenticator app.");
+      return;
+    }
+    setTwoFaBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/api/hod/2fa/enable`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ code: twoFaCode.trim() }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail ?? "Invalid code, try again.");
+        return;
+      }
+      toast.success("Two-factor authentication enabled.");
+      closeTwoFaModal();
+      setHod((h) => (h ? { ...h, two_factor_enabled: true } : h));
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    } finally {
+      setTwoFaBusy(false);
+    }
+  }
+
+  async function confirmDisableTwoFa() {
+    if (disableCode.trim().length !== 6) {
+      toast.error("Enter the 6-digit code from your authenticator app.");
+      return;
+    }
+    setDisableBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/api/hod/2fa/disable`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ code: disableCode.trim() }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail ?? "Invalid code, try again.");
+        return;
+      }
+      toast.success("Two-factor authentication disabled.");
+      setDisableOpen(false);
+      setDisableCode("");
+      setHod((h) => (h ? { ...h, two_factor_enabled: false } : h));
+    } catch {
+      toast.error("Could not reach the server. Try again.");
+    } finally {
+      setDisableBusy(false);
     }
   }
 
@@ -293,6 +389,31 @@ function Profile() {
             <Row icon={Award} k="Experience" v={hod.experience ?? "—"} />
           </CardContent>
         </Card>
+        <Card className="rounded-2xl shadow-soft lg:col-span-2">
+          <CardHeader><CardTitle className="text-base">Security</CardTitle></CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <div className="flex items-center justify-between border-b border-border/60 pb-3 last:border-0 last:pb-0">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                {hod.two_factor_enabled ? <ShieldCheck className="h-4 w-4 text-success" /> : <ShieldOff className="h-4 w-4" />}
+                <span>Two-Factor Authentication</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  {hod.two_factor_enabled ? "Enabled on this account" : "Not enabled"}
+                </span>
+                {hod.two_factor_enabled ? (
+                  <Button size="sm" variant="outline" className="rounded-lg" onClick={() => setDisableOpen(true)}>
+                    Disable
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="outline" className="rounded-lg" disabled={twoFaBusy} onClick={startTwoFaSetup}>
+                    {twoFaBusy ? "Starting…" : "Enable"}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Edit contact details dialog */}
@@ -361,6 +482,87 @@ function Profile() {
             <Button variant="outline" className="rounded-xl" onClick={closePasswordDialog}>Cancel</Button>
             <Button className="rounded-xl gradient-brand text-white" disabled={saving} onClick={submitPasswordChange}>
               {saving ? "Updating…" : "Update Password"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 2FA setup dialog */}
+      <Dialog open={twoFaOpen} onOpenChange={(o) => !o && closeTwoFaModal()}>
+        <DialogContent className="rounded-2xl sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Enable Two-Factor Authentication</DialogTitle>
+            <DialogDescription>Enter this key in your authenticator app, then confirm with a code.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-xl border border-border/60 bg-muted/40 p-3">
+              <p className="text-xs text-muted-foreground">Setup key (Google Authenticator, Authy, etc.)</p>
+              <div className="mt-2 flex items-center gap-2">
+                <code className="flex-1 truncate rounded-lg bg-card px-3 py-2 text-sm font-semibold tracking-wider">
+                  {twoFaSecret}
+                </code>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 shrink-0 rounded-lg"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(twoFaSecret);
+                      toast.success("Copied to clipboard");
+                    } catch {
+                      toast.error("Could not copy — copy it manually");
+                    }
+                  }}
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="twofa-code">6-digit code</Label>
+              <Input
+                id="twofa-code"
+                value={twoFaCode}
+                onChange={(e) => setTwoFaCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="123456"
+                inputMode="numeric"
+                className="text-center text-lg font-semibold tracking-[0.5em]"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={closeTwoFaModal}>Cancel</Button>
+            <Button className="rounded-xl gradient-brand text-white" disabled={twoFaBusy} onClick={confirmTwoFa}>
+              {twoFaBusy ? "Verifying…" : "Verify & Enable"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 2FA disable dialog — a stolen session token alone shouldn't be able
+          to turn protection off, so this still requires a current code. */}
+      <Dialog open={disableOpen} onOpenChange={(o) => { if (!o) { setDisableOpen(false); setDisableCode(""); } }}>
+        <DialogContent className="rounded-2xl sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Disable Two-Factor Authentication</DialogTitle>
+            <DialogDescription>Enter a current code from your authenticator app to confirm.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label htmlFor="disable-twofa-code">6-digit code</Label>
+            <Input
+              id="disable-twofa-code"
+              value={disableCode}
+              onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="123456"
+              inputMode="numeric"
+              className="text-center text-lg font-semibold tracking-[0.5em]"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="rounded-xl" onClick={() => { setDisableOpen(false); setDisableCode(""); }}>Cancel</Button>
+            <Button variant="destructive" className="rounded-xl" disabled={disableBusy} onClick={confirmDisableTwoFa}>
+              {disableBusy ? "Disabling…" : "Disable"}
             </Button>
           </DialogFooter>
         </DialogContent>

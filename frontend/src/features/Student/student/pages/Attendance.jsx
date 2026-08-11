@@ -7,7 +7,7 @@ import SectionCard from "@/features/Student/ui/SectionCard";
 import ProgressBar from "@/features/Student/ui/ProgressBar";
 import Pill from "@/features/Student/ui/Pill";
 import Button from "@/features/Student/ui/Button";
-import { downloadMockPdf } from "@/lib/utils";
+import { downloadFile } from "@/lib/utils";
 import { authHeader } from "@/lib/auth";
 
 const API_URL = import.meta.env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
@@ -51,6 +51,19 @@ export default function Attendance() {
 
   const summary = data?.summary ?? { overall: 0, total_classes: 0, present: 0, absent: 0 };
   const courses = data?.courses ?? [];
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      await downloadFile(`${API_URL}/api/student/attendance/report`, { ...authHeader() }, "attendance-report.pdf");
+      toast.success("Attendance report downloaded");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not download the report.");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   // Build a calendar grid for the current month, marking each day from the
   // real day-level rollup the backend computed (present / absent / no record).
@@ -84,20 +97,10 @@ export default function Attendance() {
         <Button
           variant="outline"
           size="sm"
-          disabled={loading || !!error}
-          onClick={() => {
-            downloadMockPdf("attendance-report", [
-              "Attendance Report",
-              `Overall: ${summary.overall}%  |  Total Classes: ${summary.total_classes}`,
-              `Present: ${summary.present}  Absent: ${summary.absent}`,
-              "",
-              "Course-wise Attendance:",
-              ...courses.map((c) => `${c.code} - ${c.name}: ${c.percentage}% (${c.status})`),
-            ]);
-            toast.success("Attendance report downloaded");
-          }}
+          disabled={loading || !!error || downloading}
+          onClick={handleDownload}
         >
-          <Download className="size-4" /> Download Report
+          <Download className="size-4" /> {downloading ? "Downloading…" : "Download Report"}
         </Button>
       </div>
 

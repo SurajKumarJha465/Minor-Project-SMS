@@ -7,7 +7,7 @@ import ProgressBar from "@/features/Student/ui/ProgressBar";
 import Pill, { statusTone } from "@/features/Student/ui/Pill";
 import Button from "@/features/Student/ui/Button";
 import FloatingModal from "@/features/Student/ui/FloatingModal";
-import { downloadMockPdf } from "@/lib/utils";
+import { downloadFile } from "@/lib/utils";
 import { authHeader } from "@/lib/auth";
 
 const API_URL = import.meta.env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
@@ -45,6 +45,7 @@ export default function InternalMarks() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [viewRow, setViewRow] = useState(null);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,6 +70,18 @@ export default function InternalMarks() {
   const published = rows.filter((r) => r.status === "published");
   const avg = published.length ? Math.round(published.reduce((a, c) => a + c.total, 0) / published.length) : 0;
 
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      await downloadFile(`${API_URL}/api/student/internal-marks/report`, { ...authHeader() }, "internal-marks.pdf");
+      toast.success("Marks sheet downloaded");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not download the marks sheet.");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -87,18 +100,10 @@ export default function InternalMarks() {
         <Button
           variant="outline"
           size="sm"
-          disabled={!published.length}
-          onClick={() => {
-            downloadMockPdf("internal-marks", [
-              "Internal Marks Report",
-              `Average: ${avg}/50`,
-              "",
-              ...published.map((c) => `${c.code} - ${c.name}: ${c.total}/${c.max} (${remarkFor(c.total).label})`),
-            ]);
-            toast.success("Marks sheet downloaded");
-          }}
+          disabled={!published.length || downloading}
+          onClick={handleDownload}
         >
-          <Download className="size-4" /> Download Marks
+          <Download className="size-4" /> {downloading ? "Downloading…" : "Download Marks"}
         </Button>
       </div>
 

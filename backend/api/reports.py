@@ -201,6 +201,41 @@ def build_internal_marks_report(
     )
 
 
+def build_course_internal_marks_report(
+    *, institution_name: str, course_info: dict[str, str], rows: list[dict],
+) -> bytes:
+    headers = ["Enrollment", "Name", "Att", "Lab", "Exam", "Viva", "Att", "Assign", "Pres", "Assess", "Practical", "Theory", "Total /50"]
+    widths = [22 * mm, 38 * mm] + [10 * mm] * 8 + [16 * mm, 14 * mm, 16 * mm]
+
+    table_rows = []
+    for r in rows:
+        practical = r["p_att"] + r["p_lab"] + r["p_exam"] + r["p_viva"]
+        theory = r["t_att"] + r["t_assign"] + r["t_present"] + r["t_assess"]
+        table_rows.append([
+            r["enrollment"], r["name"],
+            str(r["p_att"]), str(r["p_lab"]), str(r["p_exam"]), str(r["p_viva"]),
+            str(r["t_att"]), str(r["t_assign"]), str(r["t_present"]), str(r["t_assess"]),
+            str(practical), str(theory), str(practical + theory),
+        ])
+
+    published = sum(1 for r in rows if r["status"] == "published")
+    avg = round(sum(
+        r["p_att"] + r["p_lab"] + r["p_exam"] + r["p_viva"] + r["t_att"] + r["t_assign"] + r["t_present"] + r["t_assess"]
+        for r in rows
+    ) / len(rows)) if rows else 0
+
+    return _render(
+        institution_name=institution_name,
+        report_title="Internal Marks Report",
+        student_info=course_info,
+        summary_lines=[
+            f"<b>Students:</b> {len(rows)} &nbsp;&nbsp; <b>Class average:</b> {avg}/50 "
+            f"&nbsp;&nbsp; <b>Published:</b> {published}/{len(rows)}",
+        ],
+        sections=[("Practical (20) · Theory (30) · Total (50)", headers, table_rows, widths)],
+    )
+
+
 def build_semester_results_report(
     *, institution_name: str, student_info: dict[str, str],
     cgpa: float, results: list[dict], courses_by_semester: dict[int, list[dict]],

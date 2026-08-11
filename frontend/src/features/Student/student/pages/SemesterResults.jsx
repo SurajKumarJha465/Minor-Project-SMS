@@ -19,7 +19,7 @@ import Pill, { statusTone } from "@/features/Student/ui/Pill";
 import Button from "@/features/Student/ui/Button";
 import FloatingModal from "@/features/Student/ui/FloatingModal";
 import { CHART, tooltipStyle } from "@/features/Student/lib/chart-colors";
-import { downloadMockPdf } from "@/lib/utils";
+import { downloadFile } from "@/lib/utils";
 import { authHeader } from "@/lib/auth";
 
 const API_URL = import.meta.env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
@@ -29,6 +29,7 @@ export default function SemesterResults() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [viewSem, setViewSem] = useState(null);
+  const [downloadingSem, setDownloadingSem] = useState(null); // null | "all" | semester number
 
   useEffect(() => {
     let cancelled = false;
@@ -58,6 +59,22 @@ export default function SemesterResults() {
   const best = useMemo(() => (results.length ? Math.max(...results.map((s) => s.gpa)) : 0), [results]);
   const viewGrades = viewSem ? coursesBySemester[viewSem.semester] ?? [] : [];
 
+  const handleDownload = async (semester) => {
+    setDownloadingSem(semester ?? "all");
+    try {
+      const url = semester
+        ? `${API_URL}/api/student/results/report?semester=${semester}`
+        : `${API_URL}/api/student/results/report`;
+      const fallback = semester ? `semester-${semester}-marksheet.pdf` : "semester-results.pdf";
+      await downloadFile(url, { ...authHeader() }, fallback);
+      toast.success(semester ? `Semester ${semester} marksheet downloaded` : "Result PDF downloaded");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not download the result.");
+    } finally {
+      setDownloadingSem(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -70,18 +87,10 @@ export default function SemesterResults() {
         <Button
           variant="outline"
           size="sm"
-          disabled={!results.length}
-          onClick={() => {
-            downloadMockPdf("semester-marksheet", [
-              "Semester Results Summary",
-              `Overall CGPA: ${cgpa}`,
-              "",
-              ...results.map((s) => `Semester ${s.semester}: GPA ${s.gpa} · ${s.credits} credits · ${s.status}`),
-            ]);
-            toast.success("Result PDF downloaded");
-          }}
+          disabled={!results.length || downloadingSem !== null}
+          onClick={() => handleDownload()}
         >
-          <Download className="size-4" /> Download Result
+          <Download className="size-4" /> {downloadingSem === "all" ? "Downloading…" : "Download Result"}
         </Button>
       </div>
 
@@ -164,18 +173,10 @@ export default function SemesterResults() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            disabled={s.status !== "Published"}
-                            onClick={() => {
-                              downloadMockPdf(`semester-${s.semester}-marksheet`, [
-                                `Semester ${s.semester} Marksheet`,
-                                `GPA: ${s.gpa}  Credits: ${s.credits}  Status: ${s.status}`,
-                                "",
-                                ...(coursesBySemester[s.semester] ?? []).map((g) => `${g.code} - ${g.name}: Grade ${g.grade} (${g.grade_point} pts, ${g.credits} cr)`),
-                              ]);
-                              toast.success(`Semester ${s.semester} marksheet downloaded`);
-                            }}
+                            disabled={s.status !== "Published" || downloadingSem !== null}
+                            onClick={() => handleDownload(s.semester)}
                           >
-                            <Download className="size-4" /> PDF
+                            <Download className="size-4" /> {downloadingSem === s.semester ? "…" : "PDF"}
                           </Button>
                         </div>
                       </td>

@@ -132,12 +132,13 @@ def _bulk_student_stats(db: Session, student_ids: list[str]) -> dict[str, dict]:
 
     return stats
 
-def _hod_profile_out(db: Session, hod: HOD) -> HodListingOut:
+def _hod_profile_out(db: Session, hod: HOD, current_user: User | None = None) -> HodListingOut:
     dept = db.query(Department).filter(Department.id == hod.department_id).first()
     return HodListingOut(
         id=str(hod.id), name=hod.name, department=dept.name if dept else "",
         email=hod.email or "", phone=hod.phone, qualification=hod.qualification,
         experience=hod.experience, photo=hod.photo,
+        must_change_password=current_user.must_change_password if current_user else False,
     )
 
 
@@ -147,7 +148,7 @@ def my_profile(
     current_user: User = Depends(require_role(RoleEnum.hod)),
 ):
     hod = _current_hod(db, current_user)
-    return _hod_profile_out(db, hod)
+    return _hod_profile_out(db, hod, current_user)
 
 
 @router.patch("/me", response_model=HodListingOut)

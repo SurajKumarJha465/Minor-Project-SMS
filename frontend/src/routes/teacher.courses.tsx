@@ -111,6 +111,11 @@ function CoursesPage() {
                     <div className="absolute right-4 top-4 rounded-lg bg-white/15 px-2 py-1 font-mono text-xs backdrop-blur">{c.code}</div>
                   </div>
                   <CardContent className="space-y-4 p-5">
+                    <div className="flex flex-wrap gap-1.5">
+                      <Badge variant="secondary" className="rounded-full">{deptNameById.get(c.dept) ?? c.dept}</Badge>
+                      <Badge variant="secondary" className="rounded-full">Sem {c.sem}</Badge>
+                      <Badge variant="secondary" className="rounded-full">Sec {sectionLabel(sec)}</Badge>
+                    </div>
                     <div className="grid grid-cols-2 gap-3 text-center">
                       <Stat label="Credit Hours" value={c.credits} />
                       <Stat label="Enrolled" value={c.enrolled} />

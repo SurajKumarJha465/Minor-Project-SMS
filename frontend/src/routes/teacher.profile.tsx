@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { authHeader } from "@/lib/auth";
 import { apiJson, apiFormJson } from "@/lib/api";
-import { getTeacherCourses, groupTeacherCourses, sectionLabel, type TeacherCourse, type TeacherMeDto } from "@/features/Teacher/lib/academic-data";
+import { type TeacherMeDto } from "@/features/Teacher/lib/academic-data";
 
 export const Route = createFileRoute("/teacher/profile")({
   head: () => ({ meta: [{ title: "My Profile · Teacher Portal" }] }),
@@ -36,8 +36,6 @@ function Profile() {
   const [teacher, setTeacher] = useState<TeacherMeDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-
-  const [courses, setCourses] = useState<TeacherCourse[]>([]);
 
   const [editOpen, setEditOpen] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
@@ -64,14 +62,6 @@ function Profile() {
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    getTeacherCourses().then((list) => {
-      if (!cancelled) setCourses(list);
-    });
     return () => { cancelled = true; };
   }, []);
 
@@ -213,49 +203,17 @@ function Profile() {
         </div>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="rounded-2xl shadow-soft md:col-span-2">
-          <CardHeader><CardTitle className="text-base">Contact & Office</CardTitle></CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
-            <Info icon={Mail} label="Email" value={teacher.email || "—"} />
-            <Info icon={Phone} label="Phone" value={teacher.phone || "—"} />
-            <Info icon={MapPin} label="Office" value={teacher.office || "—"} />
-            <Info icon={Clock} label="Office Hours" value={teacher.office_hours || "—"} />
-            <Info icon={Briefcase} label="Qualification" value={teacher.qualification || "—"} />
-            <Info icon={GraduationCap} label="Specialization" value={teacher.specialization || "—"} />
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl shadow-soft">
-          <CardHeader><CardTitle className="text-base">Assigned Courses</CardTitle></CardHeader>
-          <CardContent className="space-y-2.5">
-            {courses.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No courses assigned yet.</p>
-            ) : (
-              groupTeacherCourses(courses).map((g) => (
-                <div key={g.code} className="flex items-start gap-3 rounded-xl border border-border p-3">
-                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-secondary text-primary font-mono text-xs font-bold">
-                    {g.code.split("-")[1] ?? g.code}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold">{g.name}</div>
-                    <div className="text-xs text-muted-foreground">{g.code}</div>
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {g.offerings.map((o) => (
-                        <span
-                          key={o.id}
-                          className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary"
-                        >
-                          Sem {o.sem} · Sec {sectionLabel(o.section)}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="rounded-2xl shadow-soft">
+        <CardHeader><CardTitle className="text-base">Contact & Office</CardTitle></CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <Info icon={Mail} label="Email" value={teacher.email || "—"} />
+          <Info icon={Phone} label="Phone" value={teacher.phone || "—"} />
+          <Info icon={MapPin} label="Office" value={teacher.office || "—"} />
+          <Info icon={Clock} label="Office Hours" value={teacher.office_hours || "—"} />
+          <Info icon={Briefcase} label="Qualification" value={teacher.qualification || "—"} />
+          <Info icon={GraduationCap} label="Specialization" value={teacher.specialization || "—"} />
+        </CardContent>
+      </Card>
 
       {/* Edit Profile modal */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>

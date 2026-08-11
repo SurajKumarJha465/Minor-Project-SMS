@@ -288,6 +288,8 @@ def list_my_notices(
             id=n.id, title=n.title, body=n.body, type=n.type.value,
             audience=n.audience, pinned=n.pinned, author=n.author_name,
             date=n.created_at.strftime("%b %d, %Y"), scheduled_for=None,
+            attachment_url=n.attachment_url, attachment_name=n.attachment_name,
+            attachment_size=n.attachment_size,
         )
         for n in notices
     ]

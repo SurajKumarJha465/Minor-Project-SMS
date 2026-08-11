@@ -308,6 +308,7 @@ function InternalMarksReport({ courseId, course, onBack }: { courseId: string; c
   const [rosterCount, setRosterCount] = useState<number | null>(course?.enrolled ?? null);
   const [generated, setGenerated] = useState(false);
   const [successKind, setSuccessKind] = useState<"excel" | "pdf" | null>(null);
+  const [downloading, setDownloading] = useState<"excel" | "pdf" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -317,16 +318,21 @@ function InternalMarksReport({ courseId, course, onBack }: { courseId: string; c
     return () => { cancelled = true; };
   }, [courseId]);
 
+  async function download(kind: "excel" | "pdf") {
+    setDownloading(kind);
+    try {
+      await downloadCourseMarksReport(courseId, kind === "excel" ? "xlsx" : "pdf");
+      setSuccessKind(kind);
+    } catch (err: any) {
+      toast.error(err?.message ?? `Failed to generate ${kind === "excel" ? "Excel" : "PDF"} report`);
+    } finally {
+      setDownloading(null);
+    }
+  }
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <Button size="icon" variant="ghost" className="rounded-xl" onClick={onBack}><ArrowLeft className="h-4 w-4" /></Button>
-        <div>
-          <div className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">{course?.code ?? courseId}</div>
-          <h2 className="font-display text-xl font-bold">{course?.name ?? "Course"} · Internal Marks Report</h2>
-        </div>
-      </div>
-
+      {/* ...header unchanged... */}
       <Card className="rounded-2xl shadow-soft">
         <CardHeader className="flex flex-row items-start gap-3 space-y-0">
           <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl gradient-brand text-white"><FileBarChart className="h-5 w-5" /></div>
@@ -344,11 +350,13 @@ function InternalMarksReport({ courseId, course, onBack }: { courseId: string; c
             </Button>
           ) : (
             <div className="grid grid-cols-2 gap-3">
-              <Button variant="outline" className="rounded-xl" onClick={() => setSuccessKind("excel")}>
-                <FileSpreadsheet className="mr-1.5 h-4 w-4" />Download Excel
+              <Button variant="outline" className="rounded-xl" disabled={downloading !== null} onClick={() => download("excel")}>
+                <FileSpreadsheet className="mr-1.5 h-4 w-4" />
+                {downloading === "excel" ? "Generating…" : "Download Excel"}
               </Button>
-              <Button variant="outline" className="rounded-xl" onClick={() => setSuccessKind("pdf")}>
-                <Download className="mr-1.5 h-4 w-4" />Download PDF
+              <Button variant="outline" className="rounded-xl" disabled={downloading !== null} onClick={() => download("pdf")}>
+                <Download className="mr-1.5 h-4 w-4" />
+                {downloading === "pdf" ? "Generating…" : "Download PDF"}
               </Button>
             </div>
           )}

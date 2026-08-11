@@ -34,6 +34,7 @@ from api.schemas import (
     TwoFactorVerifyRequest,
     TwoFactorStatusResponse,
     EventOut,
+    SearchResultOut,
 )
 
 router = APIRouter(prefix="/api/student", tags=["student"])
@@ -260,6 +261,71 @@ def disable_two_factor(
     current_user.totp_secret = None
     db.commit()
     return TwoFactorStatusResponse(enabled=False)
+
+
+@router.get("/search", response_model=list[SearchResultOut])
+def search_my_stuff(
+    q: str = "",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.student)),
+):
+    """Combined lookup scoped to this student — their own enrolled courses
+    and the notices visible to them (same department/schedule rule as
+    /notices). There's no equivalent of the teacher/HOD "search other
+    people" use case here — a student's global search is just a faster way
+    to jump to one of their own courses or a notice they remember seeing."""
+    student = _current_student(db, current_user)
+    query = q.strip()
+    if len(query) < 2:
+        return []
+
+    like = f"%{query}%"
+    results: list[SearchResultOut] = []
+
+    enrollments = db.query(Enrollment).filter(Enrollment.student_id == student.id).all()
+    course_ids = [e.course_id for e in enrollments]
+    if course_ids:
+        courses = (
+            db.query(Course)
+            .filter(
+                Course.id.in_(course_ids),
+                (Course.name.ilike(like)) | (Course.code.ilike(like)),
+            )
+            .limit(6)
+            .all()
+        )
+        teacher_ids = {c.teacher_id for c in courses if c.teacher_id}
+        teacher_names = (
+            {t.id: t.name for t in db.query(Teacher).filter(Teacher.id.in_(teacher_ids)).all()}
+            if teacher_ids else {}
+        )
+        for c in courses:
+            teacher_name = teacher_names.get(c.teacher_id)
+            results.append(SearchResultOut(
+                type="course", id=c.id, name=c.name,
+                subtitle=f"{c.code}" + (f" · {teacher_name}" if teacher_name else ""),
+                photo=None, sem=c.sem,
+            ))
+
+    notices = (
+        db.query(Notice)
+        .filter(
+            Notice.department_id == student.department_id,
+            or_(Notice.scheduled_for.is_(None), Notice.scheduled_for <= datetime.utcnow()),
+            Notice.title.ilike(like),
+        )
+        .order_by(Notice.pinned.desc(), Notice.created_at.desc())
+        .limit(6)
+        .all()
+    )
+    for n in notices:
+        results.append(SearchResultOut(
+            type="notice", id=str(n.id), name=n.title,
+            subtitle=f"{n.type.value} · {n.created_at.strftime('%b %d, %Y')}",
+            photo=None,
+        ))
+
+    return results
 
 
 @router.get("/notices", response_model=list[NoticeOut])

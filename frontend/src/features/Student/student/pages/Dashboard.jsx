@@ -18,6 +18,7 @@ import {
   BookOpen,
   GraduationCap,
   ListChecks,
+  Paperclip,
   TrendingUp,
   UserCheck,
 } from "lucide-react";
@@ -29,9 +30,22 @@ import Button from "@/features/Student/ui/Button";
 import Pill from "@/features/Student/ui/Pill";
 import FloatingModal from "@/features/Student/ui/FloatingModal";
 import { CHART, tooltipStyle } from "@/features/Student/lib/chart-colors";
-import { authHeader } from "@/lib/auth";
+import { apiJson } from "@/lib/api";
 
 const API_URL = import.meta.env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+// Same convention as NoticeBoard.jsx: the backend returns a relative
+// /uploads/notices/<file> path that needs the API origin prefixed.
+function attachmentSrc(url) {
+  if (!url) return undefined;
+  return url.startsWith("http") ? url : `${API_URL}${url}`;
+}
+
+function formatBytes(n) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 // Same category → colour mapping NoticeBoard.jsx uses, so a notice looks the
 // same whether you see it here or on the full board.
@@ -96,26 +110,12 @@ export default function Dashboard({ onNavigate }) {
     async function load() {
       setLoading(true);
       try {
-        const headers = { ...authHeader() };
-        const [meRes, attRes, coursesRes, resultsRes, noticesRes] = await Promise.all([
-          fetch(`${API_URL}/api/student/me`, { headers }),
-          fetch(`${API_URL}/api/student/attendance`, { headers }),
-          fetch(`${API_URL}/api/student/courses`, { headers }),
-          fetch(`${API_URL}/api/student/results`, { headers }),
-          fetch(`${API_URL}/api/student/notices`, { headers }),
-        ]);
-        if (!meRes.ok) throw new Error(`Failed to load profile (${meRes.status})`);
-        if (!attRes.ok) throw new Error(`Failed to load attendance (${attRes.status})`);
-        if (!coursesRes.ok) throw new Error(`Failed to load courses (${coursesRes.status})`);
-        if (!resultsRes.ok) throw new Error(`Failed to load results (${resultsRes.status})`);
-        if (!noticesRes.ok) throw new Error(`Failed to load notices (${noticesRes.status})`);
-
         const [me, att, courseList, resultsData, noticeList] = await Promise.all([
-          meRes.json(),
-          attRes.json(),
-          coursesRes.json(),
-          resultsRes.json(),
-          noticesRes.json(),
+          apiJson("/api/student/me"),
+          apiJson("/api/student/attendance"),
+          apiJson("/api/student/courses"),
+          apiJson("/api/student/results"),
+          apiJson("/api/student/notices"),
         ]);
 
         if (cancelled) return;
@@ -271,6 +271,11 @@ export default function Dashboard({ onNavigate }) {
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-foreground">{n.title}</p>
                     <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{n.body}</p>
+                    {n.attachment_url && (
+                      <span className="mt-1 inline-flex items-center gap-1 text-[11px] text-primary">
+                        <Paperclip className="size-3" /> {n.attachment_name}
+                      </span>
+                    )}
                   </div>
                   <Pill tone={CAT_TONE[n.type] ?? "neutral"}>{n.type}</Pill>
                 </div>
@@ -294,6 +299,20 @@ export default function Dashboard({ onNavigate }) {
         {noticeOpen && (
           <div className="space-y-4">
             <p className="whitespace-pre-wrap text-sm text-foreground">{noticeOpen.body}</p>
+            {noticeOpen.attachment_url && (
+              <a
+                href={attachmentSrc(noticeOpen.attachment_url)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-background px-2.5 py-1.5 text-xs text-primary hover:underline"
+              >
+                <Paperclip className="size-3.5" />
+                {noticeOpen.attachment_name}
+                {noticeOpen.attachment_size != null && (
+                  <span className="text-muted-foreground">({formatBytes(noticeOpen.attachment_size)})</span>
+                )}
+              </a>
+            )}
             <div className="flex flex-wrap items-center gap-2">
               <Pill tone={CAT_TONE[noticeOpen.type] ?? "neutral"} dot>{noticeOpen.type}</Pill>
               {noticeOpen.pinned && <Pill tone="danger">Pinned</Pill>}

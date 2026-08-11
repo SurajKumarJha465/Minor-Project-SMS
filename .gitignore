@@ -20,6 +20,8 @@ backend/asset/test_images/
 backend/debug/
 backend/attendance_logs/
 backend/test_images/
+backend/api/seed.py
+backend/api/seed_results.py
 scraped_files.txt
 *_dump.md
 

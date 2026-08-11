@@ -28,7 +28,7 @@ THRESHOLD = 0.4
 
 
 @router.post("/recognize")
-async def recognize_frame(
+def recognize_frame(
     course_id: str = Form(...),
     frame: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -39,9 +39,18 @@ async def recognize_frame(
     Runs YOLO detection + ArcFace matching, restricted to students
     actually enrolled in this course's roster (not the whole database).
     Returns which enrolled students were recognized in this frame.
+
+    Deliberately a sync `def`, not `async def`: everything below (image
+    decode, YOLO inference, InsightFace inference) is synchronous CPU-bound
+    work with no internal awaits. As an `async def` it would run straight on
+    the event loop and stall every other request — logins, other teachers'
+    dashboards, everything — for the duration of each scan. A plain `def`
+    lets FastAPI dispatch it to its worker thread pool instead, so one
+    classroom's recognition doesn't freeze the whole server for everyone
+    else hitting it at the same time.
     """
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-        tmp.write(await frame.read())
+        tmp.write(frame.file.read())
         tmp_path = tmp.name
 
     try:

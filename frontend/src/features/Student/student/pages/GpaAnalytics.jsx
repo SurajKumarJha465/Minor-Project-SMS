@@ -16,6 +16,7 @@ import ChartCard from "@/features/Student/ui/ChartCard";
 import SectionCard from "@/features/Student/ui/SectionCard";
 import ProgressBar from "@/features/Student/ui/ProgressBar";
 import Button from "@/features/Student/ui/Button";
+import Pill from "@/features/Student/ui/Pill";
 import { CHART, tooltipStyle } from "@/features/Student/lib/chart-colors";
 import { authHeader } from "@/lib/auth";
 
@@ -215,12 +216,21 @@ export default function GpaAnalytics() {
                 </BarChart>
               </ChartCard>
 
-              <SectionCard title="Course Progress" icon={TrendingUp} subtitle="This semester">
-                <div className="space-y-4">
+              <SectionCard
+                title="Course Progress"
+                icon={TrendingUp}
+                subtitle="This semester"
+                action={<Pill tone="warning">Coming Soon</Pill>}
+              >
+                <div className="space-y-4 opacity-50" aria-disabled="true">
                   {coursePerformance.map((c) => (
                     <ProgressBar key={c.name} value={c.score} label={c.name} tone={c.score >= 80 ? "success" : "primary"} />
                   ))}
                 </div>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Per-course syllabus progress tracking is on its way — these bars currently mirror your internal
+                  marks and aren't real progress data yet.
+                </p>
               </SectionCard>
             </div>
           )}

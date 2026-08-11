@@ -20,6 +20,7 @@ dependencies = [
     "tree3==0.2.0",
     # PDF report generation (attendance / internal marks / semester results)
     "reportlab>=4.2.0",
+    "openpyxl==3.2.0b1",
 ]
 
 [project.optional-dependencies]

@@ -6,36 +6,38 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
- * downloadMockPdf — generates a lightweight placeholder PDF file in the browser
- * and triggers a download. Used for "Download Report / Marksheet" style buttons
- * where there's no real backend to generate a PDF from.
+ * downloadFile — fetches a file (e.g. a server-generated PDF report) from an
+ * authenticated backend endpoint and triggers a browser download. Replaces
+ * the old downloadMockPdf() client-side placeholder generator now that the
+ * backend issues real reports (see api/reports.py).
+ *
+ * Throws on a non-OK response so callers can show an error toast instead of
+ * silently "downloading" an HTML error page.
  */
-export function downloadMockPdf(filename: string, lines: string[]) {
-  const textOps = lines
-    .map(
-      (line, i) =>
-        `BT /F1 12 Tf 40 ${760 - i * 18} Td (${line.replace(/[()\\]/g, (c) => `\\${c}`)}) Tj ET`,
-    )
-    .join("\n");
-  const pdf = `%PDF-1.4
-1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
-2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
-3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 4 0 R>>>>/Contents 5 0 R>>endobj
-4 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj
-5 0 obj<</Length ${textOps.length}>>stream
-${textOps}
-endstream
-endobj
-xref
-trailer<</Size 6/Root 1 0 R>>
-%%EOF`;
-  const blob = new Blob([pdf], { type: "application/pdf" });
-  const url = URL.createObjectURL(blob);
+export async function downloadFile(url: string, headers: HeadersInit, fallbackFilename: string) {
+  const res = await fetch(url, { headers });
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      detail = body?.detail || "";
+    } catch {
+      // response wasn't JSON — ignore, use the generic message below
+    }
+    throw new Error(detail || `Download failed (${res.status})`);
+  }
+
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename = match?.[1] || fallbackFilename;
+
+  const objectUrl = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url;
-  a.download = filename.endsWith(".pdf") ? filename : `${filename}.pdf`;
+  a.href = objectUrl;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
-  URL.revokeObjectURL(url);
+  URL.revokeObjectURL(objectUrl);
 }

@@ -496,6 +496,7 @@ class TeacherCourseOfferingSummary(BaseModel):
     """One (sem, section) offering of a course, with its own summary stats —
     used for the section-picker shown under the aggregate view."""
     id: str          # composite course id, e.g. "ce-5-d-cs501"
+    department_id: str   # disambiguates offerings when the same code is taught in >1 dept
     sem: int
     section: str
     enrolled: int

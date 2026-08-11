@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
-import { Bell, Search, CalendarDays, Eye, Pin } from "lucide-react";
+import { Bell, Search, CalendarDays, Eye, Pin, Paperclip } from "lucide-react";
 
 export const Route = createFileRoute("/teacher/notices")({
   head: () => ({ meta: [{ title: "Notice · Teacher Portal" }] }),
@@ -26,7 +26,16 @@ type Notice = {
   pinned: boolean;
   author: string;
   date: string;
+  attachment_url: string | null;
+  attachment_name: string | null;
+  attachment_size: number | null;
 };
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 function NoticesPage() {
   const [notices, setNotices] = useState<Notice[]>([]);
@@ -109,6 +118,18 @@ function NoticesPage() {
                   <Badge variant="secondary" className="rounded-full text-[10px]">{n.type}</Badge>
                 </div>
                 <div className="mt-0.5 text-xs text-muted-foreground">{n.audience} · {n.date}</div>
+                {n.attachment_url && (
+                  <a
+                    href={`${API_URL}${n.attachment_url}`}
+                    target="_blank" rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-background px-2 py-1 text-xs text-primary hover:underline"
+                  >
+                    <Paperclip className="h-3 w-3" />
+                    {n.attachment_name}
+                    {n.attachment_size != null && <span className="text-muted-foreground">({formatBytes(n.attachment_size)})</span>}
+                  </a>
+                )}
               </div>
               <Button size="sm" variant="outline" className="shrink-0 rounded-lg" onClick={() => setActive(n)}>
                 <Eye className="mr-1.5 h-3.5 w-3.5" />View
@@ -134,6 +155,17 @@ function NoticesPage() {
                   <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Description</div>
                   <p className="mt-1 text-sm leading-relaxed">{active.body}</p>
                 </div>
+                {active.attachment_url && (
+                  <a
+                    href={`${API_URL}${active.attachment_url}`}
+                    target="_blank" rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-background px-2.5 py-1.5 text-xs text-primary hover:underline"
+                  >
+                    <Paperclip className="h-3.5 w-3.5" />
+                    {active.attachment_name}
+                    {active.attachment_size != null && <span className="text-muted-foreground">({formatBytes(active.attachment_size)})</span>}
+                  </a>
+                )}
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <CalendarDays className="h-3.5 w-3.5" /> Published by {active.author} · {active.date}
                 </div>

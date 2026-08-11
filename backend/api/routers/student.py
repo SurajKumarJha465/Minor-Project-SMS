@@ -1,18 +1,19 @@
-import os
 import re
-import uuid
 from collections import defaultdict
 
 import pyotp
 from sqlalchemy import or_
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from datetime import datetime
+from io import BytesIO
 
 from api.database import get_db
-from api.models import User, RoleEnum, Student, Section, Department, Notice, Enrollment, AttendanceRecord, AttendanceStatus, Course, Teacher, InternalMark, MarkStatus, CourseGrade, CalendarEvent
+from api.models import User, RoleEnum, Student, Section, Department, Notice, Enrollment, AttendanceRecord, AttendanceStatus, Course, Teacher, InternalMark, MarkStatus, CourseGrade, CalendarEvent, SystemSettings
 from api.grading import grade_point
-from api.auth import require_role, hash_password, verify_password
+from api.auth import require_role
+from api import reports
 from api.schemas import (
     NoticeOut,
     StudentAttendanceResponse,
@@ -30,9 +31,7 @@ from api.schemas import (
     TwoFactorVerifyRequest,
     TwoFactorStatusResponse,
     EventOut,
-    ChangePasswordRequest,
 )
-from api.routers.admin import _get_or_create_settings, _log_action
 
 router = APIRouter(prefix="/api/student", tags=["student"])
 
@@ -82,6 +81,33 @@ def _build_student_me(db: Session, student: Student, user: User) -> StudentMeOut
     )
 
 
+def _institution_name(db: Session) -> str:
+    settings = db.query(SystemSettings).filter(SystemSettings.id == 1).first()
+    return (settings.institution_name if settings and settings.institution_name else "") or "Smart Student Management System"
+
+
+def _report_student_info(db: Session, student: Student, user: User) -> dict[str, str]:
+    """Letterhead-style student identity block shared by every PDF report."""
+    dept = db.query(Department).filter(Department.id == student.department_id).first()
+    section = db.query(Section).filter(Section.id == student.section_id).first()
+    return {
+        "Name": student.name,
+        "Enrollment No": student.enrollment or student.id,
+        "Department": dept.name if dept else (student.department_id or "—"),
+        "Semester": str(student.sem or "—"),
+        "Section": section.label if section else (student.section_id or "—").upper(),
+        "Batch": _derive_batch(student),
+    }
+
+
+def _pdf_response(pdf_bytes: bytes, filename: str) -> StreamingResponse:
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/me", response_model=StudentMeOut)
 def my_profile(
     db: Session = Depends(get_db),
@@ -111,80 +137,6 @@ def update_my_profile(
     db.commit()
     db.refresh(student)
     return _build_student_me(db, student, current_user)
-
-
-# Same convention as teacher.py / hod.py: saved under data/profile_photos/
-# and served back out at /uploads/profile-photos/<file> (mounted in main.py).
-PROFILE_PHOTOS_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "profile_photos"
-)
-PROFILE_PHOTO_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
-PROFILE_PHOTO_ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".webp"}
-
-
-@router.post("/me/photo", response_model=StudentMeOut)
-async def upload_my_photo(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_role(RoleEnum.student)),
-):
-    student = _current_student(db, current_user)
-
-    original_name = file.filename or "photo"
-    ext = os.path.splitext(original_name)[1].lower()
-    if ext not in PROFILE_PHOTO_ALLOWED_EXT:
-        allowed = ", ".join(sorted(PROFILE_PHOTO_ALLOWED_EXT))
-        raise HTTPException(status_code=400, detail=f"Unsupported image type '{ext}'. Allowed: {allowed}")
-
-    data = await file.read()
-    if len(data) > PROFILE_PHOTO_MAX_BYTES:
-        raise HTTPException(status_code=400, detail="Image is larger than the 5 MB limit")
-    if not data:
-        raise HTTPException(status_code=400, detail="File is empty")
-
-    os.makedirs(PROFILE_PHOTOS_DIR, exist_ok=True)
-    stored_name = f"student-{student.id}-{uuid.uuid4().hex}{ext}"
-    with open(os.path.join(PROFILE_PHOTOS_DIR, stored_name), "wb") as f:
-        f.write(data)
-
-    # only clean up the old file if it's one we saved ourselves — this is a
-    # separate display photo from the face-recognition enrollment photo under
-    # data/enrollment_photos/<id>/, which this endpoint never touches
-    if student.photo and student.photo.startswith("/uploads/profile-photos/"):
-        old_path = os.path.join(PROFILE_PHOTOS_DIR, os.path.basename(student.photo))
-        if os.path.isfile(old_path):
-            try:
-                os.remove(old_path)
-            except OSError:
-                pass
-
-    student.photo = f"/uploads/profile-photos/{stored_name}"
-    db.commit()
-    db.refresh(student)
-    return _build_student_me(db, student, current_user)
-
-
-@router.post("/change-password")
-def change_my_password(
-    payload: ChangePasswordRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_role(RoleEnum.student)),
-):
-    """Student-scoped alias for the shared change-password flow. The frontend
-    used to call POST /api/admin/change-password for this — it worked (that
-    route accepts any logged-in user) but namespacing a student action under
-    /api/admin was misleading and fragile. Same logic as admin.change_password,
-    just reusing the shared settings/audit-log helpers from that module."""
-    if not verify_password(payload.current_password, current_user.hashed_password):
-        raise HTTPException(status_code=401, detail="Current password is incorrect")
-
-    current_user.hashed_password = hash_password(payload.new_password)
-    current_user.must_change_password = False
-    current_user.password_changed_at = datetime.utcnow()
-    db.commit()
-    settings = _get_or_create_settings(db)
-    _log_action(db, settings, current_user, "account.password_changed")
-    return {"message": "Password updated successfully"}
 
 
 @router.post("/2fa/setup", response_model=TwoFactorSetupResponse)
@@ -371,17 +323,11 @@ def list_my_courses(
     return rows
 
 
-@router.get("/internal-marks", response_model=list[StudentInternalMarkRow])
-def list_my_internal_marks(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_role(RoleEnum.student)),
-):
+def _fetch_internal_marks(db: Session, student: Student) -> list[StudentInternalMarkRow]:
     """Per-component internal assessment breakdown for every enrolled course.
     Same published-only rule as /courses and /results: a course whose marks
     the teacher/HOD haven't published yet shows up with status="pending" and
     zeroed fields — never the in-progress numbers a teacher is still editing."""
-    student = _current_student(db, current_user)
-
     enrollments = db.query(Enrollment).filter(Enrollment.student_id == student.id).all()
     course_ids = [e.course_id for e in enrollments]
     if not course_ids:
@@ -421,6 +367,30 @@ def list_my_internal_marks(
     return rows
 
 
+@router.get("/internal-marks", response_model=list[StudentInternalMarkRow])
+def list_my_internal_marks(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.student)),
+):
+    student = _current_student(db, current_user)
+    return _fetch_internal_marks(db, student)
+
+
+@router.get("/internal-marks/report")
+def download_internal_marks_report(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.student)),
+):
+    student = _current_student(db, current_user)
+    rows = _fetch_internal_marks(db, student)
+    pdf = reports.build_internal_marks_report(
+        institution_name=_institution_name(db),
+        student_info=_report_student_info(db, student, current_user),
+        rows=[r.model_dump() for r in rows],
+    )
+    return _pdf_response(pdf, f"internal-marks-{student.id}.pdf")
+
+
 def _attendance_status_label(pct: float) -> str:
     if pct >= 90:
         return "Excellent"
@@ -429,11 +399,7 @@ def _attendance_status_label(pct: float) -> str:
     return "Warning"
 
 
-@router.get("/results", response_model=StudentResultsResponse)
-def list_my_results(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_role(RoleEnum.student)),
-):
+def _fetch_results(db: Session, student: Student) -> StudentResultsResponse:
     """Final semester results, computed from CourseGrade rows. A semester
     only counts as "Published" once every graded course in it is published;
     draft grades never affect what the student sees (same rule InternalMark
@@ -441,8 +407,6 @@ def list_my_results(
     rather than shown as an empty row. 'gpa' here is the SGPA for that one
     semester; 'cgpa' is the cumulative, credit-weighted average across every
     published semester."""
-    student = _current_student(db, current_user)
-
     all_grades = db.query(CourseGrade).filter(CourseGrade.student_id == student.id).all()
     if not all_grades:
         return StudentResultsResponse(cgpa=0.0, results=[], courses_by_semester={})
@@ -493,6 +457,43 @@ def list_my_results(
 
     cgpa = round(cgpa_points / cgpa_credits, 2) if cgpa_credits else 0.0
     return StudentResultsResponse(cgpa=cgpa, results=results, courses_by_semester=courses_by_semester)
+
+
+@router.get("/results", response_model=StudentResultsResponse)
+def list_my_results(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.student)),
+):
+    student = _current_student(db, current_user)
+    return _fetch_results(db, student)
+
+
+@router.get("/results/report")
+def download_results_report(
+    semester: int | None = Query(default=None, description="Limit the report to a single semester's marksheet"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.student)),
+):
+    student = _current_student(db, current_user)
+    data = _fetch_results(db, student)
+
+    if semester is not None and not any(r.semester == semester for r in data.results):
+        raise HTTPException(status_code=404, detail=f"No results found for semester {semester}")
+    if semester is not None:
+        target = next(r for r in data.results if r.semester == semester)
+        if target.status != "Published":
+            raise HTTPException(status_code=400, detail="This semester's result hasn't been published yet")
+
+    pdf = reports.build_semester_results_report(
+        institution_name=_institution_name(db),
+        student_info=_report_student_info(db, student, current_user),
+        cgpa=data.cgpa,
+        results=[r.model_dump() for r in data.results],
+        courses_by_semester={sem: [c.model_dump() for c in courses] for sem, courses in data.courses_by_semester.items()},
+        only_semester=semester,
+    )
+    filename = f"semester-{semester}-marksheet-{student.id}.pdf" if semester is not None else f"semester-results-{student.id}.pdf"
+    return _pdf_response(pdf, filename)
 
 
 @router.get("/attendance", response_model=StudentAttendanceResponse)
@@ -593,3 +594,19 @@ def get_my_attendance(
         courses=course_rows,
         calendar=calendar,
     )
+
+
+@router.get("/attendance/report")
+def download_attendance_report(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.student)),
+):
+    student = _current_student(db, current_user)
+    data = get_my_attendance(db=db, current_user=current_user)
+    pdf = reports.build_attendance_report(
+        institution_name=_institution_name(db),
+        student_info=_report_student_info(db, student, current_user),
+        summary=data.summary.model_dump(),
+        courses=[c.model_dump() for c in data.courses],
+    )
+    return _pdf_response(pdf, f"attendance-report-{student.id}.pdf")

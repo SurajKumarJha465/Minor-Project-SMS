@@ -12,6 +12,7 @@ import { Save, ArrowRight, ArrowLeft, FileBarChart, Download, FileSpreadsheet, P
 import { toast } from "sonner";
 import {
   getTeacherCourses, getCourseMarks, saveCourseMarks, getTeacherDepartments, getRosterForCourse,
+  downloadCourseMarksReport,
   deptName, sectionLabel, semesters, sections,
   type TeacherCourse, type MarkRow, type MarkFields, type TeacherDepartmentDto,
 } from "@/features/Teacher/lib/academic-data";

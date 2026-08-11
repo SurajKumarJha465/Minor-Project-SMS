@@ -569,44 +569,14 @@ HOD_PROFILE = dict(
 def seed():
     db = SessionLocal()
     try:
-        # --- wipe the old CE placeholder data (dept, section, course, the
-        # 14 first-name dummy students, their enrollments, teachers, HOD,
-        # and every login attached to any of it — nothing from the old demo
-        # design is preserved anymore) ---
-        old_student_ids = [s.id for s in db.query(Student).filter(Student.department_id == "ce").all()]
-        if old_student_ids:
-            # AttendanceRecord and InternalMark both FK to students.id with no
-            # cascade — if you've run any test attendance or marks against the
-            # old dummy roster, those rows have to go first or the Student
-            # delete below hits a FK violation.
-            db.query(AttendanceRecord).filter(AttendanceRecord.student_id.in_(old_student_ids)).delete(synchronize_session=False)
-            db.query(InternalMark).filter(InternalMark.student_id.in_(old_student_ids)).delete(synchronize_session=False)
-            db.query(Enrollment).filter(Enrollment.student_id.in_(old_student_ids)).delete(synchronize_session=False)
-            old_user_ids = [s.user_id for s in db.query(Student).filter(Student.id.in_(old_student_ids)).all() if s.user_id]
-            db.query(Student).filter(Student.id.in_(old_student_ids)).delete(synchronize_session=False)
-            if old_user_ids:
-                db.query(User).filter(User.id.in_(old_user_ids)).delete(synchronize_session=False)
-        db.query(Course).filter(Course.department_id == "ce").delete(synchronize_session=False)
-
-        old_teacher_ids = [
-            row.teacher_id
-            for row in db.query(TeacherDepartment).filter(TeacherDepartment.department_id == "ce").all()
-        ]
-        old_hod_ids = [h.id for h in db.query(HOD).filter(HOD.department_id == "ce").all()]
-        if old_teacher_ids or old_hod_ids:
-            old_staff_user_ids = [
-                t.user_id for t in db.query(Teacher).filter(Teacher.id.in_(old_teacher_ids)).all() if t.user_id
-            ] + [
-                h.user_id for h in db.query(HOD).filter(HOD.id.in_(old_hod_ids)).all() if h.user_id
-            ]
-            db.query(TeacherDepartment).filter(TeacherDepartment.teacher_id.in_(old_teacher_ids)).delete(synchronize_session=False)
-            db.query(Teacher).filter(Teacher.id.in_(old_teacher_ids)).delete(synchronize_session=False)
-            db.query(HOD).filter(HOD.id.in_(old_hod_ids)).delete(synchronize_session=False)
-            if old_staff_user_ids:
-                db.query(User).filter(User.id.in_(old_staff_user_ids)).delete(synchronize_session=False)
-
-        db.query(Department).filter(Department.id == "ce").delete(synchronize_session=False)
-        db.commit()
+        # NOTE: this used to unconditionally wipe everything under
+        # department_id == "ce" here, to retire an old placeholder/dummy CE
+        # department from an earlier iteration of this demo. That one-time
+        # migration has already run and is now removed — "ce" (Computer
+        # Engineering) holds real seeded data of its own as of seed_ce.py,
+        # and re-running this seed script must never delete it. If you ever
+        # need to blow away CE data again, do it explicitly, not as a
+        # standing side effect of the IT seed run.
 
         # --- migrate away from every @ssms.edu demo login (admin/hod/
         # teacher/student) from any earlier seed run, including whatever

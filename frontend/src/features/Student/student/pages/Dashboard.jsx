@@ -237,7 +237,7 @@ export default function Dashboard({ onNavigate }) {
           <LineChart data={semesterGpaTrend} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={CHART.grid} vertical={false} />
             <XAxis dataKey="name" stroke={CHART.axis} fontSize={12} tickLine={false} axisLine={false} />
-            <YAxis domain={[0, 10]} stroke={CHART.axis} fontSize={12} tickLine={false} axisLine={false} />
+            <YAxis domain={[0, 4]} stroke={CHART.axis} fontSize={12} tickLine={false} axisLine={false} />
             <Tooltip {...tooltipStyle} />
             <Line type="monotone" dataKey="gpa" stroke={CHART.c2} strokeWidth={2.5} dot={{ r: 4, fill: CHART.c2 }} activeDot={{ r: 6 }} />
           </LineChart>

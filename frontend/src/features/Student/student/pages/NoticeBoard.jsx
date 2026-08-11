@@ -1,15 +1,30 @@
 import { useEffect, useMemo, useState } from "react";
-import { Bell, Filter, Search } from "lucide-react";
+import { Bell, Filter, Paperclip, Search } from "lucide-react";
 
 import Pill from "@/features/Student/ui/Pill";
 import Button from "@/features/Student/ui/Button";
 import FloatingModal from "@/features/Student/ui/FloatingModal";
-import { authHeader } from "@/lib/auth";
+import { apiJson } from "@/lib/api";
 
 const API_URL = import.meta.env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
 
 const NOTICE_CATEGORIES = ["All", "Department", "Semester", "Exam", "Emergency"];
 const CAT_TONE = { Department: "primary", Semester: "info", Exam: "warning", Emergency: "danger" };
+
+// Same convention as teacher/HOD notices: the backend returns a relative
+// /uploads/notices/<file> path that needs the API origin prefixed. The
+// static mount that serves it back out has no auth check, so a plain link
+// (no Authorization header needed) is enough to open/download it.
+function attachmentSrc(url) {
+  if (!url) return undefined;
+  return url.startsWith("http") ? url : `${API_URL}${url}`;
+}
+
+function formatBytes(n) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 export default function NoticeBoard() {
   const [notices, setNotices] = useState([]);
@@ -26,9 +41,7 @@ export default function NoticeBoard() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`${API_URL}/api/student/notices`, { headers: { ...authHeader() } });
-        if (!res.ok) throw new Error(`Failed to load notices (${res.status})`);
-        const data = await res.json();
+        const data = await apiJson("/api/student/notices");
         if (!cancelled) setNotices(data);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Could not load notices.");
@@ -114,6 +127,21 @@ export default function NoticeBoard() {
                 {n.pinned && <span className="size-2 rounded-full bg-destructive" title="Pinned" />}
               </div>
               <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{n.body}</p>
+              {n.attachment_url && (
+                <a
+                  href={attachmentSrc(n.attachment_url)}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="mt-1.5 inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-background px-2 py-1 text-xs text-primary hover:underline"
+                >
+                  <Paperclip className="size-3" />
+                  {n.attachment_name}
+                  {n.attachment_size != null && (
+                    <span className="text-muted-foreground">({formatBytes(n.attachment_size)})</span>
+                  )}
+                </a>
+              )}
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <Pill tone={CAT_TONE[n.type] ?? "neutral"} dot>{n.type}</Pill>
                 <span className="text-xs text-muted-foreground">{n.audience} · {n.author} · {n.date}</span>
@@ -136,6 +164,20 @@ export default function NoticeBoard() {
         {viewNotice && (
           <div className="space-y-4">
             <p className="whitespace-pre-wrap text-sm text-foreground">{viewNotice.body}</p>
+            {viewNotice.attachment_url && (
+              <a
+                href={attachmentSrc(viewNotice.attachment_url)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-background px-2.5 py-1.5 text-xs text-primary hover:underline"
+              >
+                <Paperclip className="size-3.5" />
+                {viewNotice.attachment_name}
+                {viewNotice.attachment_size != null && (
+                  <span className="text-muted-foreground">({formatBytes(viewNotice.attachment_size)})</span>
+                )}
+              </a>
+            )}
             <div className="flex flex-wrap items-center gap-2">
               <Pill tone={CAT_TONE[viewNotice.type] ?? "neutral"} dot>{viewNotice.type}</Pill>
               {(viewNotice.pinned || viewNotice.type === "Emergency") && <Pill tone="danger">High priority</Pill>}

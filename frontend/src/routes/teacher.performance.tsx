@@ -39,7 +39,10 @@ function PerformancePage() {
   const [loading, setLoading] = useState(true);
   const [myDepartments, setMyDepartments] = useState<TeacherDepartmentDto[]>([]);
 
-  const [selectedCode, setSelectedCode] = useState<string | null>(null);
+  // Keyed on dept+code together, since the same course code can be taught
+  // by this teacher in more than one department — those are separate
+  // courses with separate rosters and must be selected independently.
+  const [selectedGroup, setSelectedGroup] = useState<{ code: string; dept: string } | null>(null);
   const [courseId, setCourseId] = useState<string | null>(null);
 
   const [dept, setDept] = useState<string>("all");
@@ -84,14 +87,16 @@ function PerformancePage() {
     return <PerformanceDashboard courseId={courseId} onBack={() => setCourseId(null)} />;
   }
 
-  // Level 2: a course code was picked — show its combined performance + offering picker.
-  if (selectedCode) {
-    const group = grouped.find((g) => g.code === selectedCode) ?? null;
+  // Level 2: a (dept, course code) was picked — show its combined performance + offering picker.
+  if (selectedGroup) {
+    const group =
+      grouped.find((g) => g.code === selectedGroup.code && g.dept === selectedGroup.dept) ?? null;
     return (
       <AggregateDashboard
-        code={selectedCode}
+        code={selectedGroup.code}
+        dept={selectedGroup.dept}
         group={group}
-        onBack={() => setSelectedCode(null)}
+        onBack={() => setSelectedGroup(null)}
         onSelectOffering={(id) => setCourseId(id)}
       />
     );
@@ -135,12 +140,12 @@ function PerformancePage() {
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filteredGroups.map((g) => {
             const totalEnrolled = courses
-              .filter((c) => c.code === g.code)
+              .filter((c) => c.code === g.code && c.dept === g.dept)
               .reduce((sum, c) => sum + c.enrolled, 0);
             return (
               <Card
-                key={g.code}
-                onClick={() => setSelectedCode(g.code)}
+                key={`${g.dept}::${g.code}`}
+                onClick={() => setSelectedGroup({ code: g.code, dept: g.dept })}
                 className="group cursor-pointer overflow-hidden rounded-2xl border-border/60 p-0 shadow-soft transition hover:-translate-y-1 hover:shadow-glass"
               >
                 <div className="gradient-brand relative h-20 p-4 text-white">
@@ -177,11 +182,13 @@ function PerformancePage() {
 
 function AggregateDashboard({
   code,
+  dept,
   group,
   onBack,
   onSelectOffering,
 }: {
   code: string;
+  dept: string;
   group: GroupedTeacherCourse | null;
   onBack: () => void;
   onSelectOffering: (courseId: string) => void;
@@ -194,7 +201,7 @@ function AggregateDashboard({
     let cancelled = false;
     setLoading(true);
     setLoadError(null);
-    getCourseAggregatePerformance(code)
+    getCourseAggregatePerformance(code, dept)
       .then((d) => {
         if (!cancelled) setData(d);
       })
@@ -205,7 +212,7 @@ function AggregateDashboard({
     return () => {
       cancelled = true;
     };
-  }, [code]);
+  }, [code, dept]);
 
   if (loading) {
     return (
@@ -261,14 +268,14 @@ function AggregateDashboard({
         </Button>
         <div>
           <div className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
-            {code}
+            {code} · {deptName(dept)}
           </div>
           <h2 className="font-display text-xl font-bold">{name} · Combined Performance</h2>
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Students (all sections)" value={enrolled} icon={Award} tone="primary" />
+        <StatCard label={`Students (${deptName(dept)})`} value={enrolled} icon={Award} tone="primary" />
         <StatCard
           label="Average Attendance"
           value={`${avg_attendance}%`}

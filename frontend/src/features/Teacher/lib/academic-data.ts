@@ -27,7 +27,7 @@ export type TeacherCourse = {
   dept: string;
   enrolled: number;
   section?: string;
-  attendance?: number; // UI-only placeholder until backend provides %
+  attendance?: number; // real avg attendance %, from CourseOut.avg_attendance
 };
 
 export type CourseDto = {
@@ -38,6 +38,7 @@ export type CourseDto = {
   sem: number;
   dept: string;
   enrolled: number;
+  avg_attendance?: number;
 };
 
 export type RosterStudentDto = {
@@ -84,11 +85,11 @@ export function parseCourseId(compositeId: string) {
 /** Real backend read: current teacher's assigned courses */
 export async function getTeacherCourses(): Promise<TeacherCourse[]> {
   try {
-    const list = await apiJson<TeacherCourse[]>("/api/teacher/courses");
+    const list = await apiJson<CourseDto[]>("/api/teacher/courses");
     return list.map((c) => ({
       ...c,
       section: parseCourseId(c.id).section ?? "d",
-      attendance: c.attendance ?? 0,
+      attendance: c.avg_attendance ?? 0,
     }));
   } catch {
     return [];

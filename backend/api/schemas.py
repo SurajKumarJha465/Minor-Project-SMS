@@ -24,6 +24,7 @@ class CourseOut(BaseModel):
     sem: int
     dept: str        # raw department id, e.g. "ce" — frontend calls .toUpperCase() on this itself
     enrolled: int
+    avg_attendance: float = 0.0   # real % now, same calc used by the course performance endpoint
 
     class Config:
         from_attributes = True

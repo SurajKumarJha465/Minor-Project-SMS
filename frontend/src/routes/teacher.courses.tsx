@@ -122,7 +122,7 @@ function CoursesPage() {
                     </div>
                     <div>
                       <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">Attendance (placeholder)</span>
+                        <span className="text-muted-foreground">Attendance</span>
                         <span className="font-semibold">{attendance}%</span>
                       </div>
                       <Progress value={attendance} className="mt-1 h-1.5" />

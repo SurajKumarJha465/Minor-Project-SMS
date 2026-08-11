@@ -169,7 +169,7 @@ def update_my_contact(
         hod.phone = payload.phone.strip() or None
     db.commit()
     db.refresh(hod)
-    return _hod_profile_out(db, hod)
+    return _hod_profile_out(db, hod, current_user)
 
 
 PROFILE_PHOTOS_DIR = os.path.join(
@@ -217,7 +217,7 @@ async def upload_my_photo(
     hod.photo = f"/uploads/profile-photos/{stored_name}"
     db.commit()
     db.refresh(hod)
-    return _hod_profile_out(db, hod)
+    return _hod_profile_out(db, hod, current_user)
 
 @router.get("/search", response_model=list[SearchResultOut])
 def search_department(

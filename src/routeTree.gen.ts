@@ -19,7 +19,6 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as TeacherIndexRouteImport } from './routes/teacher.index'
 import { Route as HodIndexRouteImport } from './routes/hod.index'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
-import { Route as TeacherReportsRouteImport } from './routes/teacher.reports'
 import { Route as TeacherProfileRouteImport } from './routes/teacher.profile'
 import { Route as TeacherPerformanceRouteImport } from './routes/teacher.performance'
 import { Route as TeacherNoticesRouteImport } from './routes/teacher.notices'
@@ -101,11 +100,6 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AdminRoute,
-} as any)
-const TeacherReportsRoute = TeacherReportsRouteImport.update({
-  id: '/reports',
-  path: '/reports',
-  getParentRoute: () => TeacherRoute,
 } as any)
 const TeacherProfileRoute = TeacherProfileRouteImport.update({
   id: '/profile',
@@ -301,7 +295,6 @@ export interface FileRoutesByFullPath {
   '/teacher/notices': typeof TeacherNoticesRoute
   '/teacher/performance': typeof TeacherPerformanceRoute
   '/teacher/profile': typeof TeacherProfileRoute
-  '/teacher/reports': typeof TeacherReportsRoute
   '/admin/': typeof AdminIndexRoute
   '/hod/': typeof HodIndexRoute
   '/teacher/': typeof TeacherIndexRoute
@@ -342,7 +335,6 @@ export interface FileRoutesByTo {
   '/teacher/notices': typeof TeacherNoticesRoute
   '/teacher/performance': typeof TeacherPerformanceRoute
   '/teacher/profile': typeof TeacherProfileRoute
-  '/teacher/reports': typeof TeacherReportsRoute
   '/admin': typeof AdminIndexRoute
   '/hod': typeof HodIndexRoute
   '/teacher': typeof TeacherIndexRoute
@@ -387,7 +379,6 @@ export interface FileRoutesById {
   '/teacher/notices': typeof TeacherNoticesRoute
   '/teacher/performance': typeof TeacherPerformanceRoute
   '/teacher/profile': typeof TeacherProfileRoute
-  '/teacher/reports': typeof TeacherReportsRoute
   '/admin/': typeof AdminIndexRoute
   '/hod/': typeof HodIndexRoute
   '/teacher/': typeof TeacherIndexRoute
@@ -433,7 +424,6 @@ export interface FileRouteTypes {
     | '/teacher/notices'
     | '/teacher/performance'
     | '/teacher/profile'
-    | '/teacher/reports'
     | '/admin/'
     | '/hod/'
     | '/teacher/'
@@ -474,7 +464,6 @@ export interface FileRouteTypes {
     | '/teacher/notices'
     | '/teacher/performance'
     | '/teacher/profile'
-    | '/teacher/reports'
     | '/admin'
     | '/hod'
     | '/teacher'
@@ -518,7 +507,6 @@ export interface FileRouteTypes {
     | '/teacher/notices'
     | '/teacher/performance'
     | '/teacher/profile'
-    | '/teacher/reports'
     | '/admin/'
     | '/hod/'
     | '/teacher/'
@@ -607,13 +595,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/'
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof AdminRoute
-    }
-    '/teacher/reports': {
-      id: '/teacher/reports'
-      path: '/reports'
-      fullPath: '/teacher/reports'
-      preLoaderRoute: typeof TeacherReportsRouteImport
-      parentRoute: typeof TeacherRoute
     }
     '/teacher/profile': {
       id: '/teacher/profile'
@@ -908,7 +889,6 @@ interface TeacherRouteChildren {
   TeacherNoticesRoute: typeof TeacherNoticesRoute
   TeacherPerformanceRoute: typeof TeacherPerformanceRoute
   TeacherProfileRoute: typeof TeacherProfileRoute
-  TeacherReportsRoute: typeof TeacherReportsRoute
   TeacherIndexRoute: typeof TeacherIndexRoute
   TeacherAttendanceCourseIdRoute: typeof TeacherAttendanceCourseIdRoute
   TeacherAttendanceIndexRoute: typeof TeacherAttendanceIndexRoute
@@ -921,7 +901,6 @@ const TeacherRouteChildren: TeacherRouteChildren = {
   TeacherNoticesRoute: TeacherNoticesRoute,
   TeacherPerformanceRoute: TeacherPerformanceRoute,
   TeacherProfileRoute: TeacherProfileRoute,
-  TeacherReportsRoute: TeacherReportsRoute,
   TeacherIndexRoute: TeacherIndexRoute,
   TeacherAttendanceCourseIdRoute: TeacherAttendanceCourseIdRoute,
   TeacherAttendanceIndexRoute: TeacherAttendanceIndexRoute,
@@ -942,3 +921,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

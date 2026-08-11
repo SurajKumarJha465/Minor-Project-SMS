@@ -4,8 +4,10 @@ import {
   CalendarDays,
   FileBarChart,
   LayoutDashboard,
+  LineChart,
   ListChecks,
   Megaphone,
+  Settings as SettingsIcon,
   UserCheck,
   UserRound,
 } from "lucide-react";
@@ -16,8 +18,10 @@ import Courses from "./pages/Courses";
 import Attendance from "./pages/Attendance";
 import InternalMarks from "./pages/InternalMarks";
 import SemesterResults from "./pages/SemesterResults";
+import GpaAnalytics from "./pages/GpaAnalytics";
 import NoticeBoard from "./pages/NoticeBoard";
 import AcademicCalendar from "./pages/AcademicCalendar";
+import Settings from "./pages/Settings";
 
 const crumb = (label) => ["Student", label];
 
@@ -40,6 +44,7 @@ export const studentModule = {
         { id: "attendance", label: "Attendance", icon: UserCheck, breadcrumb: crumb("Attendance") },
         { id: "internal-marks", label: "Internal Marks", icon: ListChecks, breadcrumb: crumb("Internal Marks") },
         { id: "semester-results", label: "Semester Results", icon: FileBarChart, breadcrumb: crumb("Semester Results") },
+        { id: "gpa-analytics", label: "GPA Analytics", icon: LineChart, breadcrumb: crumb("GPA Analytics") },
       ],
     },
     {
@@ -47,6 +52,12 @@ export const studentModule = {
       items: [
         { id: "notice-board", label: "Notice Board", icon: Megaphone, breadcrumb: crumb("Notice Board") },
         { id: "academic-calendar", label: "Academic Calendar", icon: CalendarDays, breadcrumb: crumb("Academic Calendar") },
+      ],
+    },
+    {
+      section: "Account",
+      items: [
+        { id: "settings", label: "Settings", icon: SettingsIcon, breadcrumb: crumb("Settings") },
       ],
     },
   ],
@@ -57,8 +68,10 @@ export const studentModule = {
     attendance: Attendance,
     "internal-marks": InternalMarks,
     "semester-results": SemesterResults,
+    "gpa-analytics": GpaAnalytics,
     "notice-board": NoticeBoard,
     "academic-calendar": AcademicCalendar,
+    settings: Settings,
   },
 };
 

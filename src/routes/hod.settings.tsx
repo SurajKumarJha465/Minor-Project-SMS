@@ -1,9 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Bell, Palette, Globe, Shield, KeyRound, Building2, User } from "lucide-react";
+import { KeyRound, Mail, Pencil, Phone, ShieldCheck, ShieldOff, User } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,12 +18,47 @@ export const Route = createFileRoute("/hod/settings")({
 
 const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
 
+type HodProfile = {
+  name: string;
+  email: string;
+  phone: string | null;
+  two_factor_enabled: boolean;
+};
+
+// Settings is a snapshot + shortcuts page, not a second place to edit
+// things. hod.profile.tsx already owns the real edit-contact, password
+// change, photo upload and 2FA setup/disable flows — duplicating that
+// logic here would just create a second source of truth for the same
+// account state. Everything actionable routes there.
 function SettingsPage() {
+  const [hod, setHod] = useState<HodProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   const [pwOpen, setPwOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const res = await fetch(`${API_URL}/api/hod/me`, { headers: { ...authHeader() } });
+        if (!res.ok) throw new Error(`Failed to load profile (${res.status})`);
+        const data = await res.json();
+        if (!cancelled) setHod(data);
+      } catch (err) {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Could not load your profile.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   function closePasswordDialog() {
     setPwOpen(false);
@@ -63,63 +97,74 @@ function SettingsPage() {
     }
   }
 
-  function notImplemented() {
-    toast.info("This preference isn't backed by the server yet — nothing is saved.");
-  }
-
   return (
     <div className="space-y-5">
       <div>
         <h1 className="font-display text-2xl font-bold">Settings</h1>
-        <p className="text-sm text-muted-foreground">Manage preferences and department configuration.</p>
+        <p className="text-sm text-muted-foreground">Your account at a glance — edits happen on your Profile page.</p>
       </div>
 
-      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-700 dark:text-amber-300">
-        Only <b>Password</b> is currently connected to the server. Every other toggle below is a UI preview —
-        changing it won't be saved or affect your account until these preferences are added to the backend.
-      </div>
+      {loadError && (
+        <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-xs text-destructive">
+          {loadError}
+        </p>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2">
-        <Section icon={User} title="Profile Settings">
-          <Row label="Display name" ctrl={<Button size="sm" variant="outline" className="rounded-lg" onClick={notImplemented}>Edit</Button>} />
-          <Row label="Email visibility" ctrl={<Switch defaultChecked onCheckedChange={notImplemented} />} />
-          <Row label="Phone visibility" ctrl={<Switch onCheckedChange={notImplemented} />} />
-        </Section>
+        <Card className="rounded-2xl shadow-soft">
+          <CardHeader className="flex flex-row items-center gap-3 pb-2">
+            <div className="grid h-9 w-9 place-items-center rounded-xl gradient-brand text-white shadow-soft"><User className="h-4 w-4" /></div>
+            <CardTitle className="text-base">Profile</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Row icon={User} label="Name" value={loading ? "Loading…" : hod?.name ?? "—"} />
+            <Row icon={Mail} label="Email" value={loading ? "Loading…" : hod?.email ?? "—"} />
+            <Row icon={Phone} label="Phone" value={loading ? "Loading…" : hod?.phone ?? "Not set"} />
+            <div className="pt-1">
+              <Button asChild size="sm" variant="outline" className="rounded-lg">
+                <Link to="/hod/profile"><Pencil className="mr-1.5 h-3.5 w-3.5" /> Edit in Profile</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
-        <Section icon={Bell} title="Notifications">
-          <Row label="Enrollment requests" ctrl={<Switch defaultChecked onCheckedChange={notImplemented} />} />
-          <Row label="Attendance alerts" ctrl={<Switch defaultChecked onCheckedChange={notImplemented} />} />
-          <Row label="Marks pending reminders" ctrl={<Switch defaultChecked onCheckedChange={notImplemented} />} />
-          <Row label="Email digest" ctrl={<Switch onCheckedChange={notImplemented} />} />
-        </Section>
-
-        <Section icon={Palette} title="Theme">
-          <Row label="Dark mode" ctrl={<Switch onCheckedChange={notImplemented} />} />
-          <Row label="High-contrast" ctrl={<Switch onCheckedChange={notImplemented} />} />
-        </Section>
-
-        <Section icon={Globe} title="Language">
-          <Row label="Interface" ctrl={<select onChange={notImplemented} className="h-8 rounded-lg border border-input bg-background px-2 text-sm"><option>English</option><option>नेपाली</option><option>हिन्दी</option></select>} />
-          <Row label="Date format" ctrl={<select onChange={notImplemented} className="h-8 rounded-lg border border-input bg-background px-2 text-sm"><option>DD MMM YYYY</option><option>MM/DD/YYYY</option></select>} />
-        </Section>
-
-        <Section icon={Shield} title="Privacy">
-          <Row label="Two-factor auth" ctrl={<Switch onCheckedChange={notImplemented} />} />
-          <Row label="Activity log" ctrl={<Switch defaultChecked onCheckedChange={notImplemented} />} />
-        </Section>
-
-        <Section icon={KeyRound} title="Password">
-          <Row label="Change password" ctrl={<Button size="sm" variant="outline" className="rounded-lg" onClick={() => setPwOpen(true)}>Change</Button>} />
-        </Section>
-
-        <Section icon={Building2} title="Department Preferences">
-          <Row label="Auto-approve enrollments" ctrl={<Switch onCheckedChange={notImplemented} />} />
-          <Row label="Publish results after HOD review" ctrl={<Switch defaultChecked onCheckedChange={notImplemented} />} />
-          <Row label="Attendance threshold (%)" ctrl={<input type="number" defaultValue={75} onChange={notImplemented} className="h-8 w-20 rounded-lg border border-input bg-background px-2 text-sm" />} />
-        </Section>
+        <Card className="rounded-2xl shadow-soft">
+          <CardHeader className="flex flex-row items-center gap-3 pb-2">
+            <div className="grid h-9 w-9 place-items-center rounded-xl gradient-brand text-white shadow-soft"><ShieldCheck className="h-4 w-4" /></div>
+            <CardTitle className="text-base">Security</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between border-b border-border/60 pb-2.5 text-sm">
+              <span>Password</span>
+              <Button size="sm" variant="outline" className="rounded-lg" onClick={() => setPwOpen(true)}>
+                <KeyRound className="mr-1.5 h-3.5 w-3.5" /> Change
+              </Button>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-2">
+                {loading ? null : hod?.two_factor_enabled ? (
+                  <ShieldCheck className="h-4 w-4 text-success" />
+                ) : (
+                  <ShieldOff className="h-4 w-4 text-muted-foreground" />
+                )}
+                <span>Two-Factor Authentication</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  {loading ? "Loading…" : hod?.two_factor_enabled ? "Enabled" : "Disabled"}
+                </span>
+                <Button asChild size="sm" variant="outline" className="rounded-lg">
+                  <Link to="/hod/profile">Manage</Link>
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Change password dialog */}
+      {/* Change password dialog — this one is real and cheap to keep here
+          too (no separate setup flow like 2FA has), so it isn't worth
+          forcing a trip to Profile just to change a password. */}
       <Dialog open={pwOpen} onOpenChange={(o) => !o && closePasswordDialog()}>
         <DialogContent className="rounded-2xl sm:max-w-sm">
           <DialogHeader>
@@ -167,23 +212,11 @@ function SettingsPage() {
   );
 }
 
-function Section({ icon: Icon, title, children }: { icon: any; title: string; children: React.ReactNode }) {
+function Row({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
   return (
-    <Card className="rounded-2xl shadow-soft">
-      <CardHeader className="flex flex-row items-center gap-3 pb-2">
-        <div className="grid h-9 w-9 place-items-center rounded-xl gradient-brand text-white shadow-soft"><Icon className="h-4 w-4" /></div>
-        <CardTitle className="text-base">{title}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">{children}</CardContent>
-    </Card>
-  );
-}
-
-function Row({ label, ctrl }: { label: string; ctrl: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between border-b border-border/60 pb-2 text-sm last:border-0 last:pb-0">
-      <span>{label}</span>
-      <div>{ctrl}</div>
+    <div className="flex items-center justify-between border-b border-border/60 pb-2.5 text-sm last:border-0 last:pb-0">
+      <div className="flex items-center gap-2 text-muted-foreground"><Icon className="h-4 w-4" /><span>{label}</span></div>
+      <span className="font-medium text-foreground">{value}</span>
     </div>
   );
 }

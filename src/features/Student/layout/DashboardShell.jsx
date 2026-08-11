@@ -46,6 +46,7 @@ export default function DashboardShell({
           roleId={roleId}
           roleOptions={roleOptions}
           onRoleChange={onRoleChange}
+          onNavigate={handleNavigate}
         />
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
       </div>

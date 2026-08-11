@@ -1,5 +1,5 @@
 import { courses as baseCourses, students as baseStudents } from "@/features/Teacher/lib/mock-data";
-import { apiJson } from "@/lib/api";
+import { apiJson, apiFetch } from "@/lib/api";
 
 export const departments = [
   { id: "ce", name: "Computer Engineering", code: "CE" },
@@ -27,7 +27,7 @@ export type TeacherCourse = {
   dept: string;
   enrolled: number;
   section?: string;
-  attendance?: number; // UI-only placeholder until backend provides %
+  attendance?: number; // real avg attendance %, from CourseOut.avg_attendance
 };
 
 export type CourseDto = {
@@ -38,6 +38,7 @@ export type CourseDto = {
   sem: number;
   dept: string;
   enrolled: number;
+  avg_attendance?: number;
 };
 
 export type RosterStudentDto = {
@@ -84,11 +85,11 @@ export function parseCourseId(compositeId: string) {
 /** Real backend read: current teacher's assigned courses */
 export async function getTeacherCourses(): Promise<TeacherCourse[]> {
   try {
-    const list = await apiJson<TeacherCourse[]>("/api/teacher/courses");
+    const list = await apiJson<CourseDto[]>("/api/teacher/courses");
     return list.map((c) => ({
       ...c,
       section: parseCourseId(c.id).section ?? "d",
-      attendance: c.attendance ?? 0,
+      attendance: c.avg_attendance ?? 0,
     }));
   } catch {
     return [];
@@ -207,6 +208,89 @@ export async function publishCourseMarks(courseId: string) {
   return apiJson<{ published: number }>(`/api/teacher/courses/${courseId}/marks/publish`, { method: "POST" });
 }
 
+
+export async function downloadCourseMarksReport(courseId: string, format: "pdf" | "xlsx"): Promise<void> {
+  const res = await apiFetch(`/api/teacher/courses/${courseId}/marks/report?format=${format}`);
+  const blob = await res.blob();
+
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename = match?.[1] ?? `internal-marks.${format}`;
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+
+export type PerformanceStudentRow = {
+  student_id: string;
+  name: string;
+  enrollment: string;
+  attendance_pct: number;
+  marks_total: number;
+};
+
+export type CoursePerformanceDto = {
+  course_id: string;
+  code: string;
+  name: string;
+  credits: number;
+  enrolled: number;
+  avg_attendance: number;
+  avg_marks: number;
+  total_marks: number;
+  students: PerformanceStudentRow[];
+};
+
+/** Real backend read: per-student attendance % + internal marks total for a course */
+export async function getCoursePerformance(courseId: string): Promise<CoursePerformanceDto> {
+  return apiJson<CoursePerformanceDto>(`/api/teacher/courses/${courseId}/performance`);
+}
+
+export type CourseOfferingSummary = {
+  id: string;
+  department_id: string;
+  sem: number;
+  section: string;
+  enrolled: number;
+  avg_attendance: number;
+  avg_marks: number;
+};
+
+export type CourseAggregatePerformanceDto = {
+  code: string;
+  name: string;
+  credits: number;
+  enrolled: number;
+  avg_attendance: number;
+  avg_marks: number;
+  total_marks: number;
+  students: PerformanceStudentRow[];
+  offerings: CourseOfferingSummary[];
+};
+
+/** Real backend read: performance combined across every section/semester
+ * offering of a course code *within one department* — the course-level
+ * summary shown before the teacher drills into one specific offering's
+ * dashboard. department_id is required because the same course code can be
+ * taught by the same teacher in more than one department (e.g. a shared
+ * first-year course); those are different courses with different rosters
+ * and must never be merged into one aggregate. */
+export async function getCourseAggregatePerformance(
+  code: string,
+  departmentId: string,
+): Promise<CourseAggregatePerformanceDto> {
+  return apiJson<CourseAggregatePerformanceDto>(
+    `/api/teacher/courses/by-code/${code}/${departmentId}/performance`,
+  );
+}
+
 export type CourseOffering = {
   id: string;
   sem: number;
@@ -222,14 +306,18 @@ export type GroupedTeacherCourse = {
 };
 
 /** Groups a teacher's flat course list (one row per section/semester, since
- * each is a distinct Course row on the backend) into one entry per course
- * code, with every (sem, section) offering attached — so the UI can render
- * "DBMS · Sem 5 · Sec M1, M2" instead of duplicate cards for the same course. */
+ * each is a distinct Course row on the backend) into one entry per
+ * (department, course code), with every (sem, section) offering attached —
+ * so the UI can render "DBMS · Sem 5 · Sec M1, M2" instead of duplicate
+ * cards for the same course. Keyed on dept+code, not code alone: the same
+ * code taught in two departments (e.g. a shared first-year course) is two
+ * distinct courses with separate rosters and must not collapse into one
+ * card. */
 export function groupTeacherCourses(courses: TeacherCourse[]): GroupedTeacherCourse[] {
   const map = new Map<string, GroupedTeacherCourse>();
 
   for (const c of courses) {
-    const key = c.code;
+    const key = `${c.dept}::${c.code}`;
     if (!map.has(key)) {
       map.set(key, { code: c.code, name: c.name, credits: c.credits, dept: c.dept, offerings: [] });
     }

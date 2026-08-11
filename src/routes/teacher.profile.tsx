@@ -9,12 +9,12 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
-import { Mail, Phone, MapPin, Clock, Briefcase, GraduationCap, Pencil, Key, Camera, Check, X } from "lucide-react";
+import { Mail, Phone, MapPin, Clock, Briefcase, GraduationCap, Pencil, Key, Camera, Check, X, AlertTriangle, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { authHeader } from "@/lib/auth";
 import { apiJson, apiFormJson } from "@/lib/api";
-import { getTeacherCourses, groupTeacherCourses, sectionLabel, type TeacherCourse, type TeacherMeDto } from "@/features/Teacher/lib/academic-data";
+import { type TeacherMeDto } from "@/features/Teacher/lib/academic-data";
 
 export const Route = createFileRoute("/teacher/profile")({
   head: () => ({ meta: [{ title: "My Profile · Teacher Portal" }] }),
@@ -36,8 +36,6 @@ function Profile() {
   const [teacher, setTeacher] = useState<TeacherMeDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-
-  const [courses, setCourses] = useState<TeacherCourse[]>([]);
 
   const [editOpen, setEditOpen] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
@@ -67,13 +65,15 @@ function Profile() {
     return () => { cancelled = true; };
   }, []);
 
+  // Nudge the teacher the moment we know their password needs changing.
   useEffect(() => {
-    let cancelled = false;
-    getTeacherCourses().then((list) => {
-      if (!cancelled) setCourses(list);
-    });
-    return () => { cancelled = true; };
-  }, []);
+    if (teacher?.must_change_password) {
+      toast.warning("Your account requires a password change.", {
+        description: "Please update your password to keep your account secure.",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teacher?.must_change_password]);
 
   function openEdit() {
     if (!teacher) return;
@@ -155,6 +155,23 @@ function Profile() {
 
   return (
     <div className="space-y-6">
+      {teacher.must_change_password && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-warning/40 bg-warning/10 px-5 py-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-warning-foreground" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">Please update your password</p>
+              <p className="text-xs text-muted-foreground">
+                Your account is still using a temporary password. Change it now to keep your account secure.
+              </p>
+            </div>
+          </div>
+          <Button size="sm" className="rounded-xl" onClick={() => setPwOpen(true)}>
+            <KeyRound className="mr-1.5 h-4 w-4" />Update Password Now
+          </Button>
+        </div>
+      )}
+
       <Card className="overflow-hidden rounded-2xl border-0 p-0 shadow-glass">
         <div className="h-32 gradient-brand" />
         <div className="relative px-6 pb-6">
@@ -213,49 +230,17 @@ function Profile() {
         </div>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="rounded-2xl shadow-soft md:col-span-2">
-          <CardHeader><CardTitle className="text-base">Contact & Office</CardTitle></CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
-            <Info icon={Mail} label="Email" value={teacher.email || "—"} />
-            <Info icon={Phone} label="Phone" value={teacher.phone || "—"} />
-            <Info icon={MapPin} label="Office" value={teacher.office || "—"} />
-            <Info icon={Clock} label="Office Hours" value={teacher.office_hours || "—"} />
-            <Info icon={Briefcase} label="Qualification" value={teacher.qualification || "—"} />
-            <Info icon={GraduationCap} label="Specialization" value={teacher.specialization || "—"} />
-          </CardContent>
-        </Card>
-        <Card className="rounded-2xl shadow-soft">
-          <CardHeader><CardTitle className="text-base">Assigned Courses</CardTitle></CardHeader>
-          <CardContent className="space-y-2.5">
-            {courses.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No courses assigned yet.</p>
-            ) : (
-              groupTeacherCourses(courses).map((g) => (
-                <div key={g.code} className="flex items-start gap-3 rounded-xl border border-border p-3">
-                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-secondary text-primary font-mono text-xs font-bold">
-                    {g.code.split("-")[1] ?? g.code}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold">{g.name}</div>
-                    <div className="text-xs text-muted-foreground">{g.code}</div>
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {g.offerings.map((o) => (
-                        <span
-                          key={o.id}
-                          className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary"
-                        >
-                          Sem {o.sem} · Sec {sectionLabel(o.section)}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      <Card className="rounded-2xl shadow-soft">
+        <CardHeader><CardTitle className="text-base">Contact & Office</CardTitle></CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <Info icon={Mail} label="Email" value={teacher.email || "—"} />
+          <Info icon={Phone} label="Phone" value={teacher.phone || "—"} />
+          <Info icon={MapPin} label="Office" value={teacher.office || "—"} />
+          <Info icon={Clock} label="Office Hours" value={teacher.office_hours || "—"} />
+          <Info icon={Briefcase} label="Qualification" value={teacher.qualification || "—"} />
+          <Info icon={GraduationCap} label="Specialization" value={teacher.specialization || "—"} />
+        </CardContent>
+      </Card>
 
       {/* Edit Profile modal */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
@@ -286,7 +271,11 @@ function Profile() {
       </Dialog>
 
       {/* Change Password modal */}
-      <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
+      <ChangePasswordDialog
+        open={pwOpen}
+        onOpenChange={setPwOpen}
+        onSuccess={() => setTeacher((t) => (t ? { ...t, must_change_password: false } : t))}
+      />
     </div>
   );
 }
@@ -323,7 +312,7 @@ function passwordStrength(pw: string) {
   return score; // 0-4
 }
 
-function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+function ChangePasswordDialog({ open, onOpenChange, onSuccess }: { open: boolean; onOpenChange: (v: boolean) => void; onSuccess?: () => void }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -367,6 +356,7 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
       toast.success("Password updated successfully");
       onOpenChange(false);
       reset();
+      onSuccess?.();
     } catch {
       setError("Could not reach the server. Try again.");
     } finally {

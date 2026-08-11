@@ -4,12 +4,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Save, ArrowRight } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Save, ArrowRight, ArrowLeft, FileBarChart, Download, FileSpreadsheet, PartyPopper } from "lucide-react";
 import { toast } from "sonner";
 import {
-  getTeacherCourses, getCourseMarks, saveCourseMarks,
-  deptName, sectionLabel, departments, semesters, sections,
-  type TeacherCourse, type MarkRow, type MarkFields,
+  getTeacherCourses, getCourseMarks, saveCourseMarks, getTeacherDepartments, getRosterForCourse,
+  downloadCourseMarksReport,
+  deptName, sectionLabel, semesters, sections,
+  type TeacherCourse, type MarkRow, type MarkFields, type TeacherDepartmentDto,
 } from "@/features/Teacher/lib/academic-data";
 
 export const Route = createFileRoute("/teacher/marks")({
@@ -41,6 +46,8 @@ function MarksPage() {
   const [courses, setCourses] = useState<TeacherCourse[]>([]);
   const [loading, setLoading] = useState(true);
   const [courseId, setCourseId] = useState<string | null>(initialCourseId ?? null);
+  const [reportCourseId, setReportCourseId] = useState<string | null>(null);
+  const [myDepartments, setMyDepartments] = useState<TeacherDepartmentDto[]>([]);
 
   const [dept, setDept] = useState<string>("all");
   const [sem, setSem] = useState<string>("all");
@@ -54,6 +61,21 @@ function MarksPage() {
       .finally(() => !cancelled && setLoading(false));
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getTeacherDepartments().then((list) => {
+      if (!cancelled) setMyDepartments(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const deptNameById = useMemo(
+    () => new Map(myDepartments.map((d) => [d.id, d.name])),
+    [myDepartments],
+  );
 
   const filtered = useMemo(() => {
     return courses.filter((c) => {
@@ -70,6 +92,11 @@ function MarksPage() {
     return <StudentMarks courseId={courseId} course={course} onBack={() => setCourseId(null)} />;
   }
 
+  if (reportCourseId) {
+    const course = courses.find((c) => c.id === reportCourseId) ?? null;
+    return <InternalMarksReport courseId={reportCourseId} course={course} onBack={() => setReportCourseId(null)} />;
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -81,7 +108,7 @@ function MarksPage() {
         <CardContent className="grid gap-3 p-4 md:grid-cols-3">
           <select className="rounded-xl border bg-background p-2 text-sm" value={dept} onChange={(e) => setDept(e.target.value)}>
             <option value="all">All Departments</option>
-            {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            {myDepartments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
           <select className="rounded-xl border bg-background p-2 text-sm" value={sem} onChange={(e) => setSem(e.target.value)}>
             <option value="all">All Semesters</option>
@@ -112,9 +139,9 @@ function MarksPage() {
                   <div className="text-[10px] uppercase tracking-widest opacity-80">{c.code}</div>
                   <div className="mt-1 font-display text-base font-bold">{c.name}</div>
                 </div>
-                <CardContent className="space-y-2 p-4 text-sm">
+                <CardContent className="space-y-3 p-4 text-sm">
                   <div className="flex flex-wrap gap-1.5">
-                    <Badge variant="secondary" className="rounded-full">{deptName(c.dept)}</Badge>
+                    <Badge variant="secondary" className="rounded-full">{deptNameById.get(c.dept) ?? deptName(c.dept)}</Badge>
                     <Badge variant="secondary" className="rounded-full">Sem {c.sem}</Badge>
                     <Badge variant="secondary" className="rounded-full">Sec {sectionLabel(sec)}</Badge>
                   </div>
@@ -124,6 +151,14 @@ function MarksPage() {
                       Enter marks <ArrowRight className="h-3 w-3" />
                     </span>
                   </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full rounded-xl"
+                    onClick={(e) => { e.stopPropagation(); setReportCourseId(c.id); }}
+                  >
+                    <FileBarChart className="mr-1.5 h-4 w-4" />Generate Report
+                  </Button>
                 </CardContent>
               </Card>
             );
@@ -265,6 +300,85 @@ function StudentMarks({ courseId, course, onBack }: { courseId: string; course: 
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function InternalMarksReport({ courseId, course, onBack }: { courseId: string; course: TeacherCourse | null; onBack: () => void }) {
+  const [rosterCount, setRosterCount] = useState<number | null>(course?.enrolled ?? null);
+  const [generated, setGenerated] = useState(false);
+  const [successKind, setSuccessKind] = useState<"excel" | "pdf" | null>(null);
+  const [downloading, setDownloading] = useState<"excel" | "pdf" | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getRosterForCourse(courseId).then((roster) => {
+      if (!cancelled) setRosterCount(roster.length);
+    });
+    return () => { cancelled = true; };
+  }, [courseId]);
+
+  async function download(kind: "excel" | "pdf") {
+    setDownloading(kind);
+    try {
+      await downloadCourseMarksReport(courseId, kind === "excel" ? "xlsx" : "pdf");
+      setSuccessKind(kind);
+    } catch (err: any) {
+      toast.error(err?.message ?? `Failed to generate ${kind === "excel" ? "Excel" : "PDF"} report`);
+    } finally {
+      setDownloading(null);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* ...header unchanged... */}
+      <Card className="rounded-2xl shadow-soft">
+        <CardHeader className="flex flex-row items-start gap-3 space-y-0">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl gradient-brand text-white"><FileBarChart className="h-5 w-5" /></div>
+          <div className="min-w-0">
+            <CardTitle className="text-base">Internal Marks Report</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {rosterCount ?? "…"} students · {course?.code ?? courseId} · {course ? deptName(course.dept) : ""}
+            </p>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {!generated ? (
+            <Button className="rounded-xl" onClick={() => setGenerated(true)}>
+              <FileBarChart className="mr-1.5 h-4 w-4" />Generate Report
+            </Button>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <Button variant="outline" className="rounded-xl" disabled={downloading !== null} onClick={() => download("excel")}>
+                <FileSpreadsheet className="mr-1.5 h-4 w-4" />
+                {downloading === "excel" ? "Generating…" : "Download Excel"}
+              </Button>
+              <Button variant="outline" className="rounded-xl" disabled={downloading !== null} onClick={() => download("pdf")}>
+                <Download className="mr-1.5 h-4 w-4" />
+                {downloading === "pdf" ? "Generating…" : "Download PDF"}
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <AlertDialog open={!!successKind} onOpenChange={(v) => !v && setSuccessKind(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <PartyPopper className="h-5 w-5 text-emerald-500" />
+              {successKind === "excel" ? "Excel report generated" : "PDF report generated"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {course?.name ?? "This course"} internal marks report has been downloaded as {successKind === "excel" ? ".xlsx" : ".pdf"}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setSuccessKind(null)}>Done</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

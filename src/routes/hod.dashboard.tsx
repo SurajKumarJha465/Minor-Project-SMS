@@ -10,6 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { StatCard } from "@/features/HoD/components/StatCard";
 import { authHeader } from "@/lib/auth";
 
@@ -143,6 +144,17 @@ function HodDashboard() {
     return counts;
   }, [students]);
 
+  // Course rows are one-per-(course × section) offering, so summing them
+  // into a single "Active Courses" number double- and triple-counts any
+  // course taught to more than one section. Breaking it down by semester
+  // instead — like semesterCounts already does for students — gives a
+  // number that actually means something.
+  const coursesBySemester = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const c of courses) counts.set(c.sem, (counts.get(c.sem) ?? 0) + 1);
+    return counts;
+  }, [courses]);
+
   const unassignedCourses = courses.filter((c) => !c.teacher_id).length;
 
   const statCards = [
@@ -199,10 +211,38 @@ function HodDashboard() {
             <div className="rounded-2xl bg-white/10 p-4 backdrop-blur-md">
               <div className="text-[11px] uppercase tracking-widest text-white/70">Department Snapshot</div>
               <ul className="mt-2 space-y-1.5 text-sm">
-                <li className="flex items-center justify-between gap-6"><span>Teachers</span><b>{teachers.length}</b></li>
-                <li className="flex items-center justify-between gap-6"><span>Students</span><b>{students.length}</b></li>
-                <li className="flex items-center justify-between gap-6"><span>Active Courses</span><b>{courses.length}</b></li>
-                <li className="flex items-center justify-between gap-6"><span>Semesters</span><b>{SEMESTER_NUMBERS.length}</b></li>
+                <li className="flex items-center justify-between gap-6">
+                  <span>Teachers</span><b>{teachers.length}</b>
+                </li>
+                <li className="flex items-center justify-between gap-6">
+                  <span>Students</span><b>{students.length}</b>
+                </li>
+                <li className="flex items-center justify-between gap-6">
+                  <Popover>
+                    <PopoverTrigger className="flex w-full items-center justify-between gap-6 text-left hover:underline">
+                      <span>Active Courses</span><b>{courses.length}</b>
+                    </PopoverTrigger>
+                    <PopoverContent align="end" className="w-56 rounded-xl p-3 text-foreground">
+                      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Courses by Semester
+                      </div>
+                      <ul className="space-y-1 text-sm">
+                        {SEMESTER_NUMBERS.map((n) => (
+                          <li key={n} className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Semester {n}</span>
+                            <b>{coursesBySemester.get(n) ?? 0}</b>
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="mt-2 border-t border-border/60 pt-2 text-[11px] text-muted-foreground">
+                        Counts course offerings per section, so a course taught to multiple sections is counted once per section.
+                      </p>
+                    </PopoverContent>
+                  </Popover>
+                </li>
+                <li className="flex items-center justify-between gap-6">
+                  <span>Semesters</span><b>{SEMESTER_NUMBERS.length}</b>
+                </li>
               </ul>
             </div>
           </div>

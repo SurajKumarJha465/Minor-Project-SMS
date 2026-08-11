@@ -1,6 +1,9 @@
-// Lightweight client-side auth helpers for the demo Student Management System.
-// The login screen stores the signed-in role here; logout clears it and
-// returns the user to the login page. This is a mock auth layer (no backend).
+// Lightweight client-side auth helpers for the Student Management System.
+// The login screen stores the signed-in session (role, email, JWT) here after
+// a real /api/auth/login (and, when required, /api/auth/2fa/verify) round
+// trip; logout clears it and returns the user to the login page. The token
+// held here is issued and verified by the backend (see api/auth.py) — this
+// module only persists it client-side and attaches it to outgoing requests.
 
 export type Role = "admin" | "hod" | "teacher" | "student";
 

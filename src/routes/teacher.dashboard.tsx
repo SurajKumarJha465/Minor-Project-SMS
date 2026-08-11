@@ -139,7 +139,7 @@ function Dashboard() {
             { icon: Megaphone, label: "View Notice", to: "/teacher/notices" },
             { icon: PenSquare, label: "Enter Marks", to: "/teacher/marks" },
             { icon: Eye, label: "View Students", to: "/teacher/courses" },
-            { icon: FileBarChart, label: "Generate Report", to: "/teacher/reports" },
+            { icon: FileBarChart, label: "Generate Report", to: "/teacher/marks" },
           ].map((a) => (
             <Link key={a.label} to={a.to} className="group flex items-center gap-3 rounded-xl border border-border bg-background/50 p-3 transition hover:-translate-y-0.5 hover:border-primary/40 hover:bg-background hover:shadow-soft">
               <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl gradient-brand text-white shadow-soft">

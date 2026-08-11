@@ -162,6 +162,8 @@ class HodListingOut(BaseModel):
     qualification: Optional[str] = None
     experience: Optional[str] = None
     photo: Optional[str] = None
+    must_change_password: bool = False
+    two_factor_enabled: bool = False
 
     class Config:
         from_attributes = True

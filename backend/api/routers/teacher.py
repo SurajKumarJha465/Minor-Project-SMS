@@ -418,22 +418,36 @@ def get_course_performance(
     )
 
 
-@router.get("/courses/by-code/{code}/performance", response_model=TeacherCourseAggregatePerformanceOut)
+@router.get(
+    "/courses/by-code/{code}/{department_id}/performance",
+    response_model=TeacherCourseAggregatePerformanceOut,
+)
 def get_course_aggregate_performance(
     code: str,
+    department_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role(RoleEnum.teacher)),
 ):
     """Combined performance across every section/semester offering of `code`
-    that this teacher is assigned to — the course-level summary shown before
-    the teacher drills into one specific offering."""
+    *within a single department* that this teacher is assigned to — the
+    course-level summary shown before the teacher drills into one specific
+    offering.
+
+    department_id is required: the same course code can be taught by the
+    same teacher in more than one department (e.g. a common first-year
+    course), and those are different courses with different rosters — they
+    must never be silently merged into one aggregate."""
     teacher = db.query(Teacher).filter(Teacher.user_id == current_user.id).first()
     if not teacher:
         raise HTTPException(status_code=400, detail="No teacher profile linked to this account")
 
     offerings = (
         db.query(Course)
-        .filter(Course.teacher_id == teacher.id, Course.code == code)
+        .filter(
+            Course.teacher_id == teacher.id,
+            Course.code == code,
+            Course.department_id == department_id,
+        )
         .order_by(Course.sem.asc())
         .all()
     )
@@ -445,11 +459,11 @@ def get_course_aggregate_performance(
     for c in offerings:
         rows = _course_performance_rows(db, c.id)
         all_rows.extend(rows)
-        section = c.id.split("-")[-2] if "-" in c.id else "d"
         offering_summaries.append(TeacherCourseOfferingSummary(
             id=c.id,
+            department_id=c.department_id or department_id,
             sem=c.sem or 0,
-            section=section,
+            section=c.section_id or "d",
             enrolled=len(rows),
             avg_attendance=_avg([r.attendance_pct for r in rows]),
             avg_marks=_avg([r.marks_total for r in rows]),

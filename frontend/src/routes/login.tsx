@@ -326,19 +326,6 @@ function LoginPage() {
                 </button>
               </form>
               )}
-
-              {step === "credentials" && (
-              <div className="mt-5 rounded-2xl border border-dashed border-border bg-background/40 p-3">
-                <div className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Demo accounts</div>
-                <div className="mt-1.5 grid grid-cols-2 gap-1.5 text-[11px] text-foreground/80">
-                  <code>admin@ssms.edu</code>
-                  <code>hod@ssms.edu</code>
-                  <code>teacher@ssms.edu</code>
-                  <code>student@ssms.edu</code>
-                </div>
-                <div className="mt-1 text-[11px] text-muted-foreground">Password: <code>123456</code></div>
-              </div>
-              )}
             </div>
 
             <div className="mt-6 flex flex-col items-center gap-1 text-center text-[11px] text-muted-foreground">

@@ -1,9 +1,11 @@
+import os
 import re
+import uuid
 from collections import defaultdict
 
 import pyotp
 from sqlalchemy import or_
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from datetime import datetime
@@ -12,7 +14,7 @@ from io import BytesIO
 from api.database import get_db
 from api.models import User, RoleEnum, Student, Section, Department, Notice, Enrollment, AttendanceRecord, AttendanceStatus, Course, Teacher, InternalMark, MarkStatus, CourseGrade, CalendarEvent, SystemSettings
 from api.grading import grade_point
-from api.auth import require_role
+from api.auth import require_role, verify_password, hash_password
 from api import reports
 from api.schemas import (
     NoticeOut,
@@ -27,6 +29,7 @@ from api.schemas import (
     StudentAttendanceDay,
     StudentMeOut,
     UpdateMyProfileRequest,
+    ChangePasswordRequest,
     TwoFactorSetupResponse,
     TwoFactorVerifyRequest,
     TwoFactorStatusResponse,
@@ -134,6 +137,70 @@ def update_my_profile(
     if payload.guardian_phone is not None:
         student.guardian_phone = payload.guardian_phone
 
+    db.commit()
+    db.refresh(student)
+    return _build_student_me(db, student, current_user)
+
+
+@router.post("/change-password")
+def change_my_password(
+    payload: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.student)),
+):
+    if not verify_password(payload.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+
+    current_user.hashed_password = hash_password(payload.new_password)
+    current_user.must_change_password = False
+    current_user.password_changed_at = datetime.utcnow()  # feeds the password-rotation check at login
+    db.commit()
+    return {"message": "Password updated successfully"}
+
+
+PROFILE_PHOTOS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "profile_photos"
+)
+PROFILE_PHOTO_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+PROFILE_PHOTO_ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".webp"}
+
+
+@router.post("/me/photo", response_model=StudentMeOut)
+async def upload_my_photo(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.student)),
+):
+    student = _current_student(db, current_user)
+
+    original_name = file.filename or "photo"
+    ext = os.path.splitext(original_name)[1].lower()
+    if ext not in PROFILE_PHOTO_ALLOWED_EXT:
+        allowed = ", ".join(sorted(PROFILE_PHOTO_ALLOWED_EXT))
+        raise HTTPException(status_code=400, detail=f"Unsupported image type '{ext}'. Allowed: {allowed}")
+
+    data = await file.read()
+    if len(data) > PROFILE_PHOTO_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Image is larger than the 5 MB limit")
+    if not data:
+        raise HTTPException(status_code=400, detail="File is empty")
+
+    os.makedirs(PROFILE_PHOTOS_DIR, exist_ok=True)
+    stored_name = f"student-{student.id}-{uuid.uuid4().hex}{ext}"
+    with open(os.path.join(PROFILE_PHOTOS_DIR, stored_name), "wb") as f:
+        f.write(data)
+
+    # only clean up the old file if it's one we saved ourselves — an admin
+    # may have set student.photo to some external URL, which isn't ours to delete
+    if student.photo and student.photo.startswith("/uploads/profile-photos/"):
+        old_path = os.path.join(PROFILE_PHOTOS_DIR, os.path.basename(student.photo))
+        if os.path.isfile(old_path):
+            try:
+                os.remove(old_path)
+            except OSError:
+                pass
+
+    student.photo = f"/uploads/profile-photos/{stored_name}"
     db.commit()
     db.refresh(student)
     return _build_student_me(db, student, current_user)

@@ -262,6 +262,11 @@ def list_my_courses(
     result: list[CourseOut] = []
     for c in courses:
         enrolled_count = db.query(Enrollment).filter(Enrollment.course_id == c.id).count()
+        # Same per-student attendance % used by the course performance page,
+        # averaged across the roster — keeps the number on this card and the
+        # one on the drill-down in sync instead of drifting apart.
+        perf_rows = _course_performance_rows(db, c.id)
+        avg_attendance = _avg([r.attendance_pct for r in perf_rows])
         result.append(
             CourseOut(
                 id=c.id,
@@ -271,6 +276,7 @@ def list_my_courses(
                 sem=c.sem or 0,
                 dept=c.department_id,
                 enrolled=enrolled_count,
+                avg_attendance=avg_attendance,
             )
         )
 

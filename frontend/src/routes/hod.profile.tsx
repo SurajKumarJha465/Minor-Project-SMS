@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Mail, Phone, GraduationCap, Award, Pencil, KeyRound, Building2, Camera } from "lucide-react";
+import { Mail, Phone, GraduationCap, Award, Pencil, KeyRound, Building2, Camera, AlertTriangle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -33,6 +33,7 @@ type HodProfile = {
   qualification: string | null;
   experience: string | null;
   photo: string | null;
+  must_change_password: boolean;
 };
 
 function Profile() {
@@ -72,6 +73,16 @@ function Profile() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Nudge the HoD the moment we know their password needs changing.
+  useEffect(() => {
+    if (hod?.must_change_password) {
+      toast.warning("Your account requires a password change.", {
+        description: "Please update your password to keep your account secure.",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hod?.must_change_password]);
 
   function openEditDialog() {
     if (!hod) return;
@@ -160,6 +171,7 @@ function Profile() {
       }
       toast.success("Password updated successfully.");
       closePasswordDialog();
+      setHod((h) => (h ? { ...h, must_change_password: false } : h));
     } catch {
       toast.error("Could not reach the server. Try again.");
     } finally {
@@ -186,6 +198,23 @@ function Profile() {
 
   return (
     <div className="space-y-5">
+      {hod.must_change_password && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-warning/40 bg-warning/10 px-5 py-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-warning-foreground" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">Please update your password</p>
+              <p className="text-xs text-muted-foreground">
+                Your account is still using a temporary password. Change it now to keep your account secure.
+              </p>
+            </div>
+          </div>
+          <Button size="sm" className="rounded-xl" onClick={() => setPwOpen(true)}>
+            <KeyRound className="mr-1.5 h-4 w-4" />Update Password Now
+          </Button>
+        </div>
+      )}
+
       <Card className="overflow-hidden rounded-2xl border-0 gradient-brand text-white shadow-glass">
         <div className="grid gap-6 p-8 md:grid-cols-[auto_1fr_auto] md:items-center">
           <div className="group relative h-24 w-24">

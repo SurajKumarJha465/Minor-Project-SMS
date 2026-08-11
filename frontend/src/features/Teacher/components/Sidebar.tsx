@@ -3,7 +3,7 @@ import { logout } from "@/lib/auth";
 import { useState } from "react";
 import {
   LayoutDashboard, User, BookOpen, ClipboardCheck, GraduationCap,
-  BarChart3, Bell, FileBarChart, LogOut, X,
+  BarChart3, Bell, LogOut, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -19,7 +19,6 @@ const nav = [
   { to: "/teacher/marks", label: "Internal Marks", icon: GraduationCap },
   { to: "/teacher/performance", label: "Performance", icon: BarChart3 },
   { to: "/teacher/notices", label: "Notice", icon: Bell },
-  { to: "/teacher/reports", label: "Reports", icon: FileBarChart },
 ] as const;
 
 export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {

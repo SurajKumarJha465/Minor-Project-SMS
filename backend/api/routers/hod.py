@@ -3,6 +3,7 @@ import io
 import os
 import uuid
 
+import pyotp
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -27,6 +28,7 @@ from api.schemas import (
     HodAttendanceReport, HodCourseAttendance, HodTeacherAttendance, HodLowAttendanceStudent,
     SearchResultOut,
     SemesterResultImportResponse, SemesterResultImportSkip, HodSemesterCourseSummary, HodSemesterResultsSummary,
+    TwoFactorSetupResponse, TwoFactorVerifyRequest, TwoFactorStatusResponse,
 )
 from api.auth import hash_password, generate_default_password, require_role
 from api.database import get_db
@@ -139,6 +141,7 @@ def _hod_profile_out(db: Session, hod: HOD, current_user: User | None = None) ->
         email=hod.email or "", phone=hod.phone, qualification=hod.qualification,
         experience=hod.experience, photo=hod.photo,
         must_change_password=current_user.must_change_password if current_user else False,
+        two_factor_enabled=current_user.totp_enabled if current_user else False,
     )
 
 
@@ -170,6 +173,62 @@ def update_my_contact(
     db.commit()
     db.refresh(hod)
     return _hod_profile_out(db, hod, current_user)
+
+
+@router.post("/2fa/setup", response_model=TwoFactorSetupResponse)
+def setup_two_factor(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    """Generates (or regenerates, if setup was abandoned) a TOTP secret.
+    The secret isn't active until /2fa/enable confirms a code from it."""
+    if current_user.totp_enabled:
+        raise HTTPException(status_code=400, detail="Two-factor authentication is already enabled")
+
+    secret = pyotp.random_base32()
+    current_user.totp_secret = secret
+    db.commit()
+
+    totp = pyotp.TOTP(secret)
+    uri = totp.provisioning_uri(name=current_user.email, issuer_name="Smart Student Management System")
+    return TwoFactorSetupResponse(secret=secret, otpauth_url=uri)
+
+
+@router.post("/2fa/enable", response_model=TwoFactorStatusResponse)
+def enable_two_factor(
+    payload: TwoFactorVerifyRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    if not current_user.totp_secret:
+        raise HTTPException(status_code=400, detail="Start 2FA setup first")
+
+    totp = pyotp.TOTP(current_user.totp_secret)
+    if not totp.verify(payload.code.strip(), valid_window=1):
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+
+    current_user.totp_enabled = True
+    db.commit()
+    return TwoFactorStatusResponse(enabled=True)
+
+
+@router.post("/2fa/disable", response_model=TwoFactorStatusResponse)
+def disable_two_factor(
+    payload: TwoFactorVerifyRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.hod)),
+):
+    if not current_user.totp_enabled:
+        raise HTTPException(status_code=400, detail="Two-factor authentication is not enabled")
+
+    totp = pyotp.TOTP(current_user.totp_secret or "")
+    if not totp.verify(payload.code.strip(), valid_window=1):
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+
+    current_user.totp_enabled = False
+    current_user.totp_secret = None
+    db.commit()
+    return TwoFactorStatusResponse(enabled=False)
 
 
 PROFILE_PHOTOS_DIR = os.path.join(

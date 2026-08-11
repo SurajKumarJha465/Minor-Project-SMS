@@ -234,6 +234,7 @@ export async function getCoursePerformance(courseId: string): Promise<CoursePerf
 
 export type CourseOfferingSummary = {
   id: string;
+  department_id: string;
   sem: number;
   section: string;
   enrolled: number;
@@ -254,10 +255,19 @@ export type CourseAggregatePerformanceDto = {
 };
 
 /** Real backend read: performance combined across every section/semester
- * offering of a course code — the course-level summary shown before the
- * teacher drills into one specific offering's dashboard. */
-export async function getCourseAggregatePerformance(code: string): Promise<CourseAggregatePerformanceDto> {
-  return apiJson<CourseAggregatePerformanceDto>(`/api/teacher/courses/by-code/${code}/performance`);
+ * offering of a course code *within one department* — the course-level
+ * summary shown before the teacher drills into one specific offering's
+ * dashboard. department_id is required because the same course code can be
+ * taught by the same teacher in more than one department (e.g. a shared
+ * first-year course); those are different courses with different rosters
+ * and must never be merged into one aggregate. */
+export async function getCourseAggregatePerformance(
+  code: string,
+  departmentId: string,
+): Promise<CourseAggregatePerformanceDto> {
+  return apiJson<CourseAggregatePerformanceDto>(
+    `/api/teacher/courses/by-code/${code}/${departmentId}/performance`,
+  );
 }
 
 export type CourseOffering = {
@@ -275,14 +285,18 @@ export type GroupedTeacherCourse = {
 };
 
 /** Groups a teacher's flat course list (one row per section/semester, since
- * each is a distinct Course row on the backend) into one entry per course
- * code, with every (sem, section) offering attached — so the UI can render
- * "DBMS · Sem 5 · Sec M1, M2" instead of duplicate cards for the same course. */
+ * each is a distinct Course row on the backend) into one entry per
+ * (department, course code), with every (sem, section) offering attached —
+ * so the UI can render "DBMS · Sem 5 · Sec M1, M2" instead of duplicate
+ * cards for the same course. Keyed on dept+code, not code alone: the same
+ * code taught in two departments (e.g. a shared first-year course) is two
+ * distinct courses with separate rosters and must not collapse into one
+ * card. */
 export function groupTeacherCourses(courses: TeacherCourse[]): GroupedTeacherCourse[] {
   const map = new Map<string, GroupedTeacherCourse>();
 
   for (const c of courses) {
-    const key = c.code;
+    const key = `${c.dept}::${c.code}`;
     if (!map.has(key)) {
       map.set(key, { code: c.code, name: c.name, credits: c.credits, dept: c.dept, offerings: [] });
     }

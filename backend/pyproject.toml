@@ -18,6 +18,8 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "pydantic>=2.0",
     "tree3==0.2.0",
+    # PDF report generation (attendance / internal marks / semester results)
+    "reportlab>=4.2.0",
 ]
 
 [project.optional-dependencies]

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { CalendarCheck, CalendarDays, CircleUserRound, Download, UserCheck, UserX } from "lucide-react";
+import { CalendarCheck, CalendarDays, ChevronLeft, ChevronRight, CircleUserRound, Download, UserCheck, UserX } from "lucide-react";
 
 import AttributeCard from "@/features/Student/ui/AttributeCard";
 import SectionCard from "@/features/Student/ui/SectionCard";
@@ -23,6 +23,8 @@ const LEGEND = [
   { label: "No class / no record", key: "none" },
 ];
 const attStatusTone = (s) => (s === "Excellent" ? "success" : s === "Good" ? "info" : "warning");
+
+const MONTH_FORMATTER = new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" });
 
 export default function Attendance() {
   const [data, setData] = useState(null);
@@ -65,23 +67,54 @@ export default function Attendance() {
     }
   };
 
-  // Build a calendar grid for the current month, marking each day from the
+  // The real "now" the calendar starts on. Frozen once on mount so the
+  // "current month" boundary doesn't shift under the user mid-session.
+  const [today] = useState(() => new Date());
+
+  // Which month is being viewed, as a count of months back from `today`.
+  // 0 = current month, 1 = previous month, etc.
+  const [monthsBack, setMonthsBack] = useState(0);
+
+  // Earliest month that actually has attendance data, derived from the
+  // calendar rollup the backend already sends (no extra API calls needed).
+  const earliestMonth = useMemo(() => {
+    const dates = (data?.calendar ?? []).map((d) => d.date);
+    if (dates.length === 0) return null;
+    const earliest = dates.reduce((a, b) => (a < b ? a : b));
+    const [y, m] = earliest.split("-").map(Number);
+    return { year: y, month: m - 1 };
+  }, [data]);
+
+  const viewedDate = useMemo(
+    () => new Date(today.getFullYear(), today.getMonth() - monthsBack, 1),
+    [today, monthsBack],
+  );
+  const viewedYear = viewedDate.getFullYear();
+  const viewedMonth = viewedDate.getMonth();
+
+  const canGoNext = monthsBack > 0;
+  const canGoPrev =
+    !earliestMonth ||
+    viewedYear > earliestMonth.year ||
+    (viewedYear === earliestMonth.year && viewedMonth > earliestMonth.month);
+
+  const goPrevMonth = () => canGoPrev && setMonthsBack((n) => n + 1);
+  const goNextMonth = () => canGoNext && setMonthsBack((n) => Math.max(0, n - 1));
+
+  // Build a calendar grid for the viewed month, marking each day from the
   // real day-level rollup the backend computed (present / absent / no record).
   const monthCells = useMemo(() => {
     const byDate = new Map((data?.calendar ?? []).map((d) => [d.date, d.status]));
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const firstWeekday = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(viewedYear, viewedMonth + 1, 0).getDate();
+    const firstWeekday = new Date(viewedYear, viewedMonth, 1).getDay();
 
     const cells = Array.from({ length: firstWeekday }, () => null);
     for (let day = 1; day <= daysInMonth; day++) {
-      const iso = new Date(year, month, day).toISOString().slice(0, 10);
+      const iso = new Date(viewedYear, viewedMonth, day).toISOString().slice(0, 10);
       cells.push({ day, status: byDate.get(iso) ?? "none" });
     }
     return cells;
-  }, [data]);
+  }, [data, viewedYear, viewedMonth]);
 
   return (
     <div className="space-y-6">
@@ -120,13 +153,40 @@ export default function Attendance() {
       <div className="grid gap-4 lg:grid-cols-5">
         {/* Calendar */}
         <SectionCard title="Monthly Calendar" subtitle="Colour-coded daily attendance" icon={CalendarDays} className="lg:col-span-3">
-          <div className="mb-4 flex flex-wrap gap-3">
-            {LEGEND.map((l) => (
-              <span key={l.key} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span className={`size-3 rounded-full ${DAY_STYLE[l.key]}`} /> {l.label}
-              </span>
-            ))}
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div className="flex flex-wrap gap-3">
+              {LEGEND.map((l) => (
+                <span key={l.key} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className={`size-3 rounded-full ${DAY_STYLE[l.key]}`} /> {l.label}
+                </span>
+              ))}
+            </div>
           </div>
+
+          <div className="mb-3 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={goPrevMonth}
+              disabled={!canGoPrev}
+              aria-label="Previous month"
+              className="grid size-7 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+            >
+              <ChevronLeft className="size-4" />
+            </button>
+            <span className="text-sm font-semibold text-foreground">
+              {MONTH_FORMATTER.format(viewedDate)}
+            </span>
+            <button
+              type="button"
+              onClick={goNextMonth}
+              disabled={!canGoNext}
+              aria-label="Next month"
+              className="grid size-7 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+            >
+              <ChevronRight className="size-4" />
+            </button>
+          </div>
+
           <div className="grid grid-cols-7 gap-1.5 text-center text-[11px] font-medium text-muted-foreground">
             {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
               <span key={i} className="py-1">{d}</span>

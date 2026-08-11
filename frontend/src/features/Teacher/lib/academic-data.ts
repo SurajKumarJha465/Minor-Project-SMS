@@ -1,5 +1,5 @@
 import { courses as baseCourses, students as baseStudents } from "@/features/Teacher/lib/mock-data";
-import { apiJson } from "@/lib/api";
+import { apiJson, apiFetch } from "@/lib/api";
 
 export const departments = [
   { id: "ce", name: "Computer Engineering", code: "CE" },
@@ -206,6 +206,26 @@ export async function saveCourseMarks(courseId: string, rows: (MarkFields & { st
 export async function publishCourseMarks(courseId: string) {
   return apiJson<{ published: number }>(`/api/teacher/courses/${courseId}/marks/publish`, { method: "POST" });
 }
+
+
+export async function downloadCourseMarksReport(courseId: string, format: "pdf" | "xlsx"): Promise<void> {
+  const res = await apiFetch(`/api/teacher/courses/${courseId}/marks/report?format=${format}`);
+  const blob = await res.blob();
+
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename = match?.[1] ?? `internal-marks.${format}`;
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 
 export type PerformanceStudentRow = {
   student_id: string;

@@ -1,6 +1,9 @@
 import os
 import uuid
 
+from io import BytesIO
+
+from fastapi.responses import StreamingResponse
 from sqlalchemy import or_
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
@@ -9,10 +12,12 @@ from datetime import datetime
 from api.database import get_db
 from api.models import (
     User, RoleEnum, Teacher, TeacherDepartment, Course, Enrollment, Student, InternalMark, Notice,
-    TeacherActivity, Department, AttendanceRecord, AttendanceStatus,
+    TeacherActivity, Department, Section, AttendanceRecord, AttendanceStatus, SystemSettings,
 )
 from api.auth import require_role
 from api.activity import log_teacher_activity
+from api import reports
+from api.reports_xlsx import build_course_internal_marks_xlsx
 from api.schemas import (
     CourseOut, StudentMarkRow, SaveMarksRequest, FIELD_MAX, NoticeOut, SearchResultOut,
     TeacherMeOut, TeacherActivityOut, UpdateTeacherContactRequest, TeacherDepartmentOut,
@@ -347,6 +352,79 @@ def save_marks(
 
     db.commit()
     return {"saved": len(payload.rows)}
+
+
+def _fetch_course_marks(db: Session, course_id: str) -> list[StudentMarkRow]:
+    student_ids = [e.student_id for e in db.query(Enrollment).filter(Enrollment.course_id == course_id).all()]
+    students = db.query(Student).filter(Student.id.in_(student_ids)).order_by(Student.enrollment.asc()).all()
+    marks_by_student = {
+        m.student_id: m for m in db.query(InternalMark).filter(InternalMark.course_id == course_id).all()
+    }
+
+    result = []
+    for s in students:
+        m = marks_by_student.get(s.id)
+        result.append(StudentMarkRow(
+            student_id=s.id, name=s.name, enrollment=s.enrollment,
+            p_att=m.p_att if m else 0, p_lab=m.p_lab if m else 0,
+            p_exam=m.p_exam if m else 0, p_viva=m.p_viva if m else 0,
+            t_att=m.t_att if m else 0, t_assign=m.t_assign if m else 0,
+            t_present=m.t_present if m else 0, t_assess=m.t_assess if m else 0,
+            status=m.status.value if m else "draft",
+        ))
+    return result
+
+
+@router.get("/courses/{course_id}/marks", response_model=list[StudentMarkRow])
+def get_marks(
+    course_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.teacher)),
+):
+    _get_owned_course(db, current_user, course_id)
+    return _fetch_course_marks(db, course_id)
+
+
+@router.get("/courses/{course_id}/marks/report")
+def download_course_marks_report(
+    course_id: str,
+    format: str = "pdf",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.teacher)),
+):
+    if format not in ("pdf", "xlsx"):
+        raise HTTPException(status_code=400, detail="format must be 'pdf' or 'xlsx'")
+
+    course = _get_owned_course(db, current_user, course_id)
+    rows = [row.model_dump() for row in _fetch_course_marks(db, course_id)]
+
+    dept = db.query(Department).filter(Department.id == course.department_id).first()
+    section = db.query(Section).filter(Section.id == course.section_id).first()
+    settings = db.query(SystemSettings).filter(SystemSettings.id == 1).first()
+    institution_name = (settings.institution_name if settings and settings.institution_name else "") or "Smart Student Management System"
+
+    course_info = {
+        "Course": f"{course.code} — {course.name}",
+        "Department": dept.name if dept else (course.department_id or "—"),
+        "Semester": str(course.sem or "—"),
+        "Section": section.label if section else (course.section_id or "—").upper(),
+        "Students": str(len(rows)),
+    }
+
+    if format == "xlsx":
+        data = build_course_internal_marks_xlsx(institution_name=institution_name, course_info=course_info, rows=rows)
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        filename = f"internal-marks-{course.code}.xlsx"
+    else:
+        data = reports.build_course_internal_marks_report(institution_name=institution_name, course_info=course_info, rows=rows)
+        media_type = "application/pdf"
+        filename = f"internal-marks-{course.code}.pdf"
+
+    return StreamingResponse(
+        BytesIO(data),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 TOTAL_MARKS = sum(FIELD_MAX.values())  # 50

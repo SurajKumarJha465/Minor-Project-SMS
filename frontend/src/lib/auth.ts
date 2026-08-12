@@ -18,7 +18,10 @@ export interface Session {
 /** Authorization header for backend calls, empty when not signed in. */
 export function authHeader(): Record<string, string> {
   const session = getSession();
-  return session?.token ? { Authorization: `Bearer ${session.token}` } : {};
+  return {
+    "ngrok-skip-browser-warning": "true",
+    ...(session?.token ? { Authorization: `Bearer ${session.token}` } : {}),
+  };
 }
 
 export function setSession(session: Session) {

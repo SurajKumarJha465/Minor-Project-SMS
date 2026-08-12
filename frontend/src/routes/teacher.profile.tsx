@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { authHeader } from "@/lib/auth";
 import { apiJson, apiFormJson } from "@/lib/api";
+import { useAuthImgSrc } from "@/lib/AuthImg";
 import { type TeacherMeDto } from "@/features/Teacher/lib/academic-data";
 
 export const Route = createFileRoute("/teacher/profile")({
@@ -43,6 +44,7 @@ function Profile() {
 
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const avatarSrc = useAuthImgSrc(photoSrc(teacher?.photo));
 
   const [form, setForm] = useState({
     email: "", phone: "", office: "", officeHours: "", qualification: "", specialization: "",
@@ -179,7 +181,7 @@ function Profile() {
             <div className="flex items-end gap-4">
               <div className="group relative h-28 w-28 shrink-0">
                 <Avatar className="h-28 w-28 border-4 border-background shadow-glass">
-                  <AvatarImage src={photoSrc(teacher.photo)} />
+                  <AvatarImage src={avatarSrc} />
                   <AvatarFallback>{initials(teacher.name)}</AvatarFallback>
                 </Avatar>
                 <input

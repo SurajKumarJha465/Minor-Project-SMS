@@ -1,5 +1,5 @@
 import { Search, Sun, Moon, Menu, LogOut, User, KeyRound, GraduationCap, BookOpen, Users2, Loader2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { logout, authHeader } from "@/lib/auth";
 import { useTheme } from "@/components/theme-provider";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useNavigate } from "@tanstack/react-router";
+import { useAuthImgSrc } from "@/lib/AuthImg";
 
 const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
 
@@ -136,10 +137,7 @@ function HodGlobalSearch() {
                       onClick={() => goToResult(item)}
                       className="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-muted"
                     >
-                      <Avatar className="h-7 w-7">
-                        <AvatarImage src={photoSrc(item.photo)} alt={item.name} />
-                        <AvatarFallback><Icon className="h-3.5 w-3.5" /></AvatarFallback>
-                      </Avatar>
+                      <SearchResultAvatar photo={item.photo} name={item.name} icon={<Icon className="h-3.5 w-3.5" />} />
                       <div className="min-w-0 flex-1">
                         <div className="truncate font-medium">{item.name}</div>
                         <div className="truncate text-xs text-muted-foreground">{item.subtitle}</div>
@@ -161,6 +159,24 @@ function photoSrc(photo: string | null | undefined): string | undefined {
   return photo.startsWith("http") ? photo : `${API_URL}${photo}`;
 }
 
+function SearchResultAvatar({
+  photo,
+  name,
+  icon,
+}: {
+  photo: string | null | undefined;
+  name: string;
+  icon: ReactNode;
+}) {
+  const src = useAuthImgSrc(photoSrc(photo));
+  return (
+    <Avatar className="h-7 w-7">
+      <AvatarImage src={src} alt={name} />
+      <AvatarFallback>{icon}</AvatarFallback>
+    </Avatar>
+  );
+}
+
 export function HodTopbar({ onMenu, hod: hodProp }: { onMenu: () => void; hod?: HodProfile | null }) {
   const { theme, toggle } = useTheme();
   const navigate = useNavigate();
@@ -180,6 +196,7 @@ export function HodTopbar({ onMenu, hod: hodProp }: { onMenu: () => void; hod?: 
   const name = hod?.name ?? "…";
   const lastName = hod ? name.split(" ").slice(-1)[0] : "…";
   const initials = hod ? name.split(" ").map((n) => n[0]).join("") : "";
+  const avatarSrc = useAuthImgSrc(photoSrc(hod?.photo));
 
   return (
     <header className="sticky top-0 z-30 glass">
@@ -203,7 +220,7 @@ export function HodTopbar({ onMenu, hod: hodProp }: { onMenu: () => void; hod?: 
           <DropdownMenu>
             <DropdownMenuTrigger className="ml-1 flex items-center gap-2 rounded-full border border-border bg-background/60 py-1 pl-1 pr-3 transition hover:bg-background">
               <Avatar className="h-8 w-8">
-                <AvatarImage src={photoSrc(hod?.photo)} alt={name} />
+                <AvatarImage src={avatarSrc} alt={name} />
                 <AvatarFallback>{initials}</AvatarFallback>
               </Avatar>
               <div className="hidden text-left sm:block">

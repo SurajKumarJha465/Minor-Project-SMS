@@ -11,6 +11,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { authHeader } from "@/lib/auth";
+import { useAuthImgSrc } from "@/lib/AuthImg";
 
 export const Route = createFileRoute("/hod/profile")({
   head: () => ({ meta: [{ title: "HOD Profile" }] }),
@@ -55,6 +56,7 @@ function Profile() {
 
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const avatarSrc = useAuthImgSrc(photoSrc(hod?.photo ?? null));
 
   // 2FA setup (secret shown for manual entry, then a 6-digit code confirms it)
   const [twoFaOpen, setTwoFaOpen] = useState(false);
@@ -315,7 +317,7 @@ function Profile() {
         <div className="grid gap-6 p-8 md:grid-cols-[auto_1fr_auto] md:items-center">
           <div className="group relative h-24 w-24">
             <Avatar className="h-24 w-24 ring-4 ring-white/40">
-              <AvatarImage src={photoSrc(hod.photo)} />
+              <AvatarImage src={avatarSrc} />
               <AvatarFallback>{hod.name[0]}</AvatarFallback>
             </Avatar>
             <input

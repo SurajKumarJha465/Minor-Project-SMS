@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { apiJson } from "@/lib/api";
 import FloatingModal from "@/features/Student/ui/FloatingModal";
 import Button from "@/features/Student/ui/Button";
+import AuthImg from "@/lib/AuthImg";
 
 const API_URL = import.meta.env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
 
@@ -225,7 +226,7 @@ export default function Topbar({
       <div className="flex shrink-0 items-center gap-2 rounded-xl border border-border/60 bg-card py-1 pl-1 pr-3">
         <div className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg gradient-primary text-xs font-semibold text-primary-foreground">
           {user.photo ? (
-            <img src={photoSrc(user.photo)} alt={user.name} className="size-full object-cover" />
+            <AuthImg src={photoSrc(user.photo)} alt={user.name} className="size-full object-cover" />
           ) : (
             user.avatar
           )}

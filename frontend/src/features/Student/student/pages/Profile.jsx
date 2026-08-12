@@ -27,6 +27,7 @@ import Button from "@/features/Student/ui/Button";
 import Pill from "@/features/Student/ui/Pill";
 import FloatingModal from "@/features/Student/ui/FloatingModal";
 import { authHeader } from "@/lib/auth";
+import AuthImg from "@/lib/AuthImg";
 
 const API_URL = import.meta.env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
 
@@ -433,7 +434,7 @@ export default function Profile({ onUserRefresh }) {
               {photoPreview ? (
                 <img src={photoPreview} alt={p.name} className="size-full object-cover" />
               ) : p.photo ? (
-                <img src={photoSrc(p.photo)} alt={p.name} className="size-full object-cover" />
+                <AuthImg src={photoSrc(p.photo)} alt={p.name} className="size-full object-cover" />
               ) : (
                 initials(p.name)
               )}
@@ -510,7 +511,7 @@ export default function Profile({ onUserRefresh }) {
               {photoPreview ? (
                 <img src={photoPreview} alt="" className="size-full object-cover" />
               ) : p.photo ? (
-                <img src={photoSrc(p.photo)} alt="" className="size-full object-cover" />
+                <AuthImg src={photoSrc(p.photo)} alt="" className="size-full object-cover" />
               ) : (
                 initials(p.name)
               )}

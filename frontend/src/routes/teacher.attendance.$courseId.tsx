@@ -170,9 +170,15 @@ function TakeAttendance() {
         }
 
         list.forEach(({ student_id, similarity }) => {
+          // Only skip the update if the teacher deliberately set this student's
+          // status by hand. Otherwise (pending, or absent from a previous save),
+          // a fresh AI match should always mark them present — a rescan is
+          // meant to pick up students who weren't caught the first time.
+          const wasManual = attendanceMeta[student_id]?.source === "manual";
+
           setRecognized((r) => ({ ...r, [student_id]: true }));
           setStatuses((prev) =>
-            prev[student_id] === "pending" ? { ...prev, [student_id]: "present" } : prev,
+            wasManual ? prev : { ...prev, [student_id]: "present" },
           );
           setAttendanceMeta((m) => ({
             ...m,

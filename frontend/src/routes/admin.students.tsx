@@ -13,6 +13,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { authHeader } from "@/lib/auth";
+import { useAuthImgSrc } from "@/lib/AuthImg";
 
 export const Route = createFileRoute("/admin/students")({
   head: () => ({ meta: [{ title: "View Students · Super Admin" }] }),
@@ -23,6 +24,26 @@ export const Route = createFileRoute("/admin/students")({
 });
 
 const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
+
+// Backend returns a relative /uploads/profile-photos/<file> path that needs
+// the API origin prefixed, same convention used across the HOD/Teacher/
+// Student profile pages.
+function photoSrc(photo?: string | null): string | undefined {
+  if (!photo) return undefined;
+  return photo.startsWith("http") ? photo : `${API_URL}${photo}`;
+}
+
+// Wraps useAuthImgSrc per row so each avatar in the mapped list gets its own
+// hook call (can't call hooks directly inside .map()).
+function StudentAvatar({ photo, name, className }: { photo?: string | null; name: string; className: string }) {
+  const src = useAuthImgSrc(photoSrc(photo));
+  return (
+    <Avatar className={className}>
+      <AvatarImage src={src} />
+      <AvatarFallback>{name[0]}</AvatarFallback>
+    </Avatar>
+  );
+}
 
 type Student = {
   id: string;
@@ -218,7 +239,7 @@ function StudentsPage() {
                   {rows.map((s) => (
                     <tr key={s.id} className="border-t border-border/60 hover:bg-muted/30">
                       <td className="px-4 py-3">
-                        <Avatar className="h-9 w-9"><AvatarImage src={s.photo ?? undefined} /><AvatarFallback>{s.name[0]}</AvatarFallback></Avatar>
+                        <StudentAvatar photo={s.photo} name={s.name} className="h-9 w-9" />
                       </td>
                       <td className="px-4 py-3 font-semibold">{s.name}</td>
                       <td className="px-4 py-3 font-mono text-xs">{s.enrollment}</td>
@@ -248,7 +269,7 @@ function StudentsPage() {
             <>
               <DialogHeader><DialogTitle>Student Profile</DialogTitle></DialogHeader>
               <div className="flex items-center gap-4">
-                <Avatar className="h-16 w-16"><AvatarImage src={viewTarget.photo ?? undefined} /><AvatarFallback>{viewTarget.name[0]}</AvatarFallback></Avatar>
+                <StudentAvatar photo={viewTarget.photo} name={viewTarget.name} className="h-16 w-16" />
                 <div>
                   <div className="text-lg font-semibold">{viewTarget.name}</div>
                   <div className="text-xs text-muted-foreground">{viewTarget.enrollment}</div>

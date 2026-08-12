@@ -22,6 +22,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { hodDepartmentOptions } from "@/features/SuperAdmin/lib/superadmin-mock-data";
+import { useAuthImgSrc } from "@/lib/AuthImg";
+
+const API_URL = (import.meta as any).env?.VITE_RECOGNITION_API_URL ?? "http://localhost:8000";
 
 export const Route = createFileRoute("/admin/hods")({
   head: () => ({ meta: [{ title: "HOD Management · Super Admin" }] }),
@@ -35,6 +38,23 @@ type Hod = {
   id: string; name: string; department: string; email: string; phone: string;
   status: string; qualification: string; experience: string; assignedSince: string; photo: string;
 };
+
+// A real uploaded photo comes back as a relative /uploads/profile-photos/<file>
+// path, which needs the API origin prefixed and has to go through the
+// ngrok-skip-browser-warning header (via useAuthImgSrc) since plain <img>
+// can't carry custom headers. The pravatar.cc placeholder used when no real
+// photo exists yet is already a full external URL and doesn't need either.
+function PersonAvatar({ photo, name, className }: { photo: string; name: string; className: string }) {
+  const isRelative = !!photo && !photo.startsWith("http");
+  const authSrc = useAuthImgSrc(isRelative ? `${API_URL}${photo}` : undefined);
+  const src = isRelative ? authSrc : photo;
+  return (
+    <Avatar className={className}>
+      <AvatarImage src={src} />
+      <AvatarFallback>{name[0]}</AvatarFallback>
+    </Avatar>
+  );
+}
 
 function mapApiHod(h: any): Hod {
   return {
@@ -284,7 +304,7 @@ function HodsPage() {
                   <tr key={h.id} className="border-t border-border/60 hover:bg-muted/30">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <Avatar className="h-9 w-9"><AvatarImage src={h.photo} /><AvatarFallback>{h.name[0]}</AvatarFallback></Avatar>
+                        <PersonAvatar photo={h.photo} name={h.name} className="h-9 w-9" />
                         <div>
                           <div className="font-semibold">{h.name}</div>
                           <div className="text-xs text-muted-foreground">{h.id}</div>
@@ -343,7 +363,7 @@ function HodsPage() {
                 <DialogTitle>HOD Profile</DialogTitle>
               </DialogHeader>
               <div className="flex items-center gap-4">
-                <Avatar className="h-16 w-16"><AvatarImage src={viewTarget.photo} /><AvatarFallback>{viewTarget.name[0]}</AvatarFallback></Avatar>
+                <PersonAvatar photo={viewTarget.photo} name={viewTarget.name} className="h-16 w-16" />
                 <div>
                   <div className="text-lg font-semibold">{viewTarget.name}</div>
                   <div className="text-xs text-muted-foreground">{viewTarget.id}</div>

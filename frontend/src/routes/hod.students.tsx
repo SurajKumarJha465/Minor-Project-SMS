@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { authHeader } from "@/lib/auth";
+import { useAuthImgSrc } from "@/lib/AuthImg";
 import {
   Search, Plus, Eye, Pencil, Trash2, ArrowLeft, ChevronRight, CalendarRange,
   Mail, Phone, MapPin, Users2, BookOpen, ClipboardCheck, Copy,
@@ -71,6 +72,23 @@ const emptyForm = {
   name: "", enrollment: "", semester: 1, section: "D" as Section,
   email: "", phone: "", address: "", guardianName: "", guardianPhone: "",
 };
+
+// A real uploaded photo comes back as a relative /uploads/profile-photos/<file>
+// path, which needs the API origin prefixed and has to go through the
+// ngrok-skip-browser-warning header (via useAuthImgSrc) since plain <img>
+// can't carry custom headers. The pravatar.cc placeholder used when no real
+// photo exists yet is already a full external URL and doesn't need either.
+function StudentAvatar({ photo, name, className }: { photo: string; name: string; className: string }) {
+  const isRelative = !!photo && !photo.startsWith("http");
+  const authSrc = useAuthImgSrc(isRelative ? `${API_URL}${photo}` : undefined);
+  const src = isRelative ? authSrc : photo;
+  return (
+    <Avatar className={className}>
+      <AvatarImage src={src} />
+      <AvatarFallback>{name[0]}</AvatarFallback>
+    </Avatar>
+  );
+}
 
 function Students() {
   const { q: initialQ, sem: initialSem, section: initialSection } = Route.useSearch();
@@ -347,7 +365,7 @@ function Students() {
                 <tbody>
                   {rows.map((s) => (
                     <tr key={s.id} className="border-t border-border/60 hover:bg-muted/30">
-                      <td className="px-4 py-3"><Avatar className="h-9 w-9"><AvatarImage src={s.photo} /><AvatarFallback>{s.name[0]}</AvatarFallback></Avatar></td>
+                      <td className="px-4 py-3"><StudentAvatar photo={s.photo} name={s.name} className="h-9 w-9" /></td>
                       <td className="px-4 py-3 font-semibold">{s.name}</td>
                       <td className="px-4 py-3 font-mono text-xs">{s.enrollment}</td>
                       <td className="px-4 py-3"><span className="inline-flex items-center gap-1 text-xs"><Mail className="h-3 w-3" /> {s.email}</span></td>
@@ -469,7 +487,7 @@ function Students() {
             <>
               <DialogHeader>
                 <div className="flex items-center gap-3">
-                  <Avatar className="h-14 w-14"><AvatarImage src={viewStudent.photo} /><AvatarFallback>{viewStudent.name[0]}</AvatarFallback></Avatar>
+                  <StudentAvatar photo={viewStudent.photo} name={viewStudent.name} className="h-14 w-14" />
                   <div>
                     <DialogTitle>{viewStudent.name}</DialogTitle>
                     <DialogDescription>{viewStudent.enrollment} · Sem {viewStudent.semester} · Sec {sectionLabel(viewStudent.section)}</DialogDescription>

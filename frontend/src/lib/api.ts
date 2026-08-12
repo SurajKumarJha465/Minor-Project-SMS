@@ -21,6 +21,10 @@ type RequestOptions = Omit<RequestInit, "headers"> & {
 
 function buildHeaders(extra?: Record<string, string>, auth: boolean = true): Headers {
   const h = new Headers(extra ?? {});
+  // Bypass ngrok's free-tier browser-warning interstitial, which otherwise
+  // intercepts real requests (but not OPTIONS preflights) and returns HTML
+  // with no CORS headers, causing the browser to block the response.
+  h.set("ngrok-skip-browser-warning", "true");
   if (auth) {
     const token = getSession()?.token;
     if (token) h.set("Authorization", `Bearer ${token}`);

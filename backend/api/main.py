@@ -15,9 +15,25 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Virekto / SSMS API")
 
+# Comma-separated list of exact origins allowed to call this API, e.g.:
+#   ALLOWED_ORIGINS="http://localhost:5173,http://192.168.1.50:4173"
+# Falls back to common local-dev origins if unset. allow_origins=["*"] is
+# invalid together with allow_credentials=True per the CORS spec, so this
+# must be an explicit list, not a wildcard.
+_default_origins = (
+    "https://campus-comm-space.lovable.app,"
+    "http://localhost:5173,http://localhost:4173,"
+    "http://127.0.0.1:5173,http://127.0.0.1:4173"
+)
+allowed_origins = [
+    o.strip()
+    for o in os.environ.get("ALLOWED_ORIGINS", _default_origins).split(",")
+    if o.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten to your actual frontend URL (e.g. http://localhost:5173) once deployed
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
